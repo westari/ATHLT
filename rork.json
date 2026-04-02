@@ -1,0 +1,9 @@
+{
+  "apps": [
+    {
+      "name": "ParlAI",
+      "path": "expo",
+      "framework": "react-native"
+    }
+  ]
+}

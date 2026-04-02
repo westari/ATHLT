@@ -1,0 +1,26 @@
+export const Colors = {
+  background: '#0B0D17',
+  surface: '#131627',
+  surfaceLight: '#1A1E35',
+  surfaceBorder: '#252A45',
+  primary: '#7C3AED',
+  primaryLight: '#A855F7',
+  accent: '#00E5CC',
+  accentBlue: '#3B82F6',
+  green: '#22C55E',
+  greenLight: '#4ADE80',
+  orange: '#F59E0B',
+  yellow: '#EAB308',
+  red: '#EF4444',
+  white: '#FFFFFF',
+  textPrimary: '#F1F5F9',
+  textSecondary: '#94A3B8',
+  textMuted: '#64748B',
+  gradientPurple: '#8B5CF6',
+  gradientCyan: '#06B6D4',
+  gradientGreen: '#10B981',
+  cardBg: 'rgba(19, 22, 39, 0.85)',
+  cardBorder: 'rgba(37, 42, 69, 0.6)',
+};
+
+export default Colors;
