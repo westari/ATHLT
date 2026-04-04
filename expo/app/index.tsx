@@ -151,9 +151,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoImage: {
-    width: SCREEN_WIDTH * 0.75,
-    height: 160,
-  },
+    width: SCREEN_WIDTH * 0.9,
+    height: 220,
+},
   textSection: {
     marginTop: 32,
     alignItems: 'center',
