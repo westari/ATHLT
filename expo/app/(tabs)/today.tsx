@@ -1,3 +1,5 @@
+import { useRouter } from 'expo-router';
+const router = useRouter();
 import React, { useState } from 'react';
 import {
   View,
@@ -159,7 +161,7 @@ export default function TodayScreen() {
             );
           })}
 
-          <TouchableOpacity style={styles.startButton} activeOpacity={0.85}>
+          <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => router.push('/session' as any)}>
             <Text style={styles.startButtonText}>
               {completedCount > 0 && completedCount < totalDrills ? 'CONTINUE SESSION' : completedCount === totalDrills ? 'SESSION COMPLETE' : 'START SESSION'}
             </Text>
