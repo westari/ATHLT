@@ -1,7 +1,7 @@
 {
   "apps": [
     {
-      "name": "ParlAI",
+      "name": "ATHLT App",
       "path": "expo",
       "framework": "react-native"
     }
