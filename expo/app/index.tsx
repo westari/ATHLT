@@ -7,11 +7,14 @@ import {
   Animated,
   Platform,
   Image,
+  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function WelcomeScreen() {
   const router = useRouter();
@@ -19,13 +22,13 @@ export default function WelcomeScreen() {
 
   const logoFade = useRef(new Animated.Value(0)).current;
   const logoScale = useRef(new Animated.Value(0.85)).current;
+  const textFade = useRef(new Animated.Value(0)).current;
   const buttonsFade = useRef(new Animated.Value(0)).current;
   const buttonsSlide = useRef(new Animated.Value(50)).current;
   const footerFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.sequence([
-      // Logo fades in and scales up
       Animated.parallel([
         Animated.timing(logoFade, {
           toValue: 1,
@@ -39,7 +42,11 @@ export default function WelcomeScreen() {
           useNativeDriver: true,
         }),
       ]),
-      // Buttons slide up
+      Animated.timing(textFade, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
       Animated.parallel([
         Animated.timing(buttonsFade, {
           toValue: 1,
@@ -53,7 +60,6 @@ export default function WelcomeScreen() {
           useNativeDriver: true,
         }),
       ]),
-      // Footer text
       Animated.timing(footerFade, {
         toValue: 1,
         duration: 300,
@@ -77,7 +83,6 @@ export default function WelcomeScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      {/* Logo takes up the center */}
       <View style={styles.topSection}>
         <Animated.View
           style={{
@@ -91,9 +96,15 @@ export default function WelcomeScreen() {
             resizeMode="contain"
           />
         </Animated.View>
+
+        <Animated.View style={[styles.textSection, { opacity: textFade }]}>
+          <Text style={styles.headline}>Train smarter. Get better.</Text>
+          <Text style={styles.subtext}>
+            AI-powered training plans built around your game, your schedule, and your goals.
+          </Text>
+        </Animated.View>
       </View>
 
-      {/* Buttons at bottom */}
       <Animated.View
         style={[
           styles.bottomSection,
@@ -140,8 +151,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoImage: {
-    width: 280,
-    height: 120,
+    width: SCREEN_WIDTH * 0.75,
+    height: 160,
+  },
+  textSection: {
+    marginTop: 32,
+    alignItems: 'center',
+  },
+  headline: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  subtext: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 10,
   },
   bottomSection: {
     paddingBottom: 20,
