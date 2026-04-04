@@ -8,7 +8,7 @@ export default function MoreScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <Text style={styles.title}>More</Text>
-      <Text style={styles.subtitle}>Profile, settings, drill library</Text>
+      <Text style={styles.subtitle}>Profile, settings, subscription</Text>
     </View>
   );
 }
