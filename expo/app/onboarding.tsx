@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -23,20 +23,27 @@ interface QuestionOption {
   disabled?: boolean;
 }
 
-interface Question {
-  id: string;
-  question: string;
+interface OnboardingStep {
+  type: 'question' | 'info';
+  // Question fields
+  id?: string;
+  question?: string;
   subtitle?: string;
-  type: 'select' | 'multiselect';
-  options: QuestionOption[];
+  selectType?: 'select' | 'multiselect';
+  options?: QuestionOption[];
+  section?: string;
+  // Info screen fields
+  infoTitle?: string;
+  infoBody?: string;
+  infoIcon?: string;
 }
 
-const QUESTIONS: Question[] = [
-  {
-    id: 'sport',
+const STEPS: OnboardingStep[] = [
+  // ── SECTION 1: ABOUT YOU ──
+  { type: 'question', id: 'sport', section: 'About You',
     question: 'What sport do you play?',
     subtitle: 'We\'ll tailor everything to your game.',
-    type: 'select',
+    selectType: 'select',
     options: [
       { label: 'Basketball' },
       { label: 'Soccer', subtitle: 'Coming soon', disabled: true },
@@ -44,11 +51,10 @@ const QUESTIONS: Question[] = [
       { label: 'Football', subtitle: 'Coming soon', disabled: true },
     ],
   },
-  {
-    id: 'position',
+  { type: 'question', id: 'position', section: 'About You',
     question: 'What position do you play?',
     subtitle: 'This shapes your skill priorities.',
-    type: 'select',
+    selectType: 'select',
     options: [
       { label: 'Point Guard' },
       { label: 'Shooting Guard' },
@@ -57,11 +63,10 @@ const QUESTIONS: Question[] = [
       { label: 'Center' },
     ],
   },
-  {
-    id: 'experience',
+  { type: 'question', id: 'experience', section: 'About You',
     question: 'How long have you been playing?',
-    subtitle: 'So we match the right intensity and complexity.',
-    type: 'select',
+    subtitle: 'So we match the right intensity.',
+    selectType: 'select',
     options: [
       { label: 'Less than a year', subtitle: 'Just getting started' },
       { label: '1-2 years', subtitle: 'Learning the fundamentals' },
@@ -70,11 +75,17 @@ const QUESTIONS: Question[] = [
       { label: '10+ years', subtitle: 'College level and beyond' },
     ],
   },
-  {
-    id: 'goal',
+  { type: 'info',
+    infoIcon: '🏀',
+    infoTitle: 'Great — we know who you are.',
+    infoBody: 'Now let\'s figure out what to work on. The best players don\'t just practice what they\'re good at — they attack their weaknesses.',
+  },
+
+  // ── SECTION 2: YOUR GOALS ──
+  { type: 'question', id: 'goal', section: 'Your Goals',
     question: 'What do you want to improve most?',
     subtitle: 'Pick the one that matters most right now.',
-    type: 'select',
+    selectType: 'select',
     options: [
       { label: 'Become a better scorer' },
       { label: 'Improve my defense' },
@@ -83,11 +94,10 @@ const QUESTIONS: Question[] = [
       { label: 'Get recruited / play at the next level' },
     ],
   },
-  {
-    id: 'weakness',
+  { type: 'question', id: 'weakness', section: 'Your Goals',
     question: 'What part of your game needs the most work?',
     subtitle: 'We\'ll focus most of your plan here.',
-    type: 'select',
+    selectType: 'select',
     options: [
       { label: 'Shooting' },
       { label: 'Ball handling' },
@@ -97,11 +107,93 @@ const QUESTIONS: Question[] = [
       { label: 'Basketball IQ' },
     ],
   },
-  {
-    id: 'frequency',
+  { type: 'info',
+    infoIcon: '📈',
+    infoTitle: 'Players who train their weaknesses improve 2x faster.',
+    infoBody: 'Most players only practice what they\'re already good at. Your plan will be different — we\'ll push you where it matters most.',
+  },
+
+  // ── SECTION 3: HOW YOU PLAY ──
+  { type: 'question', id: 'driving', section: 'How You Play',
+    question: 'When you drive to the basket, what usually happens?',
+    subtitle: 'Be honest — this helps us build the right drills.',
+    selectType: 'select',
+    options: [
+      { label: 'I usually score' },
+      { label: 'I get blocked or altered' },
+      { label: 'I pass it out' },
+      { label: 'I lose the ball' },
+      { label: 'I don\'t really drive' },
+    ],
+  },
+  { type: 'question', id: 'leftHand', section: 'How You Play',
+    question: 'How\'s your left hand?',
+    subtitle: 'Your weak hand tells us a lot about your game.',
+    selectType: 'select',
+    options: [
+      { label: 'Strong — I finish with both hands' },
+      { label: 'Getting there — I use it sometimes' },
+      { label: 'Weak — I avoid it' },
+      { label: 'I only use my right hand' },
+    ],
+  },
+  { type: 'question', id: 'pressure', section: 'How You Play',
+    question: 'What happens when you\'re guarded tight?',
+    subtitle: 'This tells us how you handle pressure.',
+    selectType: 'select',
+    options: [
+      { label: 'I can still create my shot' },
+      { label: 'I struggle but I fight through it' },
+      { label: 'I usually pass it away' },
+      { label: 'I turn it over' },
+    ],
+  },
+  { type: 'question', id: 'goToMove', section: 'How You Play',
+    question: 'What\'s your go-to move?',
+    subtitle: 'Every player needs one. We\'ll help you build on it.',
+    selectType: 'select',
+    options: [
+      { label: 'Pull-up jumper' },
+      { label: 'Drive right' },
+      { label: 'Drive left' },
+      { label: 'Three pointer' },
+      { label: 'Post up' },
+      { label: 'I don\'t have one yet' },
+    ],
+  },
+  { type: 'question', id: 'threeConfidence', section: 'How You Play',
+    question: 'How confident are you shooting threes?',
+    selectType: 'select',
+    options: [
+      { label: 'Very — I\'m a shooter' },
+      { label: 'Somewhat — I\'ll take open ones' },
+      { label: 'Not really — I prefer mid-range' },
+      { label: 'I don\'t shoot them' },
+    ],
+  },
+  { type: 'question', id: 'freeThrow', section: 'How You Play',
+    question: 'What\'s your free throw percentage?',
+    subtitle: 'Your best guess is fine.',
+    selectType: 'select',
+    options: [
+      { label: '80% or higher' },
+      { label: '60-80%' },
+      { label: '40-60%' },
+      { label: 'Below 40%' },
+      { label: 'No idea' },
+    ],
+  },
+  { type: 'info',
+    infoIcon: '🧠',
+    infoTitle: 'This is what makes ATHLT different.',
+    infoBody: 'Most apps give everyone the same generic plan. We just learned how you actually play — your plan will be built around YOUR game, not someone else\'s.',
+  },
+
+  // ── SECTION 4: YOUR SCHEDULE ──
+  { type: 'question', id: 'frequency', section: 'Your Schedule',
     question: 'How often can you train?',
-    subtitle: 'Outside of team practice. You can always adjust this later.',
-    type: 'select',
+    subtitle: 'Outside of team practice. You can always adjust later.',
+    selectType: 'select',
     options: [
       { label: 'Once or twice a week' },
       { label: '3-4 times a week' },
@@ -109,11 +201,10 @@ const QUESTIONS: Question[] = [
       { label: 'Every day' },
     ],
   },
-  {
-    id: 'duration',
-    question: 'How long do you want each session to be?',
+  { type: 'question', id: 'duration', section: 'Your Schedule',
+    question: 'How long do you want each session?',
     subtitle: 'You can change this before every session.',
-    type: 'select',
+    selectType: 'select',
     options: [
       { label: '20-30 minutes', subtitle: 'Quick and focused' },
       { label: '30-45 minutes', subtitle: 'Solid session' },
@@ -121,11 +212,10 @@ const QUESTIONS: Question[] = [
       { label: '60-90 minutes', subtitle: 'Intensive training' },
     ],
   },
-  {
-    id: 'access',
+  { type: 'question', id: 'access', section: 'Your Schedule',
     question: 'Where do you usually train?',
     subtitle: 'Pick all that apply — we\'ll only give you drills that work for your setup.',
-    type: 'multiselect',
+    selectType: 'multiselect',
     options: [
       { label: 'Full court with hoop' },
       { label: 'Half court with hoop' },
@@ -136,6 +226,15 @@ const QUESTIONS: Question[] = [
   },
 ];
 
+const LOADING_STEPS = [
+  'Analyzing your player profile',
+  'Selecting drills for your position',
+  'Focusing on your weakness areas',
+  'Building daily sessions',
+  'Optimizing your schedule',
+  'Finalizing your training plan',
+];
+
 export default function OnboardingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -144,78 +243,48 @@ export default function OnboardingScreen() {
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState(0);
-  const [loadingMessage, setLoadingMessage] = useState('');
-  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
+  const [currentLoadingStep, setCurrentLoadingStep] = useState(0);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
-  const currentQuestion = QUESTIONS[currentStep];
-  const totalSteps = QUESTIONS.length;
-  const progress = (currentStep + 1) / totalSteps;
+  const step = STEPS[currentStep];
+  const totalSteps = STEPS.length;
+  const questionSteps = STEPS.filter(s => s.type === 'question');
+  const currentQuestionIndex = STEPS.slice(0, currentStep + 1).filter(s => s.type === 'question').length;
+  const totalQuestionCount = questionSteps.length;
+  const overallProgress = (currentStep + 1) / totalSteps;
+
+  // Smooth progress bar animation for loading
+  useEffect(() => {
+    if (isLoading) {
+      Animated.timing(progressAnim, {
+        toValue: loadingProgress,
+        duration: 800,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [loadingProgress, isLoading]);
 
   const animateTransition = (direction: 'forward' | 'back', callback: () => void) => {
     const slideOut = direction === 'forward' ? -30 : 30;
     const slideIn = direction === 'forward' ? 30 : -30;
 
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: slideOut,
-        duration: 150,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
+      Animated.timing(slideAnim, { toValue: slideOut, duration: 150, useNativeDriver: true }),
     ]).start(() => {
       callback();
       slideAnim.setValue(slideIn);
       Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          friction: 8,
-          tension: 60,
-          useNativeDriver: true,
-        }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
       ]).start();
     });
   };
 
-  const handleSelect = (option: string) => {
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
-
-    if (currentQuestion.type === 'multiselect') {
-      const current = (answers[currentQuestion.id] as string[]) || [];
-      const updated = current.includes(option)
-        ? current.filter((o) => o !== option)
-        : [...current, option];
-      setAnswers({ ...answers, [currentQuestion.id]: updated });
-    } else {
-      setAnswers({ ...answers, [currentQuestion.id]: option });
-
-      setTimeout(() => {
-        if (currentStep < totalSteps - 1) {
-          animateTransition('forward', () => setCurrentStep(currentStep + 1));
-        } else {
-          handleFinish();
-        }
-      }, 300);
-    }
-  };
-
-  const handleNext = () => {
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+  const goNext = () => {
     if (currentStep < totalSteps - 1) {
       animateTransition('forward', () => setCurrentStep(currentStep + 1));
     } else {
@@ -223,10 +292,30 @@ export default function OnboardingScreen() {
     }
   };
 
-  const handleBack = () => {
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const handleSelect = (option: string) => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    if (!step.id) return;
+
+    if (step.selectType === 'multiselect') {
+      const current = (answers[step.id] as string[]) || [];
+      const updated = current.includes(option)
+        ? current.filter(o => o !== option)
+        : [...current, option];
+      setAnswers({ ...answers, [step.id]: updated });
+    } else {
+      setAnswers({ ...answers, [step.id]: option });
+      setTimeout(() => goNext(), 300);
     }
+  };
+
+  const handleContinue = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    goNext();
+  };
+
+  const handleBack = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (currentStep > 0) {
       animateTransition('back', () => setCurrentStep(currentStep - 1));
     } else {
@@ -234,35 +323,22 @@ export default function OnboardingScreen() {
     }
   };
 
-  const LOADING_STEPS = [
-    'Analyzing your player profile',
-    'Selecting drills for your position',
-    'Focusing on your weakness areas',
-    'Building daily sessions',
-    'Optimizing your schedule',
-    'Finalizing your training plan',
-  ];
-
   const handleFinish = async () => {
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    }
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
 
     setIsLoading(true);
     setLoadingProgress(0);
-    setLoadingMessage(LOADING_STEPS[0]);
-    setCompletedSteps([]);
+    setCurrentLoadingStep(0);
 
-    // Animate progress steps
-    let stepIndex = 0;
+    // Smooth progress animation
+    let step = 0;
     const stepInterval = setInterval(() => {
-      stepIndex++;
-      if (stepIndex < LOADING_STEPS.length) {
-        setLoadingMessage(LOADING_STEPS[stepIndex]);
-        setLoadingProgress(Math.round((stepIndex / LOADING_STEPS.length) * 100));
-        setCompletedSteps(prev => [...prev, stepIndex - 1]);
+      step++;
+      if (step <= LOADING_STEPS.length) {
+        setCurrentLoadingStep(step);
+        setLoadingProgress(Math.round((step / LOADING_STEPS.length) * 95));
       }
-    }, 1800);
+    }, 2000);
 
     try {
       const response = await fetch('https://collectiq-xi.vercel.app/api/generate-plan', {
@@ -274,24 +350,28 @@ export default function OnboardingScreen() {
           experience: answers.experience,
           goal: answers.goal,
           weakness: answers.weakness,
+          driving: answers.driving,
+          leftHand: answers.leftHand,
+          pressure: answers.pressure,
+          goToMove: answers.goToMove,
+          threeConfidence: answers.threeConfidence,
+          freeThrow: answers.freeThrow,
           frequency: answers.frequency,
           duration: answers.duration,
           access: answers.access,
         }),
       });
 
-      const plan = await response.json();
       clearInterval(stepInterval);
-
-      // Show 100% briefly
       setLoadingProgress(100);
-      setCompletedSteps([0, 1, 2, 3, 4, 5]);
-      setLoadingMessage('Your plan is ready!');
+      setCurrentLoadingStep(LOADING_STEPS.length);
 
-      await new Promise(resolve => setTimeout(resolve, 800));
+      const plan = await response.json();
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       if (response.ok && plan.days) {
-        // TODO: save plan to local storage
+        // TODO: save plan to AsyncStorage
         router.replace('/(tabs)/today' as any);
       } else {
         router.replace('/(tabs)/today' as any);
@@ -305,46 +385,54 @@ export default function OnboardingScreen() {
   };
 
   const isSelected = (option: string) => {
-    const answer = answers[currentQuestion.id];
-    if (Array.isArray(answer)) {
-      return answer.includes(option);
-    }
+    if (!step.id) return false;
+    const answer = answers[step.id];
+    if (Array.isArray(answer)) return answer.includes(option);
     return answer === option;
   };
 
   const canProceed = () => {
-    const answer = answers[currentQuestion.id];
+    if (!step.id) return true;
+    const answer = answers[step.id];
     if (!answer) return false;
     if (Array.isArray(answer) && answer.length === 0) return false;
     return true;
   };
 
+  // ── LOADING SCREEN ──
   if (isLoading) {
+    const progressWidth = progressAnim.interpolate({
+      inputRange: [0, 100],
+      outputRange: ['0%', '100%'],
+    });
+
     return (
       <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.loadingScreen}>
           <Text style={styles.loadingPercent}>{loadingProgress}%</Text>
           <Text style={styles.loadingTitle}>We're building your plan</Text>
 
-          {/* Progress bar */}
           <View style={styles.loadingBarTrack}>
-            <View style={[styles.loadingBarFill, { width: `${loadingProgress}%` }]} />
+            <Animated.View style={[styles.loadingBarFill, { width: progressWidth }]} />
           </View>
 
-          <Text style={styles.loadingMessage}>{loadingMessage}...</Text>
+          <Text style={styles.loadingSubtext}>
+            {currentLoadingStep < LOADING_STEPS.length
+              ? `${LOADING_STEPS[currentLoadingStep]}...`
+              : 'Your plan is ready!'}
+          </Text>
 
-          {/* Checklist */}
           <View style={styles.loadingChecklist}>
             <Text style={styles.loadingChecklistTitle}>Your personalized plan includes</Text>
-            {LOADING_STEPS.map((step, i) => {
-              const isDone = completedSteps.includes(i);
+            {LOADING_STEPS.map((s, i) => {
+              const isDone = i < currentLoadingStep;
               return (
                 <View key={i} style={styles.loadingCheckItem}>
                   <View style={[styles.loadingCheckCircle, isDone && styles.loadingCheckCircleDone]}>
                     {isDone && <Text style={styles.loadingCheckMark}>✓</Text>}
                   </View>
                   <Text style={[styles.loadingCheckText, isDone && styles.loadingCheckTextDone]}>
-                    {step}
+                    {s}
                   </Text>
                 </View>
               );
@@ -355,41 +443,69 @@ export default function OnboardingScreen() {
     );
   }
 
+  // ── INFO SCREEN ──
+  if (step.type === 'info') {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
+            <Text style={styles.backText}>←</Text>
+          </TouchableOpacity>
+          <View style={styles.progressContainer}>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${overallProgress * 100}%` }]} />
+            </View>
+          </View>
+          <View style={{ width: 60 }} />
+        </View>
+
+        <Animated.View
+          style={[styles.infoScreen, { opacity: fadeAnim, transform: [{ translateX: slideAnim }] }]}
+        >
+          <Text style={styles.infoIcon}>{step.infoIcon}</Text>
+          <Text style={styles.infoTitle}>{step.infoTitle}</Text>
+          <Text style={styles.infoBody}>{step.infoBody}</Text>
+        </Animated.View>
+
+        <View style={styles.bottomButton}>
+          <TouchableOpacity style={styles.continueButton} onPress={handleContinue} activeOpacity={0.85}>
+            <Text style={styles.continueButtonText}>CONTINUE</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  // ── QUESTION SCREEN ──
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
           <Text style={styles.backText}>←</Text>
         </TouchableOpacity>
-
         <View style={styles.progressContainer}>
           <View style={styles.progressTrack}>
-            <Animated.View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+            <View style={[styles.progressFill, { width: `${overallProgress * 100}%` }]} />
           </View>
         </View>
-
-        <Text style={styles.stepText}>{currentStep + 1}/{totalSteps}</Text>
+        <Text style={styles.stepText}>{currentQuestionIndex}/{totalQuestionCount}</Text>
       </View>
 
-      {/* Question content */}
-      <ScrollView
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        <Animated.View
-          style={{
-            opacity: fadeAnim,
-            transform: [{ translateX: slideAnim }],
-          }}
+      {step.section && (
+        <Animated.Text
+          style={[styles.sectionLabel, { opacity: fadeAnim, transform: [{ translateX: slideAnim }] }]}
         >
-          <Text style={styles.question}>{currentQuestion.question}</Text>
-          {currentQuestion.subtitle && (
-            <Text style={styles.subtitle}>{currentQuestion.subtitle}</Text>
-          )}
+          {step.section}
+        </Animated.Text>
+      )}
+
+      <ScrollView contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+        <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
+          <Text style={styles.question}>{step.question}</Text>
+          {step.subtitle && <Text style={styles.subtitle}>{step.subtitle}</Text>}
 
           <View style={styles.optionsContainer}>
-            {currentQuestion.options.map((option, index) => {
+            {step.options?.map((option, index) => {
               const selected = isSelected(option.label);
               const isDisabled = option.disabled === true;
 
@@ -405,45 +521,25 @@ export default function OnboardingScreen() {
                   activeOpacity={isDisabled ? 1 : 0.7}
                 >
                   <View style={styles.optionContent}>
-                    <Text
-                      style={[
-                        styles.optionLabel,
-                        selected && styles.optionLabelSelected,
-                        isDisabled && styles.optionLabelDisabled,
-                      ]}
-                    >
+                    <Text style={[
+                      styles.optionLabel,
+                      selected && styles.optionLabelSelected,
+                      isDisabled && styles.optionLabelDisabled,
+                    ]}>
                       {option.label}
                     </Text>
                     {option.subtitle && (
-                      <Text
-                        style={[
-                          styles.optionSubtitle,
-                          isDisabled && styles.optionSubtitleDisabled,
-                        ]}
-                      >
+                      <Text style={[styles.optionSubtitle, isDisabled && styles.optionSubtitleDisabled]}>
                         {option.subtitle}
                       </Text>
                     )}
                   </View>
-
-                  <View
-                    style={[
-                      currentQuestion.type === 'multiselect'
-                        ? styles.checkbox
-                        : styles.radio,
-                      selected && (currentQuestion.type === 'multiselect'
-                        ? styles.checkboxSelected
-                        : styles.radioSelected),
-                    ]}
-                  >
+                  <View style={[
+                    step.selectType === 'multiselect' ? styles.checkbox : styles.radio,
+                    selected && (step.selectType === 'multiselect' ? styles.checkboxSelected : styles.radioSelected),
+                  ]}>
                     {selected && (
-                      <View
-                        style={
-                          currentQuestion.type === 'multiselect'
-                            ? styles.checkboxInner
-                            : styles.radioInner
-                        }
-                      />
+                      <View style={step.selectType === 'multiselect' ? styles.checkboxInner : styles.radioInner} />
                     )}
                   </View>
                 </TouchableOpacity>
@@ -453,21 +549,15 @@ export default function OnboardingScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* Bottom button for multiselect or final step */}
-      {currentQuestion.type === 'multiselect' && (
+      {(step.selectType === 'multiselect' || currentStep === totalSteps - 1) && (
         <View style={styles.bottomButton}>
           <TouchableOpacity
-            style={[styles.nextButton, !canProceed() && styles.nextButtonDisabled]}
-            onPress={handleNext}
+            style={[styles.continueButton, !canProceed() && styles.continueButtonDisabled]}
+            onPress={handleContinue}
             activeOpacity={0.85}
             disabled={!canProceed()}
           >
-            <Text
-              style={[
-                styles.nextButtonText,
-                !canProceed() && styles.nextButtonTextDisabled,
-              ]}
-            >
+            <Text style={[styles.continueButtonText, !canProceed() && styles.continueButtonTextDisabled]}>
               {currentStep === totalSteps - 1 ? 'BUILD MY PLAN' : 'NEXT'}
             </Text>
           </TouchableOpacity>
@@ -478,250 +568,108 @@ export default function OnboardingScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  // Header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    gap: 14,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingVertical: 16, gap: 14,
   },
-  backButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
+  backButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
+  backText: { fontSize: 22, color: Colors.textSecondary },
+  progressContainer: { flex: 1 },
+  progressTrack: { height: 4, backgroundColor: Colors.surface, borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
+  stepText: { fontSize: 13, color: Colors.textMuted, fontWeight: '600', minWidth: 36, textAlign: 'right' },
+  // Section label
+  sectionLabel: {
+    fontSize: 12, fontWeight: '700', color: Colors.primary,
+    textTransform: 'uppercase', letterSpacing: 1.5,
+    paddingHorizontal: 24, marginBottom: 4,
   },
-  backText: {
-    fontSize: 22,
-    color: Colors.textSecondary,
-  },
-  progressContainer: {
-    flex: 1,
-  },
-  progressTrack: {
-    height: 4,
-    backgroundColor: Colors.surface,
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 4,
-    backgroundColor: Colors.primary,
-    borderRadius: 2,
-  },
-  stepText: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    fontWeight: '600',
-    minWidth: 30,
-    textAlign: 'right',
-  },
-  contentContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 40,
-  },
-  question: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    lineHeight: 36,
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: Colors.textSecondary,
-    marginBottom: 32,
-    lineHeight: 21,
-  },
-  optionsContainer: {
-    gap: 10,
-  },
+  // Content
+  contentContainer: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40 },
+  question: { fontSize: 26, fontWeight: '800', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8 },
+  subtitle: { fontSize: 15, color: Colors.textSecondary, marginBottom: 28, lineHeight: 21 },
+  optionsContainer: { gap: 10 },
+  // Option cards
   optionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1.5, borderColor: Colors.surfaceBorder,
+    paddingVertical: 18, paddingHorizontal: 20,
   },
-  optionCardSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: '#1A1708',
-  },
-  optionCardDisabled: {
-    opacity: 0.4,
-  },
-  optionContent: {
-    flex: 1,
-  },
-  optionLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-  },
-  optionLabelSelected: {
-    color: Colors.primary,
-  },
-  optionLabelDisabled: {
-    color: Colors.textMuted,
-  },
-  optionSubtitle: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    marginTop: 2,
-  },
-  optionSubtitleDisabled: {
-    fontStyle: 'italic',
-  },
+  optionCardSelected: { borderColor: Colors.primary, backgroundColor: '#1A1708' },
+  optionCardDisabled: { opacity: 0.4 },
+  optionContent: { flex: 1 },
+  optionLabel: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
+  optionLabelSelected: { color: Colors.primary },
+  optionLabelDisabled: { color: Colors.textMuted },
+  optionSubtitle: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
+  optionSubtitleDisabled: { fontStyle: 'italic' },
+  // Radio & checkbox
   radio: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 2,
-    borderColor: Colors.surfaceBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 22, height: 22, borderRadius: 11,
+    borderWidth: 2, borderColor: Colors.surfaceBorder,
+    alignItems: 'center', justifyContent: 'center',
   },
-  radioSelected: {
-    borderColor: Colors.primary,
-  },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.primary,
-  },
+  radioSelected: { borderColor: Colors.primary },
+  radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary },
   checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: Colors.surfaceBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 22, height: 22, borderRadius: 6,
+    borderWidth: 2, borderColor: Colors.surfaceBorder,
+    alignItems: 'center', justifyContent: 'center',
   },
-  checkboxSelected: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary,
+  checkboxSelected: { borderColor: Colors.primary, backgroundColor: Colors.primary },
+  checkboxInner: { width: 12, height: 12, borderRadius: 2, backgroundColor: Colors.black },
+  // Bottom button
+  bottomButton: { paddingHorizontal: 24, paddingBottom: 16 },
+  continueButton: {
+    backgroundColor: Colors.primary, borderRadius: 14,
+    paddingVertical: 18, alignItems: 'center',
   },
-  checkboxInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 2,
-    backgroundColor: Colors.black,
+  continueButtonDisabled: {
+    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
-  bottomButton: {
-    paddingHorizontal: 24,
-    paddingBottom: 16,
+  continueButtonText: { fontSize: 15, fontWeight: '800', color: Colors.black, letterSpacing: 2 },
+  continueButtonTextDisabled: { color: Colors.textMuted },
+  // Info screen
+  infoScreen: {
+    flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 36,
   },
-  nextButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+  infoIcon: { fontSize: 48, marginBottom: 24 },
+  infoTitle: {
+    fontSize: 24, fontWeight: '800', color: Colors.textPrimary,
+    textAlign: 'center', lineHeight: 32, marginBottom: 16,
   },
-  nextButtonDisabled: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+  infoBody: {
+    fontSize: 16, color: Colors.textSecondary,
+    textAlign: 'center', lineHeight: 24,
   },
-  nextButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: Colors.black,
-    letterSpacing: 2,
-  },
-  nextButtonTextDisabled: {
-    color: Colors.textMuted,
-  },
+  // Loading screen
   loadingScreen: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
+    flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
   },
-  loadingPercent: {
-    fontSize: 56,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: 8,
-  },
-  loadingTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
+  loadingPercent: { fontSize: 52, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 },
+  loadingTitle: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 24 },
   loadingBarTrack: {
-    width: '100%',
-    height: 8,
-    backgroundColor: Colors.surface,
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 16,
+    width: '100%', height: 8, backgroundColor: Colors.surface,
+    borderRadius: 4, overflow: 'hidden', marginBottom: 16,
   },
-  loadingBarFill: {
-    height: 8,
-    backgroundColor: Colors.primary,
-    borderRadius: 4,
-  },
-  loadingMessage: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    marginBottom: 36,
-  },
+  loadingBarFill: { height: 8, backgroundColor: Colors.primary, borderRadius: 4 },
+  loadingSubtext: { fontSize: 14, color: Colors.textSecondary, marginBottom: 36 },
   loadingChecklist: {
-    width: '100%',
-    backgroundColor: Colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    padding: 20,
+    width: '100%', backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20,
   },
-  loadingChecklistTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 16,
-  },
-  loadingCheckItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 14,
-  },
+  loadingChecklistTitle: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary, marginBottom: 16 },
+  loadingCheckItem: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
   loadingCheckCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.surfaceBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 24, height: 24, borderRadius: 12,
+    borderWidth: 2, borderColor: Colors.surfaceBorder,
+    alignItems: 'center', justifyContent: 'center',
   },
-  loadingCheckCircleDone: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary,
-  },
-  loadingCheckMark: {
-    fontSize: 12,
-    color: Colors.black,
-    fontWeight: '800',
-  },
-  loadingCheckText: {
-    fontSize: 14,
-    color: Colors.textMuted,
-  },
-  loadingCheckTextDone: {
-    color: Colors.textPrimary,
-  },
+  loadingCheckCircleDone: { borderColor: Colors.primary, backgroundColor: Colors.primary },
+  loadingCheckMark: { fontSize: 12, color: Colors.black, fontWeight: '800' },
+  loadingCheckText: { fontSize: 14, color: Colors.textMuted },
+  loadingCheckTextDone: { color: Colors.textPrimary },
 });
