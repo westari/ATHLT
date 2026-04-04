@@ -8,19 +8,30 @@ import {
   ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
+const WEEK_SCHEDULE = [
+  { day: 'M', status: 'done', label: 'Handles' },
+  { day: 'T', status: 'done', label: 'Finishing' },
+  { day: 'W', status: 'rest', label: 'Rest' },
+  { day: 'T', status: 'today', label: 'Shooting' },
+  { day: 'F', status: 'upcoming', label: 'Defense' },
+  { day: 'S', status: 'upcoming', label: 'Full Game' },
+  { day: 'S', status: 'rest', label: 'Rest' },
+];
+
 const TODAY_SESSION = {
-  focus: 'Ball Handling',
+  focus: 'Shooting',
   duration: '45 min',
   drills: [
-    { name: 'Dynamic warmup', time: '5 min', type: 'warmup', detail: 'Light jog, high knees, butt kicks, arm circles' },
-    { name: 'Stationary combo dribbles', time: '8 min', type: 'skill', detail: 'Crossover, between legs, behind back — 30 sec each, both hands' },
-    { name: 'Full court attack dribbles', time: '10 min', type: 'skill', detail: 'Speed dribble, hesitation, in-and-out — full court and back' },
-    { name: 'Pressure handling drill', time: '10 min', type: 'skill', detail: 'Dribble in a tight space with cones, react to visual cues' },
-    { name: 'Free throw shooting', time: '7 min', type: 'shooting', detail: '3 sets of 10 — focus on routine consistency' },
-    { name: 'Lane slides', time: '5 min', type: 'conditioning', detail: 'Defensive slides baseline to baseline — 8 reps' },
+    { name: 'Dynamic warmup + form shots', time: '5 min', type: 'warmup', detail: 'Light jog, stretches, then 10 form shots from 5 feet' },
+    { name: 'Spot shooting — 5 spots', time: '12 min', type: 'shooting', detail: 'Corners, wings, top of key — 10 makes from each spot' },
+    { name: 'Off-dribble pull-ups', time: '10 min', type: 'skill', detail: 'Jab step, one dribble pull-up from mid-range — both directions' },
+    { name: 'Catch & shoot off screens', time: '10 min', type: 'shooting', detail: 'Simulate coming off a screen, catch and shoot — quick release' },
+    { name: 'Free throws under fatigue', time: '5 min', type: 'shooting', detail: 'Sprint baseline to baseline, then shoot 2 FTs — repeat 5x' },
+    { name: 'Core circuit', time: '5 min', type: 'conditioning', detail: 'Planks, Russian twists, leg raises — 30 sec each, 3 rounds' },
   ],
 };
 
@@ -44,16 +55,12 @@ export default function TodayScreen() {
   const [completedDrills, setCompletedDrills] = useState<Record<number, boolean>>({});
 
   const handleDrillPress = (index: number) => {
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setExpandedDrill(expandedDrill === index ? null : index);
   };
 
   const handleDrillComplete = (index: number) => {
-    if (Platform.OS !== 'web') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    }
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setCompletedDrills({ ...completedDrills, [index]: !completedDrills[index] });
   };
 
@@ -66,14 +73,31 @@ export default function TodayScreen() {
 
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.headerDate}>Monday, April 7</Text>
-            <Text style={styles.headerTitle}>Today's Session</Text>
-          </View>
+          <Text style={styles.headerTitle}>Today</Text>
           <View style={styles.streakBadge}>
-            <Text style={styles.streakEmoji}>🔥</Text>
-            <Text style={styles.streakText}>3</Text>
+            <Text style={styles.streakText}>3 day streak</Text>
           </View>
+        </View>
+
+        {/* Weekly schedule bar */}
+        <View style={styles.weekBar}>
+          {WEEK_SCHEDULE.map((day, i) => (
+            <View key={i} style={styles.weekDay}>
+              <Text style={[
+                styles.weekDayLabel,
+                day.status === 'today' && styles.weekDayLabelActive,
+              ]}>{day.day}</Text>
+              <View style={[
+                styles.weekDot,
+                day.status === 'done' && styles.weekDotDone,
+                day.status === 'today' && styles.weekDotToday,
+                day.status === 'rest' && styles.weekDotRest,
+              ]}>
+                {day.status === 'done' && <Text style={styles.weekCheck}>✓</Text>}
+                {day.status === 'today' && <View style={styles.weekTodayInner} />}
+              </View>
+            </View>
+          ))}
         </View>
 
         {/* Session card */}
@@ -91,12 +115,10 @@ export default function TodayScreen() {
             </View>
           </View>
 
-          {/* Progress bar */}
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${(completedCount / totalDrills) * 100}%` }]} />
           </View>
 
-          {/* Drills */}
           {TODAY_SESSION.drills.map((drill, index) => {
             const isDone = completedDrills[index];
             const isExpanded = expandedDrill === index;
@@ -129,9 +151,7 @@ export default function TodayScreen() {
                     </View>
                     <Text style={styles.drillTime}>{drill.time}</Text>
                   </View>
-                  {isExpanded && (
-                    <Text style={styles.drillDetail}>{drill.detail}</Text>
-                  )}
+                  {isExpanded && <Text style={styles.drillDetail}>{drill.detail}</Text>}
                 </View>
 
                 <Text style={styles.expandArrow}>{isExpanded ? '−' : '+'}</Text>
@@ -139,15 +159,14 @@ export default function TodayScreen() {
             );
           })}
 
-          {/* Start button */}
           <TouchableOpacity style={styles.startButton} activeOpacity={0.85}>
             <Text style={styles.startButtonText}>
-              {completedCount > 0 && completedCount < totalDrills ? 'CONTINUE SESSION' : completedCount === totalDrills ? 'SESSION COMPLETE ✓' : 'START SESSION'}
+              {completedCount > 0 && completedCount < totalDrills ? 'CONTINUE SESSION' : completedCount === totalDrills ? 'SESSION COMPLETE' : 'START SESSION'}
             </Text>
           </TouchableOpacity>
         </View>
 
-        {/* Quick stats */}
+        {/* Stats row */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>3</Text>
@@ -155,327 +174,138 @@ export default function TodayScreen() {
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>2h 15m</Text>
-            <Text style={styles.statLabel}>Total time{'\n'}trained</Text>
+            <Text style={styles.statLabel}>Total{'\n'}trained</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: Colors.accent }]}>3</Text>
-            <Text style={styles.statLabel}>Day{'\n'}streak</Text>
-          </View>
-        </View>
-
-        {/* Up next */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>UP NEXT — TOMORROW</Text>
-          <View style={styles.upNextContent}>
-            <View>
-              <Text style={styles.upNextFocus}>Left Hand Finishing</Text>
-              <Text style={styles.upNextMeta}>45 min · 6 drills · Mikan drill, reverse layups, floaters</Text>
-            </View>
+            <Text style={[styles.statValue, { color: Colors.accent }]}>W1</Text>
+            <Text style={styles.statLabel}>Current{'\n'}week</Text>
           </View>
         </View>
 
         {/* AI insight */}
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>AI INSIGHT</Text>
-          <View style={styles.insightContent}>
-            <Text style={styles.insightIcon}>⚡</Text>
-            <Text style={styles.insightText}>
-              You've been consistent with ball handling this week. Your plan shifts to finishing and shooting next week to build on that foundation.
-            </Text>
+        <View style={styles.insightCard}>
+          <View style={styles.insightHeader}>
+            <View style={styles.insightDot} />
+            <Text style={styles.insightLabel}>AI INSIGHT</Text>
           </View>
+          <Text style={styles.insightText}>
+            You've been consistent with ball handling this week. Your plan shifts to finishing and shooting next week to build on that foundation.
+          </Text>
         </View>
 
-        {/* Film prompt */}
-        <TouchableOpacity style={styles.filmCard} activeOpacity={0.8}>
-          <Text style={styles.filmIcon}>🎬</Text>
-          <View style={styles.filmContent}>
-            <Text style={styles.filmTitle}>Upload game film</Text>
-            <Text style={styles.filmSubtitle}>Get AI analysis on your strengths and weaknesses from real game footage</Text>
+        {/* Up next */}
+        <TouchableOpacity style={styles.upNextCard} activeOpacity={0.8}>
+          <View style={styles.upNextContent}>
+            <Text style={styles.upNextLabel}>TOMORROW</Text>
+            <Text style={styles.upNextFocus}>Defense & Agility</Text>
+            <Text style={styles.upNextMeta}>45 min · Closeouts, slides, help & recover</Text>
           </View>
-          <Text style={styles.filmArrow}>→</Text>
+          <ChevronRight size={18} color={Colors.textMuted} />
         </TouchableOpacity>
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 30 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-  },
+  container: { flex: 1, backgroundColor: Colors.background },
+  scrollContent: { paddingHorizontal: 20 },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 16,
-    paddingBottom: 20,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingTop: 16, paddingBottom: 16,
   },
-  headerDate: {
-    fontSize: 13,
-    color: Colors.textMuted,
-    marginBottom: 4,
-  },
-  headerTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-  },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary },
   streakBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    gap: 4,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface, borderRadius: 20,
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
-  streakEmoji: {
-    fontSize: 16,
+  streakText: { fontSize: 12, fontWeight: '700', color: Colors.textSecondary },
+  weekBar: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 14, marginBottom: 16,
   },
-  streakText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: Colors.textPrimary,
+  weekDay: { alignItems: 'center', gap: 8 },
+  weekDayLabel: { fontSize: 12, fontWeight: '600', color: Colors.textMuted },
+  weekDayLabelActive: { color: Colors.primary },
+  weekDot: {
+    width: 28, height: 28, borderRadius: 14,
+    borderWidth: 1.5, borderColor: Colors.surfaceBorder,
+    alignItems: 'center', justifyContent: 'center',
   },
+  weekDotDone: { borderColor: Colors.accent, backgroundColor: Colors.accent },
+  weekDotToday: { borderColor: Colors.primary, borderWidth: 2 },
+  weekDotRest: { borderColor: Colors.surfaceBorder, borderStyle: 'dashed' as any },
+  weekCheck: { fontSize: 12, color: Colors.black, fontWeight: '800' },
+  weekTodayInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
   sessionCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    padding: 20,
-    marginBottom: 16,
+    backgroundColor: Colors.surface, borderRadius: 18,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 20, marginBottom: 16,
   },
   sessionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-start', marginBottom: 16,
   },
-  sessionFocus: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  sessionMeta: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
-  durationBadge: {
-    backgroundColor: Colors.primary,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  durationBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: Colors.black,
-  },
-  progressTrack: {
-    height: 4,
-    backgroundColor: '#252525',
-    borderRadius: 2,
-    marginBottom: 18,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: 4,
-    backgroundColor: Colors.accent,
-    borderRadius: 2,
-  },
+  sessionFocus: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
+  sessionMeta: { fontSize: 13, color: Colors.textSecondary },
+  durationBadge: { backgroundColor: Colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  durationBadgeText: { fontSize: 12, fontWeight: '800', color: Colors.black },
+  progressTrack: { height: 4, backgroundColor: '#252525', borderRadius: 2, marginBottom: 14, overflow: 'hidden' },
+  progressFill: { height: 4, backgroundColor: Colors.accent, borderRadius: 2 },
   drillRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#222222',
-    gap: 12,
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#222222', gap: 12,
   },
-  drillRowDone: {
-    opacity: 0.45,
-  },
+  drillRowDone: { opacity: 0.4 },
   completeCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: Colors.surfaceBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
+    width: 26, height: 26, borderRadius: 13,
+    borderWidth: 2, borderColor: Colors.surfaceBorder,
+    alignItems: 'center', justifyContent: 'center', marginTop: 2,
   },
-  checkmark: {
-    fontSize: 13,
-    color: Colors.black,
-    fontWeight: '800',
-  },
-  drillInfo: {
-    flex: 1,
-  },
-  drillName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: Colors.textPrimary,
-    marginBottom: 5,
-  },
-  drillNameDone: {
-    textDecorationLine: 'line-through',
-    color: Colors.textMuted,
-  },
-  drillMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  typeTag: {
-    borderRadius: 5,
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-  },
-  typeTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  drillTime: {
-    fontSize: 12,
-    color: Colors.textMuted,
-  },
-  drillDetail: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 19,
-    marginTop: 10,
-  },
-  expandArrow: {
-    fontSize: 18,
-    color: Colors.textMuted,
-    marginTop: 4,
-  },
+  checkmark: { fontSize: 13, color: Colors.black, fontWeight: '800' },
+  drillInfo: { flex: 1 },
+  drillName: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, marginBottom: 5 },
+  drillNameDone: { textDecorationLine: 'line-through', color: Colors.textMuted },
+  drillMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  typeTag: { borderRadius: 5, paddingHorizontal: 7, paddingVertical: 2 },
+  typeTagText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  drillTime: { fontSize: 12, color: Colors.textMuted },
+  drillDetail: { fontSize: 13, color: Colors.textSecondary, lineHeight: 19, marginTop: 10 },
+  expandArrow: { fontSize: 18, color: Colors.textMuted, marginTop: 4 },
   startButton: {
-    backgroundColor: Colors.primary,
-    borderRadius: 12,
-    paddingVertical: 18,
-    alignItems: 'center',
-    marginTop: 16,
+    backgroundColor: Colors.primary, borderRadius: 12,
+    paddingVertical: 18, alignItems: 'center', marginTop: 16,
   },
-  startButtonText: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: Colors.black,
-    letterSpacing: 2,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
+  startButtonText: { fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   statCard: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    padding: 16,
-    alignItems: 'center',
+    flex: 1, backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, alignItems: 'center',
   },
-  statValue: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.textPrimary,
-    marginBottom: 6,
+  statValue: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 6 },
+  statLabel: { fontSize: 10, color: Colors.textMuted, textAlign: 'center', lineHeight: 14 },
+  insightCard: {
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 18, marginBottom: 12,
   },
-  statLabel: {
-    fontSize: 11,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 15,
+  insightHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  insightDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
+  insightLabel: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
+  insightText: { fontSize: 13, color: Colors.primary, lineHeight: 19, fontWeight: '500' },
+  upNextCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 18, marginBottom: 12,
   },
-  sectionCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
-    padding: 18,
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.textMuted,
-    letterSpacing: 1.5,
-    marginBottom: 12,
-  },
-  upNextContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  upNextFocus: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  upNextMeta: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    lineHeight: 18,
-  },
-  insightContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-  },
-  insightIcon: {
-    fontSize: 16,
-  },
-  insightText: {
-    fontSize: 13,
-    color: Colors.primary,
-    lineHeight: 19,
-    flex: 1,
-    fontWeight: '500',
-  },
-  filmCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#141210',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#2A2518',
-    padding: 18,
-    marginBottom: 12,
-    gap: 14,
-  },
-  filmIcon: {
-    fontSize: 28,
-  },
-  filmContent: {
-    flex: 1,
-  },
-  filmTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  filmSubtitle: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    lineHeight: 17,
-  },
-  filmArrow: {
-    fontSize: 18,
-    color: Colors.primary,
-    fontWeight: '600',
-  },
+  upNextContent: { flex: 1 },
+  upNextLabel: { fontSize: 10, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 6 },
+  upNextFocus: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
+  upNextMeta: { fontSize: 12, color: Colors.textSecondary },
 });
