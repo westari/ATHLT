@@ -17,67 +17,29 @@ export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // Logo animation
-  const logoSlide = useRef(new Animated.Value(-60)).current;
   const logoFade = useRef(new Animated.Value(0)).current;
-
-  // Text animation
-  const textSlide = useRef(new Animated.Value(30)).current;
-  const textFade = useRef(new Animated.Value(0)).current;
-
-  // Tagline
-  const taglineFade = useRef(new Animated.Value(0)).current;
-
-  // Subtitle
-  const subtitleFade = useRef(new Animated.Value(0)).current;
-
-  // Buttons
+  const logoScale = useRef(new Animated.Value(0.85)).current;
   const buttonsFade = useRef(new Animated.Value(0)).current;
-  const buttonsSlide = useRef(new Animated.Value(40)).current;
+  const buttonsSlide = useRef(new Animated.Value(50)).current;
+  const footerFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.sequence([
-      // Sprinter slides in from left fast
+      // Logo fades in and scales up
       Animated.parallel([
-        Animated.spring(logoSlide, {
-          toValue: 0,
-          friction: 7,
-          tension: 50,
-          useNativeDriver: true,
-        }),
         Animated.timing(logoFade, {
           toValue: 1,
-          duration: 400,
+          duration: 500,
           useNativeDriver: true,
         }),
-      ]),
-      // ATHLT text appears
-      Animated.parallel([
-        Animated.timing(textFade, {
+        Animated.spring(logoScale, {
           toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(textSlide, {
-          toValue: 0,
-          friction: 8,
-          tension: 50,
+          friction: 6,
+          tension: 40,
           useNativeDriver: true,
         }),
       ]),
-      // Tagline
-      Animated.timing(taglineFade, {
-        toValue: 1,
-        duration: 350,
-        useNativeDriver: true,
-      }),
-      // Subtitle
-      Animated.timing(subtitleFade, {
-        toValue: 1,
-        duration: 350,
-        useNativeDriver: true,
-      }),
-      // Buttons
+      // Buttons slide up
       Animated.parallel([
         Animated.timing(buttonsFade, {
           toValue: 1,
@@ -86,11 +48,17 @@ export default function WelcomeScreen() {
         }),
         Animated.spring(buttonsSlide, {
           toValue: 0,
-          friction: 8,
+          friction: 7,
           tension: 40,
           useNativeDriver: true,
         }),
       ]),
+      // Footer text
+      Animated.timing(footerFade, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
     ]).start();
   }, []);
 
@@ -109,47 +77,23 @@ export default function WelcomeScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      {/* Logo takes up the center */}
       <View style={styles.topSection}>
-        {/* Logo lockup: sprinter + ATHLT */}
-        <View style={styles.logoLockup}>
-          <Animated.View
-            style={{
-              opacity: logoFade,
-              transform: [{ translateX: logoSlide }],
-            }}
-          >
-            <Image
-              source={require('@/assets/images/logo.png')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-          </Animated.View>
-
-          <Animated.Text
-            style={[
-              styles.logoText,
-              {
-                opacity: textFade,
-                transform: [{ translateX: textSlide }],
-              },
-            ]}
-          >
-            ATHLT
-          </Animated.Text>
-        </View>
-
-        {/* Tagline */}
-        <Animated.Text style={[styles.tagline, { opacity: taglineFade }]}>
-          Your AI trainer.
-        </Animated.Text>
-
-        {/* Subtitle */}
-        <Animated.Text style={[styles.subtitle, { opacity: subtitleFade }]}>
-          Tell us about your game.{'\n'}Get a plan built for how you play.
-        </Animated.Text>
+        <Animated.View
+          style={{
+            opacity: logoFade,
+            transform: [{ scale: logoScale }],
+          }}
+        >
+          <Image
+            source={require('@/assets/images/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+        </Animated.View>
       </View>
 
-      {/* Buttons */}
+      {/* Buttons at bottom */}
       <Animated.View
         style={[
           styles.bottomSection,
@@ -172,12 +116,12 @@ export default function WelcomeScreen() {
           onPress={handleSignIn}
           activeOpacity={0.85}
         >
-          <Text style={styles.secondaryButtonText}>I HAVE AN ACCOUNT</Text>
+          <Text style={styles.secondaryButtonText}>SIGN IN</Text>
         </TouchableOpacity>
 
-        <Text style={styles.footerText}>
+        <Animated.Text style={[styles.footerText, { opacity: footerFade }]}>
           2 minutes to set up · Free to start
-        </Text>
+        </Animated.Text>
       </Animated.View>
     </View>
   );
@@ -195,36 +139,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  logoLockup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 28,
-  },
   logoImage: {
-    width: 80,
-    height: 80,
-  },
-  logoText: {
-    fontSize: 42,
-    fontWeight: '900',
-    fontStyle: 'italic',
-    color: Colors.primary,
-    letterSpacing: 4,
-  },
-  tagline: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-    textAlign: 'center',
-    letterSpacing: 0.5,
-    marginBottom: 12,
-  },
-  subtitle: {
-    fontSize: 15,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 22,
+    width: 280,
+    height: 120,
   },
   bottomSection: {
     paddingBottom: 20,
@@ -254,7 +171,7 @@ const styles = StyleSheet.create({
   secondaryButtonText: {
     fontSize: 15,
     fontWeight: '700',
-    color: Colors.textSecondary,
+    color: Colors.textMuted,
     letterSpacing: 1.5,
   },
   footerText: {
