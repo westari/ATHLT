@@ -22,6 +22,7 @@ function RootLayoutNav() {
       <Stack.Screen name="index" />
       <Stack.Screen name="onboarding" />
       <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+      <Stack.Screen name="session" options={{ animation: 'slide_from_bottom', presentation: 'fullScreenModal' }} />
     </Stack>
   );
 }
