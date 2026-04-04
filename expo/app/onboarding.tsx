@@ -8,6 +8,7 @@ import {
   Platform,
   ScrollView,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -141,6 +142,8 @@ export default function OnboardingScreen() {
 
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -229,12 +232,65 @@ export default function OnboardingScreen() {
     }
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     if (Platform.OS !== 'web') {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
-    // TODO: pass answers to training plan generator
-    router.replace('/(tabs)/today' as any);
+
+    setIsLoading(true);
+    setLoadingMessage('Analyzing your profile...');
+
+    const messages = [
+      'Analyzing your profile...',
+      'Building your training plan...',
+      'Selecting drills for your position...',
+      'Tailoring to your weakness...',
+      'Finalizing your week...',
+    ];
+
+    let msgIndex = 0;
+    const messageInterval = setInterval(() => {
+      msgIndex = (msgIndex + 1) % messages.length;
+      setLoadingMessage(messages[msgIndex]);
+    }, 2500);
+
+    try {
+      const response = await fetch('https://collectiq-xi.vercel.app/api/generate-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sport: answers.sport,
+          position: answers.position,
+          experience: answers.experience,
+          goal: answers.goal,
+          weakness: answers.weakness,
+          frequency: answers.frequency,
+          duration: answers.duration,
+          access: answers.access,
+        }),
+      });
+
+      const plan = await response.json();
+      clearInterval(messageInterval);
+
+      if (response.ok && plan.days) {
+        // TODO: save plan to local storage
+        // For now, navigate to the today tab
+        router.replace('/(tabs)/today' as any);
+      } else {
+        console.error('API error:', plan);
+        clearInterval(messageInterval);
+        setIsLoading(false);
+        // Still navigate — use mock data as fallback
+        router.replace('/(tabs)/today' as any);
+      }
+    } catch (error) {
+      console.error('Network error:', error);
+      clearInterval(messageInterval);
+      setIsLoading(false);
+      // Still navigate — use mock data as fallback
+      router.replace('/(tabs)/today' as any);
+    }
   };
 
   const isSelected = (option: string) => {
@@ -251,6 +307,18 @@ export default function OnboardingScreen() {
     if (Array.isArray(answer) && answer.length === 0) return false;
     return true;
   };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={styles.loadingScreen}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.loadingTitle}>Building your plan</Text>
+          <Text style={styles.loadingMessage}>{loadingMessage}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -538,5 +606,24 @@ const styles = StyleSheet.create({
   },
   nextButtonTextDisabled: {
     color: Colors.textMuted,
+  },
+  loadingScreen: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  loadingTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    marginTop: 28,
+    marginBottom: 12,
+  },
+  loadingMessage: {
+    fontSize: 15,
+    color: Colors.primary,
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });
