@@ -20,9 +20,8 @@ function RootLayoutNav() {
       }}
     >
       <Stack.Screen name="index" />
-      <Stack.Screen name="build-parlay" />
-      <Stack.Screen name="analyze-pick" />
-      <Stack.Screen name="plans" />
+      <Stack.Screen name="onboarding" />
+      <Stack.Screen name="home" />
     </Stack>
   );
 }
