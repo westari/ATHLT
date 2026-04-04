@@ -234,7 +234,7 @@ export default function OnboardingScreen() {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
     // TODO: pass answers to training plan generator
-    router.push('/home' as any);
+    router.replace('/(tabs)/today' as any);
   };
 
   const isSelected = (option: string) => {
