@@ -6,85 +6,82 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
-const LOGO_LETTERS = ['A', 'T', 'H', 'L', 'T'];
-
 export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const letterAnims = LOGO_LETTERS.map(() => ({
-    opacity: useRef(new Animated.Value(0)).current,
-    translateY: useRef(new Animated.Value(-30)).current,
-    scale: useRef(new Animated.Value(1.2)).current,
-  }));
+  // Logo animation
+  const logoSlide = useRef(new Animated.Value(-60)).current;
+  const logoFade = useRef(new Animated.Value(0)).current;
 
-  const lineFade = useRef(new Animated.Value(0)).current;
-  const lineScale = useRef(new Animated.Value(0)).current;
+  // Text animation
+  const textSlide = useRef(new Animated.Value(30)).current;
+  const textFade = useRef(new Animated.Value(0)).current;
+
+  // Tagline
   const taglineFade = useRef(new Animated.Value(0)).current;
+
+  // Subtitle
   const subtitleFade = useRef(new Animated.Value(0)).current;
+
+  // Buttons
   const buttonsFade = useRef(new Animated.Value(0)).current;
   const buttonsSlide = useRef(new Animated.Value(40)).current;
 
   useEffect(() => {
-    const letterAnimations = letterAnims.map((anim, i) =>
-      Animated.sequence([
-        Animated.delay(i * 100),
-        Animated.parallel([
-          Animated.timing(anim.opacity, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(anim.translateY, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(anim.scale, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]),
-      ])
-    );
-
     Animated.sequence([
-      Animated.parallel(letterAnimations),
-      Animated.delay(200),
+      // Sprinter slides in from left fast
       Animated.parallel([
-        Animated.timing(lineFade, {
+        Animated.spring(logoSlide, {
+          toValue: 0,
+          friction: 7,
+          tension: 50,
+          useNativeDriver: true,
+        }),
+        Animated.timing(logoFade, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]),
+      // ATHLT text appears
+      Animated.parallel([
+        Animated.timing(textFade, {
           toValue: 1,
           duration: 300,
           useNativeDriver: true,
         }),
-        Animated.spring(lineScale, {
-          toValue: 1,
+        Animated.spring(textSlide, {
+          toValue: 0,
           friction: 8,
-          tension: 40,
+          tension: 50,
           useNativeDriver: true,
         }),
       ]),
+      // Tagline
       Animated.timing(taglineFade, {
         toValue: 1,
-        duration: 400,
+        duration: 350,
         useNativeDriver: true,
       }),
+      // Subtitle
       Animated.timing(subtitleFade, {
         toValue: 1,
-        duration: 400,
+        duration: 350,
         useNativeDriver: true,
       }),
+      // Buttons
       Animated.parallel([
         Animated.timing(buttonsFade, {
           toValue: 1,
-          duration: 500,
+          duration: 400,
           useNativeDriver: true,
         }),
         Animated.spring(buttonsSlide, {
@@ -113,45 +110,46 @@ export default function WelcomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.topSection}>
-        <View style={styles.logoRow}>
-          {LOGO_LETTERS.map((letter, i) => (
-            <Animated.Text
-              key={i}
-              style={[
-                styles.logoLetter,
-                {
-                  opacity: letterAnims[i].opacity,
-                  transform: [
-                    { translateY: letterAnims[i].translateY },
-                    { scale: letterAnims[i].scale },
-                  ],
-                },
-              ]}
-            >
-              {letter}
-            </Animated.Text>
-          ))}
+        {/* Logo lockup: sprinter + ATHLT */}
+        <View style={styles.logoLockup}>
+          <Animated.View
+            style={{
+              opacity: logoFade,
+              transform: [{ translateX: logoSlide }],
+            }}
+          >
+            <Image
+              source={require('@/assets/images/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+          </Animated.View>
+
+          <Animated.Text
+            style={[
+              styles.logoText,
+              {
+                opacity: textFade,
+                transform: [{ translateX: textSlide }],
+              },
+            ]}
+          >
+            ATHLT
+          </Animated.Text>
         </View>
 
-        <Animated.View
-          style={[
-            styles.accentLine,
-            {
-              opacity: lineFade,
-              transform: [{ scaleX: lineScale }],
-            },
-          ]}
-        />
-
+        {/* Tagline */}
         <Animated.Text style={[styles.tagline, { opacity: taglineFade }]}>
           Your AI trainer.
         </Animated.Text>
 
+        {/* Subtitle */}
         <Animated.Text style={[styles.subtitle, { opacity: subtitleFade }]}>
           Tell us about your game.{'\n'}Get a plan built for how you play.
         </Animated.Text>
       </View>
 
+      {/* Buttons */}
       <Animated.View
         style={[
           styles.bottomSection,
@@ -197,27 +195,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  logoRow: {
+  logoLockup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 12,
+    marginBottom: 28,
   },
-  logoLetter: {
-    fontSize: 52,
+  logoImage: {
+    width: 80,
+    height: 80,
+  },
+  logoText: {
+    fontSize: 42,
     fontWeight: '900',
-    letterSpacing: 8,
-    color: Colors.textPrimary,
-  },
-  accentLine: {
-    width: 48,
-    height: 3,
-    backgroundColor: Colors.primary,
-    borderRadius: 2,
-    marginTop: 20,
-    marginBottom: 24,
+    fontStyle: 'italic',
+    color: Colors.primary,
+    letterSpacing: 4,
   },
   tagline: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '600',
     color: Colors.textSecondary,
     textAlign: 'center',
