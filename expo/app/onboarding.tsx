@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,6 @@ import {
   Platform,
   ScrollView,
   Dimensions,
-  TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,25 +16,31 @@ import Colors from '@/constants/colors';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+interface QuestionOption {
+  label: string;
+  subtitle?: string;
+  disabled?: boolean;
+}
+
 interface Question {
   id: string;
   question: string;
   subtitle?: string;
   type: 'select' | 'multiselect';
-  options: { label: string; subtitle?: string }[];
+  options: QuestionOption[];
 }
 
-const BASKETBALL_QUESTIONS: Question[] = [
+const QUESTIONS: Question[] = [
   {
     id: 'sport',
     question: 'What sport do you play?',
     subtitle: 'We\'ll tailor everything to your game.',
     type: 'select',
     options: [
-      { label: 'Basketball', subtitle: 'Courts, handles, buckets' },
-      { label: 'Soccer', subtitle: 'Coming soon' },
-      { label: 'Baseball', subtitle: 'Coming soon' },
-      { label: 'Football', subtitle: 'Coming soon' },
+      { label: 'Basketball' },
+      { label: 'Soccer', subtitle: 'Coming soon', disabled: true },
+      { label: 'Baseball', subtitle: 'Coming soon', disabled: true },
+      { label: 'Football', subtitle: 'Coming soon', disabled: true },
     ],
   },
   {
@@ -52,36 +57,35 @@ const BASKETBALL_QUESTIONS: Question[] = [
     ],
   },
   {
-    id: 'level',
-    question: 'What level are you at?',
-    subtitle: 'So we match the right intensity.',
+    id: 'experience',
+    question: 'How long have you been playing?',
+    subtitle: 'So we match the right intensity and complexity.',
     type: 'select',
     options: [
-      { label: 'Just starting out' },
-      { label: 'Rec league' },
-      { label: 'School team' },
-      { label: 'Travel / AAU' },
-      { label: 'Varsity' },
-      { label: 'College' },
+      { label: 'Less than a year', subtitle: 'Just getting started' },
+      { label: '1-2 years', subtitle: 'Learning the fundamentals' },
+      { label: '3-5 years', subtitle: 'Most school team players' },
+      { label: '6-10 years', subtitle: 'Most varsity / travel players' },
+      { label: '10+ years', subtitle: 'College level and beyond' },
     ],
   },
   {
     id: 'goal',
-    question: 'What\'s your #1 goal?',
+    question: 'What do you want to improve most?',
     subtitle: 'Pick the one that matters most right now.',
     type: 'select',
     options: [
-      { label: 'Make the team' },
-      { label: 'Become a starter' },
-      { label: 'Get a scholarship' },
-      { label: 'Improve a specific skill' },
-      { label: 'Overall development' },
+      { label: 'Become a better scorer' },
+      { label: 'Improve my defense' },
+      { label: 'Get faster and more athletic' },
+      { label: 'Become a more complete player' },
+      { label: 'Get recruited / play at the next level' },
     ],
   },
   {
     id: 'weakness',
-    question: 'What needs the most work?',
-    subtitle: 'We\'ll focus 60% of your plan here.',
+    question: 'What part of your game needs the most work?',
+    subtitle: 'We\'ll focus most of your plan here.',
     type: 'select',
     options: [
       { label: 'Shooting' },
@@ -93,34 +97,33 @@ const BASKETBALL_QUESTIONS: Question[] = [
     ],
   },
   {
-    id: 'days',
-    question: 'How many days can you train?',
-    subtitle: 'Outside of team practice.',
+    id: 'frequency',
+    question: 'How often can you train?',
+    subtitle: 'Outside of team practice. You can always adjust this later.',
     type: 'select',
     options: [
-      { label: '2 days' },
-      { label: '3 days' },
-      { label: '4 days' },
-      { label: '5 days' },
-      { label: '6+ days' },
+      { label: 'Once or twice a week' },
+      { label: '3-4 times a week' },
+      { label: '5-6 times a week' },
+      { label: 'Every day' },
     ],
   },
   {
     id: 'duration',
-    question: 'How long per session?',
-    subtitle: 'We\'ll build around your time.',
+    question: 'How long do you want each session to be?',
+    subtitle: 'You can change this before every session.',
     type: 'select',
     options: [
-      { label: '30 minutes' },
-      { label: '45 minutes' },
-      { label: '60 minutes' },
-      { label: '90 minutes' },
+      { label: '20-30 minutes', subtitle: 'Quick and focused' },
+      { label: '30-45 minutes', subtitle: 'Solid session' },
+      { label: '45-60 minutes', subtitle: 'Full workout' },
+      { label: '60-90 minutes', subtitle: 'Intensive training' },
     ],
   },
   {
     id: 'access',
-    question: 'What do you have access to?',
-    subtitle: 'So we only give you drills you can actually do.',
+    question: 'Where do you usually train?',
+    subtitle: 'Pick all that apply — we\'ll only give you drills that work for your setup.',
     type: 'multiselect',
     options: [
       { label: 'Full court with hoop' },
@@ -142,8 +145,8 @@ export default function OnboardingScreen() {
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
 
-  const currentQuestion = BASKETBALL_QUESTIONS[currentStep];
-  const totalSteps = BASKETBALL_QUESTIONS.length;
+  const currentQuestion = QUESTIONS[currentStep];
+  const totalSteps = QUESTIONS.length;
   const progress = (currentStep + 1) / totalSteps;
 
   const animateTransition = (direction: 'forward' | 'back', callback: () => void) => {
@@ -194,7 +197,6 @@ export default function OnboardingScreen() {
     } else {
       setAnswers({ ...answers, [currentQuestion.id]: option });
 
-      // Auto-advance on single select after brief delay
       setTimeout(() => {
         if (currentStep < totalSteps - 1) {
           animateTransition('forward', () => setCurrentStep(currentStep + 1));
@@ -286,7 +288,7 @@ export default function OnboardingScreen() {
           <View style={styles.optionsContainer}>
             {currentQuestion.options.map((option, index) => {
               const selected = isSelected(option.label);
-              const isComingSoon = option.subtitle === 'Coming soon';
+              const isDisabled = option.disabled === true;
 
               return (
                 <TouchableOpacity
@@ -294,17 +296,17 @@ export default function OnboardingScreen() {
                   style={[
                     styles.optionCard,
                     selected && styles.optionCardSelected,
-                    isComingSoon && styles.optionCardDisabled,
+                    isDisabled && styles.optionCardDisabled,
                   ]}
-                  onPress={() => !isComingSoon && handleSelect(option.label)}
-                  activeOpacity={isComingSoon ? 1 : 0.7}
+                  onPress={() => !isDisabled && handleSelect(option.label)}
+                  activeOpacity={isDisabled ? 1 : 0.7}
                 >
                   <View style={styles.optionContent}>
                     <Text
                       style={[
                         styles.optionLabel,
                         selected && styles.optionLabelSelected,
-                        isComingSoon && styles.optionLabelDisabled,
+                        isDisabled && styles.optionLabelDisabled,
                       ]}
                     >
                       {option.label}
@@ -313,7 +315,7 @@ export default function OnboardingScreen() {
                       <Text
                         style={[
                           styles.optionSubtitle,
-                          isComingSoon && styles.optionSubtitleDisabled,
+                          isDisabled && styles.optionSubtitleDisabled,
                         ]}
                       >
                         {option.subtitle}
@@ -321,7 +323,6 @@ export default function OnboardingScreen() {
                     )}
                   </View>
 
-                  {/* Selection indicator */}
                   <View
                     style={[
                       currentQuestion.type === 'multiselect'
@@ -349,7 +350,7 @@ export default function OnboardingScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* Bottom button for multiselect */}
+      {/* Bottom button for multiselect or final step */}
       {currentQuestion.type === 'multiselect' && (
         <View style={styles.bottomButton}>
           <TouchableOpacity
