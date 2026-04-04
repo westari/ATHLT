@@ -6,78 +6,91 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
-  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const LOGO_LETTERS = ['A', 'T', 'H', 'L', 'T'];
 
 export default function WelcomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const logoFade = useRef(new Animated.Value(0)).current;
-  const logoSlide = useRef(new Animated.Value(-20)).current;
+  const letterAnims = LOGO_LETTERS.map(() => ({
+    opacity: useRef(new Animated.Value(0)).current,
+    translateY: useRef(new Animated.Value(-30)).current,
+    scale: useRef(new Animated.Value(1.2)).current,
+  }));
+
   const lineFade = useRef(new Animated.Value(0)).current;
-  const lineWidth = useRef(new Animated.Value(0)).current;
+  const lineScale = useRef(new Animated.Value(0)).current;
   const taglineFade = useRef(new Animated.Value(0)).current;
   const subtitleFade = useRef(new Animated.Value(0)).current;
   const buttonsFade = useRef(new Animated.Value(0)).current;
-  const buttonsSlide = useRef(new Animated.Value(30)).current;
+  const buttonsSlide = useRef(new Animated.Value(40)).current;
 
   useEffect(() => {
+    const letterAnimations = letterAnims.map((anim, i) =>
+      Animated.sequence([
+        Animated.delay(i * 100),
+        Animated.parallel([
+          Animated.timing(anim.opacity, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim.translateY, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim.scale, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+
     Animated.sequence([
-      // Logo drops in
-      Animated.parallel([
-        Animated.timing(logoFade, {
-          toValue: 1,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-        Animated.timing(logoSlide, {
-          toValue: 0,
-          duration: 600,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Line draws across
+      Animated.parallel(letterAnimations),
+      Animated.delay(200),
       Animated.parallel([
         Animated.timing(lineFade, {
           toValue: 1,
           duration: 300,
           useNativeDriver: true,
         }),
-        Animated.timing(lineWidth, {
+        Animated.spring(lineScale, {
           toValue: 1,
-          duration: 400,
-          useNativeDriver: false,
+          friction: 8,
+          tension: 40,
+          useNativeDriver: true,
         }),
       ]),
-      // Tagline appears
       Animated.timing(taglineFade, {
         toValue: 1,
         duration: 400,
         useNativeDriver: true,
       }),
-      // Subtitle
       Animated.timing(subtitleFade, {
         toValue: 1,
         duration: 400,
         useNativeDriver: true,
       }),
-      // Buttons slide up
       Animated.parallel([
         Animated.timing(buttonsFade, {
           toValue: 1,
           duration: 500,
           useNativeDriver: true,
         }),
-        Animated.timing(buttonsSlide, {
+        Animated.spring(buttonsSlide, {
           toValue: 0,
-          duration: 500,
+          friction: 8,
+          tension: 40,
           useNativeDriver: true,
         }),
       ]),
@@ -95,47 +108,50 @@ export default function WelcomeScreen() {
     if (Platform.OS !== 'web') {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     }
-    // TODO: sign in flow
-  };
-
-  const animatedLineStyle = {
-    opacity: lineFade,
-    width: lineWidth.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['0%', '100%'],
-    }),
   };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      {/* Top section — logo and messaging */}
       <View style={styles.topSection}>
-        <Animated.Text
+        <View style={styles.logoRow}>
+          {LOGO_LETTERS.map((letter, i) => (
+            <Animated.Text
+              key={i}
+              style={[
+                styles.logoLetter,
+                {
+                  opacity: letterAnims[i].opacity,
+                  transform: [
+                    { translateY: letterAnims[i].translateY },
+                    { scale: letterAnims[i].scale },
+                  ],
+                },
+              ]}
+            >
+              {letter}
+            </Animated.Text>
+          ))}
+        </View>
+
+        <Animated.View
           style={[
-            styles.logo,
+            styles.accentLine,
             {
-              opacity: logoFade,
-              transform: [{ translateY: logoSlide }],
+              opacity: lineFade,
+              transform: [{ scaleX: lineScale }],
             },
           ]}
-        >
-          ATHLT
-        </Animated.Text>
-
-        <View style={styles.lineContainer}>
-          <Animated.View style={[styles.line, animatedLineStyle]} />
-        </View>
+        />
 
         <Animated.Text style={[styles.tagline, { opacity: taglineFade }]}>
           Your AI trainer.
         </Animated.Text>
 
         <Animated.Text style={[styles.subtitle, { opacity: subtitleFade }]}>
-          Tell us about your game. Get a training plan{'\n'}built for how you actually play.
+          Tell us about your game.{'\n'}Get a plan built for how you play.
         </Animated.Text>
       </View>
 
-      {/* Bottom section — buttons */}
       <Animated.View
         style={[
           styles.bottomSection,
@@ -181,24 +197,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  logo: {
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  logoLetter: {
     fontSize: 52,
     fontWeight: '900',
-    letterSpacing: 12,
+    letterSpacing: 8,
     color: Colors.textPrimary,
-    textAlign: 'center',
   },
-  lineContainer: {
+  accentLine: {
     width: 48,
-    height: 3,
-    marginTop: 20,
-    marginBottom: 24,
-    alignItems: 'center',
-  },
-  line: {
     height: 3,
     backgroundColor: Colors.primary,
     borderRadius: 2,
+    marginTop: 20,
+    marginBottom: 24,
   },
   tagline: {
     fontSize: 20,
