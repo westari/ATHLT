@@ -143,7 +143,9 @@ export default function OnboardingScreen() {
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingMessage, setLoadingMessage] = useState('');
+  const [completedSteps, setCompletedSteps] = useState<number[]>([]);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -232,27 +234,35 @@ export default function OnboardingScreen() {
     }
   };
 
+  const LOADING_STEPS = [
+    'Analyzing your player profile',
+    'Selecting drills for your position',
+    'Focusing on your weakness areas',
+    'Building daily sessions',
+    'Optimizing your schedule',
+    'Finalizing your training plan',
+  ];
+
   const handleFinish = async () => {
     if (Platform.OS !== 'web') {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
 
     setIsLoading(true);
-    setLoadingMessage('Analyzing your profile...');
+    setLoadingProgress(0);
+    setLoadingMessage(LOADING_STEPS[0]);
+    setCompletedSteps([]);
 
-    const messages = [
-      'Analyzing your profile...',
-      'Building your training plan...',
-      'Selecting drills for your position...',
-      'Tailoring to your weakness...',
-      'Finalizing your week...',
-    ];
-
-    let msgIndex = 0;
-    const messageInterval = setInterval(() => {
-      msgIndex = (msgIndex + 1) % messages.length;
-      setLoadingMessage(messages[msgIndex]);
-    }, 2500);
+    // Animate progress steps
+    let stepIndex = 0;
+    const stepInterval = setInterval(() => {
+      stepIndex++;
+      if (stepIndex < LOADING_STEPS.length) {
+        setLoadingMessage(LOADING_STEPS[stepIndex]);
+        setLoadingProgress(Math.round((stepIndex / LOADING_STEPS.length) * 100));
+        setCompletedSteps(prev => [...prev, stepIndex - 1]);
+      }
+    }, 1800);
 
     try {
       const response = await fetch('https://collectiq-xi.vercel.app/api/generate-plan', {
@@ -271,24 +281,25 @@ export default function OnboardingScreen() {
       });
 
       const plan = await response.json();
-      clearInterval(messageInterval);
+      clearInterval(stepInterval);
+
+      // Show 100% briefly
+      setLoadingProgress(100);
+      setCompletedSteps([0, 1, 2, 3, 4, 5]);
+      setLoadingMessage('Your plan is ready!');
+
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       if (response.ok && plan.days) {
         // TODO: save plan to local storage
-        // For now, navigate to the today tab
         router.replace('/(tabs)/today' as any);
       } else {
-        console.error('API error:', plan);
-        clearInterval(messageInterval);
-        setIsLoading(false);
-        // Still navigate — use mock data as fallback
         router.replace('/(tabs)/today' as any);
       }
     } catch (error) {
       console.error('Network error:', error);
-      clearInterval(messageInterval);
+      clearInterval(stepInterval);
       setIsLoading(false);
-      // Still navigate — use mock data as fallback
       router.replace('/(tabs)/today' as any);
     }
   };
@@ -312,9 +323,33 @@ export default function OnboardingScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.loadingScreen}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingTitle}>Building your plan</Text>
-          <Text style={styles.loadingMessage}>{loadingMessage}</Text>
+          <Text style={styles.loadingPercent}>{loadingProgress}%</Text>
+          <Text style={styles.loadingTitle}>We're building your plan</Text>
+
+          {/* Progress bar */}
+          <View style={styles.loadingBarTrack}>
+            <View style={[styles.loadingBarFill, { width: `${loadingProgress}%` }]} />
+          </View>
+
+          <Text style={styles.loadingMessage}>{loadingMessage}...</Text>
+
+          {/* Checklist */}
+          <View style={styles.loadingChecklist}>
+            <Text style={styles.loadingChecklistTitle}>Your personalized plan includes</Text>
+            {LOADING_STEPS.map((step, i) => {
+              const isDone = completedSteps.includes(i);
+              return (
+                <View key={i} style={styles.loadingCheckItem}>
+                  <View style={[styles.loadingCheckCircle, isDone && styles.loadingCheckCircleDone]}>
+                    {isDone && <Text style={styles.loadingCheckMark}>✓</Text>}
+                  </View>
+                  <Text style={[styles.loadingCheckText, isDone && styles.loadingCheckTextDone]}>
+                    {step}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
         </View>
       </View>
     );
@@ -611,19 +646,82 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
+    paddingHorizontal: 32,
   },
-  loadingTitle: {
-    fontSize: 24,
+  loadingPercent: {
+    fontSize: 56,
     fontWeight: '800',
     color: Colors.textPrimary,
-    marginTop: 28,
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  loadingBarTrack: {
+    width: '100%',
+    height: 8,
+    backgroundColor: Colors.surface,
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  loadingBarFill: {
+    height: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: 4,
   },
   loadingMessage: {
-    fontSize: 15,
-    color: Colors.primary,
-    textAlign: 'center',
-    fontWeight: '500',
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 36,
+  },
+  loadingChecklist: {
+    width: '100%',
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 20,
+  },
+  loadingChecklistTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginBottom: 16,
+  },
+  loadingCheckItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  loadingCheckCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.surfaceBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingCheckCircleDone: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
+  },
+  loadingCheckMark: {
+    fontSize: 12,
+    color: Colors.black,
+    fontWeight: '800',
+  },
+  loadingCheckText: {
+    fontSize: 14,
+    color: Colors.textMuted,
+  },
+  loadingCheckTextDone: {
+    color: Colors.textPrimary,
   },
 });
