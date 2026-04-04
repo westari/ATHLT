@@ -21,11 +21,12 @@ export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
 
   const logoFade = useRef(new Animated.Value(0)).current;
-  const logoScale = useRef(new Animated.Value(0.85)).current;
-  const textFade = useRef(new Animated.Value(0)).current;
-  const buttonsFade = useRef(new Animated.Value(0)).current;
-  const buttonsSlide = useRef(new Animated.Value(50)).current;
-  const footerFade = useRef(new Animated.Value(0)).current;
+  const logoSlide = useRef(new Animated.Value(20)).current;
+  const headlineFade = useRef(new Animated.Value(0)).current;
+  const subtextFade = useRef(new Animated.Value(0)).current;
+  const buttonFade = useRef(new Animated.Value(0)).current;
+  const buttonScale = useRef(new Animated.Value(0.9)).current;
+  const signInFade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.sequence([
@@ -35,32 +36,37 @@ export default function WelcomeScreen() {
           duration: 500,
           useNativeDriver: true,
         }),
-        Animated.spring(logoScale, {
-          toValue: 1,
-          friction: 6,
-          tension: 40,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(textFade, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
-      Animated.parallel([
-        Animated.timing(buttonsFade, {
-          toValue: 1,
-          duration: 400,
-          useNativeDriver: true,
-        }),
-        Animated.spring(buttonsSlide, {
+        Animated.spring(logoSlide, {
           toValue: 0,
           friction: 7,
           tension: 40,
           useNativeDriver: true,
         }),
       ]),
-      Animated.timing(footerFade, {
+      Animated.timing(headlineFade, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.timing(subtextFade, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.parallel([
+        Animated.timing(buttonFade, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.spring(buttonScale, {
+          toValue: 1,
+          friction: 6,
+          tension: 50,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.timing(signInFade, {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
@@ -83,11 +89,12 @@ export default function WelcomeScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={styles.topSection}>
+      {/* Logo — pushed up higher */}
+      <View style={styles.logoSection}>
         <Animated.View
           style={{
             opacity: logoFade,
-            transform: [{ scale: logoScale }],
+            transform: [{ translateY: logoSlide }],
           }}
         >
           <Image
@@ -96,44 +103,44 @@ export default function WelcomeScreen() {
             resizeMode="contain"
           />
         </Animated.View>
-
-        <Animated.View style={[styles.textSection, { opacity: textFade }]}>
-          <Text style={styles.headline}>Train smarter. Get better.</Text>
-          <Text style={styles.subtext}>
-            AI-powered training plans built around your game, your schedule, and your goals.
-          </Text>
-        </Animated.View>
       </View>
 
-      <Animated.View
-        style={[
-          styles.bottomSection,
-          {
-            opacity: buttonsFade,
-            transform: [{ translateY: buttonsSlide }],
-          },
-        ]}
-      >
-        <TouchableOpacity
-          style={styles.primaryButton}
-          onPress={handleGetStarted}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.primaryButtonText}>GET STARTED</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.secondaryButton}
-          onPress={handleSignIn}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.secondaryButtonText}>SIGN IN</Text>
-        </TouchableOpacity>
-
-        <Animated.Text style={[styles.footerText, { opacity: footerFade }]}>
-          2 minutes to set up · Free to start
+      {/* Headline + subtext + CTA — grouped tight in the lower half */}
+      <View style={styles.contentSection}>
+        <Animated.Text style={[styles.headline, { opacity: headlineFade }]}>
+          TRAIN SMARTER.{'\n'}GET BETTER.
         </Animated.Text>
-      </Animated.View>
+
+        <Animated.Text style={[styles.subtext, { opacity: subtextFade }]}>
+          AI training plans built around your game,{'\n'}your schedule, and your goals.
+        </Animated.Text>
+
+        <Animated.View
+          style={{
+            opacity: buttonFade,
+            transform: [{ scale: buttonScale }],
+            width: '100%',
+          }}
+        >
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={handleGetStarted}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.primaryButtonText}>GET STARTED</Text>
+          </TouchableOpacity>
+        </Animated.View>
+
+        <Animated.View style={{ opacity: signInFade }}>
+          <TouchableOpacity
+            onPress={handleSignIn}
+            activeOpacity={0.7}
+            style={styles.signInButton}
+          >
+            <Text style={styles.signInText}>Already have an account? <Text style={styles.signInLink}>Sign in</Text></Text>
+          </TouchableOpacity>
+        </Animated.View>
+      </View>
     </View>
   );
 }
@@ -142,71 +149,64 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.background,
-    justifyContent: 'space-between',
-    paddingHorizontal: 28,
   },
-  topSection: {
+  logoSection: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingTop: 20,
   },
   logoImage: {
-    width: SCREEN_WIDTH * 0.9,
-    height: 220,
-},
-  textSection: {
-    marginTop: 32,
+    width: SCREEN_WIDTH * 0.85,
+    height: 200,
+  },
+  contentSection: {
+    paddingHorizontal: 28,
+    paddingBottom: 24,
     alignItems: 'center',
   },
   headline: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: Colors.textPrimary,
+    fontSize: 30,
+    fontWeight: '900',
+    fontStyle: 'italic',
+    color: Colors.primary,
     textAlign: 'center',
-    marginBottom: 10,
+    letterSpacing: 2,
+    lineHeight: 38,
+    marginBottom: 14,
   },
   subtext: {
     fontSize: 15,
     color: Colors.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
-    paddingHorizontal: 10,
-  },
-  bottomSection: {
-    paddingBottom: 20,
-    gap: 12,
+    marginBottom: 32,
   },
   primaryButton: {
     backgroundColor: Colors.primary,
-    borderRadius: 14,
-    paddingVertical: 18,
+    borderRadius: 16,
+    paddingVertical: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    width: '100%',
   },
   primaryButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 16,
+    fontWeight: '900',
     color: Colors.black,
-    letterSpacing: 2,
+    letterSpacing: 3,
   },
-  secondaryButton: {
-    borderRadius: 14,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    paddingVertical: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
+  signInButton: {
+    marginTop: 20,
+    paddingVertical: 8,
   },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textMuted,
-    letterSpacing: 1.5,
-  },
-  footerText: {
+  signInText: {
     fontSize: 13,
     color: Colors.textMuted,
     textAlign: 'center',
-    marginTop: 8,
+  },
+  signInLink: {
+    color: Colors.primary,
+    fontWeight: '600',
   },
 });
