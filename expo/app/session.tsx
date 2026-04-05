@@ -8,7 +8,7 @@ import {
   ScrollView,
   Animated,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, ChevronRight, ChevronLeft, Play, Pause, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -18,13 +18,10 @@ import { usePlanStore } from '@/store/planStore';
 export default function SessionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams();
   const { plan, completedDrills, toggleDrill } = usePlanStore();
 
-  const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const todayShort = DAYS_OF_WEEK[new Date().getDay()];
-  const dayIndex = plan?.days?.findIndex(d =>
-    d.day.toLowerCase().startsWith(todayShort.toLowerCase().slice(0, 3))
-  ) ?? 0;
+  const dayIndex = params.dayIndex ? parseInt(params.dayIndex as string) : 0;
   const currentDay = plan?.days?.[dayIndex];
   const drills = currentDay?.drills || [];
 
@@ -36,7 +33,6 @@ export default function SessionScreen() {
 
   const timerRef = useRef<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-
   const currentDrill = drills[currentDrillIndex];
 
   const parseDrillTime = (timeStr: string): number => {
@@ -97,7 +93,6 @@ export default function SessionScreen() {
     setIsTimerRunning(false);
     setCompletedInSession(prev => ({ ...prev, [currentDrillIndex]: true }));
     toggleDrill(dayIndex, currentDrillIndex);
-
     if (currentDrillIndex < drills.length - 1) {
       setCurrentDrillIndex(currentDrillIndex + 1);
     } else {
@@ -117,8 +112,8 @@ export default function SessionScreen() {
   };
 
   const handlePrevDrill = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (currentDrillIndex > 0) {
+      if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       clearInterval(timerRef.current);
       setIsTimerRunning(false);
       setCurrentDrillIndex(currentDrillIndex - 1);
@@ -138,33 +133,23 @@ export default function SessionScreen() {
     if (currentDrill) setTimeRemaining(parseDrillTime(currentDrill.time));
   };
 
-  const TYPE_COLORS: Record<string, string> = {
-    warmup: '#8B9A6B', skill: Colors.primary, shooting: '#B08D57', conditioning: '#C47A6C',
-  };
-  const TYPE_LABELS: Record<string, string> = {
-    warmup: 'WARMUP', skill: 'SKILL WORK', shooting: 'SHOOTING', conditioning: 'CONDITIONING',
-  };
+  const TC: Record<string, string> = { warmup: '#8B9A6B', skill: Colors.primary, shooting: '#B08D57', conditioning: '#C47A6C' };
+  const TL: Record<string, string> = { warmup: 'WARMUP', skill: 'SKILL WORK', shooting: 'SHOOTING', conditioning: 'CONDITIONING' };
 
   if (sessionComplete) {
-    const completedCount = Object.keys(completedInSession).length;
+    const cc = Object.keys(completedInSession).length;
     return (
       <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={s.doneScreen}>
           <View style={s.doneCircle}><Check size={48} color={Colors.black} /></View>
           <Text style={s.doneTitle}>Session Complete!</Text>
-          <Text style={s.doneSub}>You crushed {completedCount} out of {drills.length} drills today.</Text>
+          <Text style={s.doneSub}>You crushed {cc} out of {drills.length} drills.</Text>
           <View style={s.doneStats}>
-            <View style={s.doneStat}>
-              <Text style={s.doneStatVal}>{completedCount}/{drills.length}</Text>
-              <Text style={s.doneStatLbl}>Drills</Text>
-            </View>
+            <View style={s.doneStat}><Text style={s.doneVal}>{cc}/{drills.length}</Text><Text style={s.doneLbl}>Drills</Text></View>
             <View style={s.doneDiv} />
-            <View style={s.doneStat}>
-              <Text style={s.doneStatVal}>{currentDay?.duration || '—'}</Text>
-              <Text style={s.doneStatLbl}>Duration</Text>
-            </View>
+            <View style={s.doneStat}><Text style={s.doneVal}>{currentDay?.duration || '—'}</Text><Text style={s.doneLbl}>Duration</Text></View>
           </View>
-          <Text style={s.doneMotivation}>Consistency beats intensity. Show up again tomorrow.</Text>
+          <Text style={s.doneMot}>Consistency beats intensity. Show up again tomorrow.</Text>
           <TouchableOpacity style={s.doneBtn} onPress={handleClose} activeOpacity={0.85}>
             <Text style={s.doneBtnTxt}>DONE</Text>
           </TouchableOpacity>
@@ -177,7 +162,7 @@ export default function SessionScreen() {
     return (
       <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={s.doneScreen}>
-          <Text style={s.doneTitle}>No drills for today</Text>
+          <Text style={s.doneTitle}>No drills for this day</Text>
           <Text style={s.doneSub}>This might be a rest day.</Text>
           <TouchableOpacity style={s.doneBtn} onPress={handleClose} activeOpacity={0.85}>
             <Text style={s.doneBtnTxt}>GO BACK</Text>
@@ -187,10 +172,10 @@ export default function SessionScreen() {
     );
   }
 
-  const typeColor = TYPE_COLORS[currentDrill.type] || Colors.textMuted;
-  const typeLabel = TYPE_LABELS[currentDrill.type] || '';
-  const totalTime = parseDrillTime(currentDrill.time);
-  const drillProgress = totalTime > 0 ? ((totalTime - timeRemaining) / totalTime) : 0;
+  const tc = TC[currentDrill.type] || Colors.textMuted;
+  const tl = TL[currentDrill.type] || '';
+  const tt = parseDrillTime(currentDrill.time);
+  const dp = tt > 0 ? ((tt - timeRemaining) / tt) : 0;
 
   return (
     <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -205,38 +190,27 @@ export default function SessionScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <View style={s.overallTrack}>
-        <View style={[s.overallFill, { width: ((currentDrillIndex + 1) / drills.length * 100) + '%' }]} />
-      </View>
+      <View style={s.oTrack}><View style={[s.oFill, { width: ((currentDrillIndex + 1) / drills.length * 100) + '%' }]} /></View>
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <View style={[s.tag, { backgroundColor: typeColor + '20' }]}>
-          <Text style={[s.tagTxt, { color: typeColor }]}>{typeLabel}</Text>
-        </View>
-
+        <View style={[s.tag, { backgroundColor: tc + '20' }]}><Text style={[s.tagTxt, { color: tc }]}>{tl}</Text></View>
         <Text style={s.drillName}>{currentDrill.name}</Text>
 
         <Animated.View style={[s.timerWrap, { transform: [{ scale: pulseAnim }] }]}>
-          <View style={[s.timerCircle, isTimerRunning && { borderColor: typeColor }]}>
-            <Text style={[s.timerTxt, isTimerRunning && { color: typeColor }]}>{formatTime(timeRemaining)}</Text>
+          <View style={[s.timerCircle, isTimerRunning && { borderColor: tc }]}>
+            <Text style={[s.timerTxt, isTimerRunning && { color: tc }]}>{formatTime(timeRemaining)}</Text>
             <Text style={s.timerLbl}>{timeRemaining === 0 ? 'DONE!' : isTimerRunning ? 'RUNNING' : 'READY'}</Text>
           </View>
         </Animated.View>
 
-        <View style={s.dpTrack}>
-          <View style={[s.dpFill, { width: (drillProgress * 100) + '%', backgroundColor: typeColor }]} />
-        </View>
+        <View style={s.dpTrack}><View style={[s.dpFill, { width: (dp * 100) + '%', backgroundColor: tc }]} /></View>
 
         <View style={s.controls}>
-          <TouchableOpacity onPress={handleResetTimer} style={s.ctrlBtn} activeOpacity={0.7}>
-            <Text style={s.ctrlTxt}>RESET</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleStartPause} style={[s.playBtn, { backgroundColor: typeColor }]} activeOpacity={0.85}>
+          <TouchableOpacity onPress={handleResetTimer} style={s.ctrlBtn} activeOpacity={0.7}><Text style={s.ctrlTxt}>RESET</Text></TouchableOpacity>
+          <TouchableOpacity onPress={handleStartPause} style={[s.playBtn, { backgroundColor: tc }]} activeOpacity={0.85}>
             {isTimerRunning ? <Pause size={28} color={Colors.black} /> : <Play size={28} color={Colors.black} />}
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleSkipDrill} style={s.ctrlBtn} activeOpacity={0.7}>
-            <Text style={s.ctrlTxt}>SKIP</Text>
-          </TouchableOpacity>
+          <TouchableOpacity onPress={handleSkipDrill} style={s.ctrlBtn} activeOpacity={0.7}><Text style={s.ctrlTxt}>SKIP</Text></TouchableOpacity>
         </View>
 
         {currentDrill.detail && (
@@ -251,7 +225,7 @@ export default function SessionScreen() {
           {drills.map((d, i) => {
             const done = completedInSession[i] || completedDrills[dayIndex + '-' + i];
             const curr = i === currentDrillIndex;
-            const dc = TYPE_COLORS[d.type] || Colors.textMuted;
+            const dc = TC[d.type] || Colors.textMuted;
             return (
               <TouchableOpacity key={i} style={[s.listItem, curr && s.listItemCurr]}
                 onPress={() => { clearInterval(timerRef.current); setIsTimerRunning(false); setCurrentDrillIndex(i); }} activeOpacity={0.7}>
@@ -268,11 +242,10 @@ export default function SessionScreen() {
 
       <View style={[s.bottom, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
         <View style={s.navRow}>
-          <TouchableOpacity onPress={handlePrevDrill} style={[s.navBtn, currentDrillIndex === 0 && { opacity: 0.3 }]}
-            disabled={currentDrillIndex === 0} activeOpacity={0.7}>
+          <TouchableOpacity onPress={handlePrevDrill} style={[s.navBtn, currentDrillIndex === 0 && { opacity: 0.3 }]} disabled={currentDrillIndex === 0} activeOpacity={0.7}>
             <ChevronLeft size={20} color={Colors.textSecondary} />
           </TouchableOpacity>
-          <TouchableOpacity style={[s.compBtn, { backgroundColor: typeColor }]} onPress={handleCompleteDrill} activeOpacity={0.85}>
+          <TouchableOpacity style={[s.compBtn, { backgroundColor: tc }]} onPress={handleCompleteDrill} activeOpacity={0.85}>
             <Check size={18} color={Colors.black} />
             <Text style={s.compTxt}>{currentDrillIndex === drills.length - 1 ? 'FINISH SESSION' : 'COMPLETE & NEXT'}</Text>
           </TouchableOpacity>
@@ -292,8 +265,8 @@ const s = StyleSheet.create({
   headerMid: { flex: 1, alignItems: 'center' },
   headerFocus: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
   headerProg: { fontSize: 12, color: Colors.textMuted },
-  overallTrack: { height: 3, backgroundColor: Colors.surface, marginHorizontal: 20 },
-  overallFill: { height: 3, backgroundColor: Colors.primary },
+  oTrack: { height: 3, backgroundColor: Colors.surface, marginHorizontal: 20 },
+  oFill: { height: 3, backgroundColor: Colors.primary },
   content: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 },
   tag: { alignSelf: 'center', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 12 },
   tagTxt: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
@@ -329,10 +302,10 @@ const s = StyleSheet.create({
   doneSub: { fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24, marginBottom: 32 },
   doneStats: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 24, alignItems: 'center', width: '100%' },
   doneStat: { flex: 1, alignItems: 'center' },
-  doneStatVal: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  doneStatLbl: { fontSize: 11, color: Colors.textMuted },
+  doneVal: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
+  doneLbl: { fontSize: 11, color: Colors.textMuted },
   doneDiv: { width: 1, height: 30, backgroundColor: Colors.surfaceBorder },
-  doneMotivation: { fontSize: 15, fontWeight: '600', color: Colors.primary, textAlign: 'center', fontStyle: 'italic', lineHeight: 22, marginBottom: 32 },
+  doneMot: { fontSize: 15, fontWeight: '600', color: Colors.primary, textAlign: 'center', fontStyle: 'italic', lineHeight: 22, marginBottom: 32 },
   doneBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 20, paddingHorizontal: 48, alignItems: 'center' },
   doneBtnTxt: { fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
 });
