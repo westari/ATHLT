@@ -52,7 +52,13 @@ export default function TodayScreen() {
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
 
   useEffect(() => {
-    loadFromStorage();
+    loadFromStorage().then(() => {
+      // If no profile exists, user hasn't done onboarding — redirect
+      const store = usePlanStore.getState();
+      if (!store.profile) {
+        router.replace('/');
+      }
+    });
   }, []);
 
   // Find today's day index based on day of week
