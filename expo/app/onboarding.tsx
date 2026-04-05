@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { usePlanStore } from '@/store/planStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -238,6 +239,7 @@ const LOADING_STEPS = [
 export default function OnboardingScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { setPlan, setProfile } = usePlanStore();
 
   const [currentStep, setCurrentStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
@@ -371,7 +373,23 @@ export default function OnboardingScreen() {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       if (response.ok && plan.days) {
-        // TODO: save plan to AsyncStorage
+        setPlan(plan);
+        setProfile({
+          sport: answers.sport as string,
+          position: answers.position as string,
+          experience: answers.experience as string,
+          goal: answers.goal as string,
+          weakness: answers.weakness as string,
+          driving: answers.driving as string,
+          leftHand: answers.leftHand as string,
+          pressure: answers.pressure as string,
+          goToMove: answers.goToMove as string,
+          threeConfidence: answers.threeConfidence as string,
+          freeThrow: answers.freeThrow as string,
+          frequency: answers.frequency as string,
+          duration: answers.duration as string,
+          access: answers.access,
+        });
         router.replace('/(tabs)/today' as any);
       } else {
         router.replace('/(tabs)/today' as any);
