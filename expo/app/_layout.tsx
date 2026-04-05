@@ -1,33 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { GestureHandlerRootView } from "react-native-gesture-handler";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import Colors from "@/constants/colors";
 
 void SplashScreen.preventAutoHideAsync();
-
-const queryClient = new QueryClient();
-
-function RootLayoutNav() {
-  return (
-  <Stack
-  initialRouteName="index"
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: Colors.background },
-        animation: 'slide_from_right',
-      }}
-    >
-      <Stack.Screen name="index" />
-      <Stack.Screen name="onboarding" />
-      <Stack.Screen name="coach-summary" options={{ animation: 'fade' }} />
-      <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
-      <Stack.Screen name="session" options={{ animation: 'slide_from_bottom', presentation: 'fullScreenModal' }} />
-    </Stack>
-  );
-}
 
 export default function RootLayout() {
   useEffect(() => {
@@ -35,11 +12,17 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <StatusBar style="light" />
-        <RootLayoutNav />
-      </GestureHandlerRootView>
-    </QueryClientProvider>
+    <>
+      <StatusBar style="light" />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: Colors.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="session" options={{ animation: 'slide_from_bottom', presentation: 'fullScreenModal' }} />
+      </Stack>
+    </>
   );
 }
