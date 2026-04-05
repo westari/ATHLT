@@ -12,7 +12,8 @@ const queryClient = new QueryClient();
 
 function RootLayoutNav() {
   return (
-    <Stack
+  <Stack
+  initialRouteName="index"
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: Colors.background },
