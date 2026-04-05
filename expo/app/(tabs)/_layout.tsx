@@ -1,12 +1,22 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Calendar, Film, BookOpen, BarChart3, Menu } from 'lucide-react-native';
 import Colors from '@/constants/colors';
-import { usePlanStore } from '@/store/planStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function TabsLayout() {
-  const { profile } = usePlanStore();
-  const hideTabBar = !profile;
+  const [hideTabBar, setHideTabBar] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem('athlt_plan_store').then((raw) => {
+      if (raw) {
+        const data = JSON.parse(raw);
+        if (data.profile) {
+          setHideTabBar(false);
+        }
+      }
+    });
+  }, []);
 
   return (
     <Tabs
