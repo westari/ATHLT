@@ -87,7 +87,7 @@ function WelcomeView({ onGetStarted, onSignIn }: { onGetStarted: () => void; onS
         </View>
 
         <Text style={welcomeStyles.headline}>
-          Training plans that know{'\n'}how you play.
+         TEST - CAN YOU SEE THIS?
         </Text>
 
         <TouchableOpacity style={welcomeStyles.primaryButton} onPress={onGetStarted} activeOpacity={0.85}>
