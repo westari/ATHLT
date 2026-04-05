@@ -6,6 +6,9 @@ import {
   TouchableOpacity,
   Platform,
   ScrollView,
+  Image,
+  Dimensions,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -15,20 +18,8 @@ import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import type { PlanDay } from '@/store/planStore';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-const FALLBACK_SESSION = {
-  focus: 'Ball Handling',
-  duration: '45 min',
-  drills: [
-    { name: 'Dynamic warmup', time: '5 min', type: 'warmup' as const, detail: 'Light jog, high knees, butt kicks, arm circles' },
-    { name: 'Stationary combo dribbles', time: '8 min', type: 'skill' as const, detail: 'Crossover, between legs, behind back — 30 sec each, both hands' },
-    { name: 'Full court attack dribbles', time: '10 min', type: 'skill' as const, detail: 'Speed dribble, hesitation, in-and-out — full court and back' },
-    { name: 'Pressure handling drill', time: '10 min', type: 'skill' as const, detail: 'Dribble in a tight space with cones, react to visual cues' },
-    { name: 'Free throw shooting', time: '7 min', type: 'shooting' as const, detail: '3 sets of 10 — focus on routine consistency' },
-    { name: 'Lane slides', time: '5 min', type: 'conditioning' as const, detail: 'Defensive slides baseline to baseline — 8 reps' },
-  ],
-};
 
 const TYPE_COLORS: Record<string, string> = {
   warmup: '#8B9A6B',
@@ -44,34 +35,120 @@ const TYPE_LABELS: Record<string, string> = {
   conditioning: 'CONDITIONING',
 };
 
+// ─── WELCOME SCREEN (shown before onboarding) ───
+function WelcomeView({ onGetStarted, onSignIn }: { onGetStarted: () => void; onSignIn: () => void }) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[welcomeStyles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <ScrollView contentContainerStyle={welcomeStyles.scrollContent} showsVerticalScrollIndicator={false}>
+        <View style={welcomeStyles.header}>
+          <Image
+            source={require('@/assets/images/logo.png')}
+            style={welcomeStyles.headerLogo}
+            resizeMode="contain"
+          />
+        </View>
+
+        <View style={welcomeStyles.previewCard}>
+          <View style={welcomeStyles.cardHeader}>
+            <View>
+              <Text style={welcomeStyles.cardGreeting}>TODAY'S SESSION</Text>
+              <Text style={welcomeStyles.cardTitle}>Left Hand Focus</Text>
+            </View>
+            <View style={welcomeStyles.cardBadge}>
+              <Text style={welcomeStyles.cardBadgeText}>45 MIN</Text>
+            </View>
+          </View>
+
+          {[
+            { name: 'Dynamic warmup + ball handling', meta: '5 min · 3 drills', done: true, active: false },
+            { name: 'Left hand finishing package', meta: '20 min · Mikan drill, reverse layups, floaters', done: false, active: true },
+            { name: 'Catch & shoot from weak spots', meta: '15 min · Left wing, top of key, left corner', done: false, active: false },
+            { name: 'Game-speed suicides', meta: '5 min · Conditioning finisher', done: false, active: false },
+          ].map((drill, i) => (
+            <View key={i} style={[welcomeStyles.drillItem, i === 3 && { borderBottomWidth: 0 }]}>
+              <View style={[welcomeStyles.drillDot, drill.active && welcomeStyles.drillDotActive]} />
+              <View style={welcomeStyles.drillContent}>
+                <Text style={[welcomeStyles.drillName, drill.active && welcomeStyles.drillNameActive]}>{drill.name}</Text>
+                <Text style={welcomeStyles.drillMeta}>{drill.meta}</Text>
+              </View>
+              {drill.done && <Text style={welcomeStyles.drillCheck}>✓</Text>}
+              {drill.active && <Text style={welcomeStyles.drillArrow}>→</Text>}
+            </View>
+          ))}
+
+          <View style={welcomeStyles.insightBox}>
+            <Text style={welcomeStyles.insightIcon}>⚡</Text>
+            <Text style={welcomeStyles.insightText}>
+              Based on your last game: your left hand finishing was 2/8. Today's plan targets that.
+            </Text>
+          </View>
+        </View>
+
+        <Text style={welcomeStyles.headline}>
+          Training plans that know{'\n'}how you play.
+        </Text>
+
+        <TouchableOpacity style={welcomeStyles.primaryButton} onPress={onGetStarted} activeOpacity={0.85}>
+          <Text style={welcomeStyles.primaryButtonText}>GET STARTED — IT'S FREE</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={onSignIn} activeOpacity={0.7} style={welcomeStyles.signInButton}>
+          <Text style={welcomeStyles.signInText}>
+            Already have an account? <Text style={welcomeStyles.signInLink}>Sign in</Text>
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+}
+
+// ─── MAIN TODAY SCREEN ───
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, completedDrills, toggleDrill, currentStreak, totalSessions, loadFromStorage } = usePlanStore();
+  const { plan, profile, completedDrills, toggleDrill, currentStreak, totalSessions, loadFromStorage } = usePlanStore();
   const [expandedDrill, setExpandedDrill] = useState<number | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     loadFromStorage().then(() => {
-      // If no profile exists, user hasn't done onboarding — redirect
-      const store = usePlanStore.getState();
-      if (!store.profile) {
-        router.replace('/');
-      }
+      setIsReady(true);
     });
   }, []);
 
-  // Find today's day index based on day of week
+  // Find today's day index
   useEffect(() => {
     if (plan?.days) {
       const today = DAYS_OF_WEEK[new Date().getDay()];
-      const todayShort = today.slice(0, 3);
       const idx = plan.days.findIndex(d =>
-        d.day.toLowerCase().startsWith(todayShort.toLowerCase())
+        d.day.toLowerCase().startsWith(today.toLowerCase().slice(0, 3))
       );
       if (idx >= 0) setSelectedDayIndex(idx);
     }
   }, [plan]);
+
+  // Show nothing while loading from storage
+  if (!isReady) {
+    return <View style={[styles.container, { paddingTop: insets.top }]} />;
+  }
+
+  // Show welcome screen if no profile (hasn't done onboarding)
+  if (!profile) {
+    return (
+      <WelcomeView
+        onGetStarted={() => {
+          if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          router.push('/onboarding' as any);
+        }}
+        onSignIn={() => {
+          if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        }}
+      />
+    );
+  }
 
   const todayDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -79,13 +156,22 @@ export default function TodayScreen() {
     day: 'numeric',
   });
 
-  // Use AI plan or fallback
   const hasPlan = plan && plan.days && plan.days.length > 0;
   const currentDay: PlanDay | null = hasPlan ? plan.days[selectedDayIndex] : null;
   const session = currentDay && !currentDay.isRest ? currentDay : null;
-  const drills = session?.drills || FALLBACK_SESSION.drills;
-  const sessionFocus = session?.focus || FALLBACK_SESSION.focus;
-  const sessionDuration = session?.duration || FALLBACK_SESSION.duration;
+
+  const FALLBACK_DRILLS = [
+    { name: 'Dynamic warmup', time: '5 min', type: 'warmup' as const, detail: 'Light jog, high knees, butt kicks, arm circles' },
+    { name: 'Stationary combo dribbles', time: '8 min', type: 'skill' as const, detail: 'Crossover, between legs, behind back — 30 sec each' },
+    { name: 'Full court attack dribbles', time: '10 min', type: 'skill' as const, detail: 'Speed dribble, hesitation, in-and-out — full court and back' },
+    { name: 'Pressure handling drill', time: '10 min', type: 'skill' as const, detail: 'Dribble in a tight space with cones' },
+    { name: 'Free throw shooting', time: '7 min', type: 'shooting' as const, detail: '3 sets of 10' },
+    { name: 'Lane slides', time: '5 min', type: 'conditioning' as const, detail: 'Defensive slides baseline to baseline' },
+  ];
+
+  const drills = session?.drills || FALLBACK_DRILLS;
+  const sessionFocus = session?.focus || 'Ball Handling';
+  const sessionDuration = session?.duration || '45 min';
 
   const handleDrillPress = (index: number) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -110,7 +196,6 @@ export default function TodayScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
-        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.headerDate}>{todayDate}</Text>
@@ -125,7 +210,6 @@ export default function TodayScreen() {
           )}
         </View>
 
-        {/* AI Insight */}
         {hasPlan && plan.aiInsight && (
           <View style={styles.insightCard}>
             <View style={styles.insightDot} />
@@ -133,7 +217,6 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {/* Weekly schedule bar */}
         {hasPlan && (
           <View style={styles.weekBar}>
             {plan.days.map((day, i) => {
@@ -168,7 +251,6 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {/* Rest day */}
         {currentDay?.isRest && (
           <View style={styles.restCard}>
             <Text style={styles.restTitle}>Recovery Day</Text>
@@ -178,7 +260,6 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {/* Session card */}
         {!currentDay?.isRest && (
           <View style={styles.sessionCard}>
             <View style={styles.sessionHeader}>
@@ -256,7 +337,6 @@ export default function TodayScreen() {
           </View>
         )}
 
-        {/* Stats row */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
             <Text style={styles.statValue}>{totalSessions}</Text>
@@ -272,7 +352,6 @@ export default function TodayScreen() {
           </View>
         </View>
 
-        {/* Up next - show next non-rest day */}
         {hasPlan && (() => {
           const nextIdx = plan.days.findIndex((d, i) => i > selectedDayIndex && !d.isRest);
           const nextDay = nextIdx >= 0 ? plan.days[nextIdx] : null;
@@ -286,9 +365,7 @@ export default function TodayScreen() {
               <View style={styles.upNextContent}>
                 <Text style={styles.upNextLabel}>NEXT SESSION — {nextDay.day.toUpperCase()}</Text>
                 <Text style={styles.upNextFocus}>{nextDay.focus}</Text>
-                <Text style={styles.upNextMeta}>
-                  {nextDay.duration} · {nextDay.drills.length} drills
-                </Text>
+                <Text style={styles.upNextMeta}>{nextDay.duration} · {nextDay.drills.length} drills</Text>
               </View>
               <ChevronRight size={18} color={Colors.textMuted} />
             </TouchableOpacity>
@@ -301,6 +378,61 @@ export default function TodayScreen() {
   );
 }
 
+// ─── WELCOME STYLES ───
+const welcomeStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  scrollContent: { flexGrow: 1, paddingHorizontal: 20 },
+  header: { paddingTop: 16, paddingBottom: 24, alignItems: 'center' },
+  headerLogo: { width: 180, height: 50 },
+  previewCard: {
+    backgroundColor: '#141414', borderRadius: 20,
+    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 28,
+  },
+  cardHeader: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-start', marginBottom: 20,
+  },
+  cardGreeting: {
+    fontSize: 13, color: Colors.textMuted, textTransform: 'uppercase',
+    letterSpacing: 1, marginBottom: 4,
+  },
+  cardTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary },
+  cardBadge: { backgroundColor: Colors.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
+  cardBadgeText: { fontSize: 12, fontWeight: '800', color: Colors.black, letterSpacing: 1 },
+  drillItem: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: '#1E1E1E', gap: 12,
+  },
+  drillDot: { width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: Colors.textMuted },
+  drillDotActive: { borderColor: Colors.primary, backgroundColor: Colors.primary },
+  drillContent: { flex: 1 },
+  drillName: { fontSize: 14, fontWeight: '600', color: Colors.textSecondary, marginBottom: 2 },
+  drillNameActive: { color: Colors.textPrimary },
+  drillMeta: { fontSize: 12, color: Colors.textMuted },
+  drillCheck: { fontSize: 14, color: Colors.accent },
+  drillArrow: { fontSize: 16, color: Colors.primary, fontWeight: '700' },
+  insightBox: {
+    flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#1A1A1A',
+    borderRadius: 12, padding: 14, marginTop: 16, gap: 10,
+    borderWidth: 1, borderColor: '#252525',
+  },
+  insightIcon: { fontSize: 16 },
+  insightText: { fontSize: 13, color: Colors.primary, lineHeight: 18, flex: 1, fontWeight: '500' },
+  headline: {
+    fontSize: 26, fontWeight: '800', color: Colors.textPrimary,
+    textAlign: 'center', lineHeight: 34, marginBottom: 24,
+  },
+  primaryButton: {
+    backgroundColor: Colors.primary, borderRadius: 16,
+    paddingVertical: 20, alignItems: 'center', width: '100%',
+  },
+  primaryButtonText: { fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
+  signInButton: { marginTop: 18, paddingVertical: 8 },
+  signInText: { fontSize: 13, color: Colors.textMuted, textAlign: 'center' },
+  signInLink: { color: Colors.primary, fontWeight: '600' },
+});
+
+// ─── TODAY STYLES ───
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scrollContent: { paddingHorizontal: 20 },
@@ -316,7 +448,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
   streakText: { fontSize: 12, fontWeight: '700', color: Colors.textSecondary },
-  // Insight
   insightCard: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 10,
     backgroundColor: Colors.surface, borderRadius: 14,
@@ -325,7 +456,6 @@ const styles = StyleSheet.create({
   },
   insightDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary, marginTop: 4 },
   insightText: { fontSize: 13, color: Colors.primary, lineHeight: 19, flex: 1, fontWeight: '500' },
-  // Week bar
   weekBar: {
     flexDirection: 'row', justifyContent: 'space-between',
     backgroundColor: Colors.surface, borderRadius: 14,
@@ -346,7 +476,6 @@ const styles = StyleSheet.create({
   weekDotRest: { borderStyle: 'dashed' as any },
   weekCheck: { fontSize: 11, color: Colors.black, fontWeight: '800' },
   weekTodayInner: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.primary },
-  // Rest card
   restCard: {
     backgroundColor: Colors.surface, borderRadius: 16,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
@@ -354,7 +483,6 @@ const styles = StyleSheet.create({
   },
   restTitle: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 },
   restSubtitle: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
-  // Session card
   sessionCard: {
     backgroundColor: Colors.surface, borderRadius: 18,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
@@ -370,7 +498,6 @@ const styles = StyleSheet.create({
   durationBadgeText: { fontSize: 12, fontWeight: '800', color: Colors.black },
   progressTrack: { height: 4, backgroundColor: '#252525', borderRadius: 2, marginBottom: 14, overflow: 'hidden' },
   progressFill: { height: 4, backgroundColor: Colors.accent, borderRadius: 2 },
-  // Drills
   drillRow: {
     flexDirection: 'row', alignItems: 'flex-start',
     paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#222222', gap: 12,
@@ -396,7 +523,6 @@ const styles = StyleSheet.create({
     paddingVertical: 18, alignItems: 'center', marginTop: 16,
   },
   startButtonText: { fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
-  // Stats
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   statCard: {
     flex: 1, backgroundColor: Colors.surface, borderRadius: 14,
@@ -404,7 +530,6 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 6 },
   statLabel: { fontSize: 10, color: Colors.textMuted, textAlign: 'center', lineHeight: 14 },
-  // Up next
   upNextCard: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: Colors.surface, borderRadius: 14,
