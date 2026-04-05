@@ -141,7 +141,8 @@ export default function TodayScreen() {
       <WelcomeView
         onGetStarted={() => {
           if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-         router.navigate('/onboarding' as any);
+        router.dismissAll();
+router.replace('/onboarding' as any);
         }}
         onSignIn={() => {
           if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
