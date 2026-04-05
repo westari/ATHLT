@@ -1,6 +1,4 @@
-import { useRouter } from 'expo-router';
-const router = useRouter();
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,30 +8,25 @@ import {
   ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import { usePlanStore } from '@/store/planStore';
+import type { PlanDay } from '@/store/planStore';
 
-const WEEK_SCHEDULE = [
-  { day: 'M', status: 'done', label: 'Handles' },
-  { day: 'T', status: 'done', label: 'Finishing' },
-  { day: 'W', status: 'rest', label: 'Rest' },
-  { day: 'T', status: 'today', label: 'Shooting' },
-  { day: 'F', status: 'upcoming', label: 'Defense' },
-  { day: 'S', status: 'upcoming', label: 'Full Game' },
-  { day: 'S', status: 'rest', label: 'Rest' },
-];
+const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const TODAY_SESSION = {
-  focus: 'Shooting',
+const FALLBACK_SESSION = {
+  focus: 'Ball Handling',
   duration: '45 min',
   drills: [
-    { name: 'Dynamic warmup + form shots', time: '5 min', type: 'warmup', detail: 'Light jog, stretches, then 10 form shots from 5 feet' },
-    { name: 'Spot shooting — 5 spots', time: '12 min', type: 'shooting', detail: 'Corners, wings, top of key — 10 makes from each spot' },
-    { name: 'Off-dribble pull-ups', time: '10 min', type: 'skill', detail: 'Jab step, one dribble pull-up from mid-range — both directions' },
-    { name: 'Catch & shoot off screens', time: '10 min', type: 'shooting', detail: 'Simulate coming off a screen, catch and shoot — quick release' },
-    { name: 'Free throws under fatigue', time: '5 min', type: 'shooting', detail: 'Sprint baseline to baseline, then shoot 2 FTs — repeat 5x' },
-    { name: 'Core circuit', time: '5 min', type: 'conditioning', detail: 'Planks, Russian twists, leg raises — 30 sec each, 3 rounds' },
+    { name: 'Dynamic warmup', time: '5 min', type: 'warmup' as const, detail: 'Light jog, high knees, butt kicks, arm circles' },
+    { name: 'Stationary combo dribbles', time: '8 min', type: 'skill' as const, detail: 'Crossover, between legs, behind back — 30 sec each, both hands' },
+    { name: 'Full court attack dribbles', time: '10 min', type: 'skill' as const, detail: 'Speed dribble, hesitation, in-and-out — full court and back' },
+    { name: 'Pressure handling drill', time: '10 min', type: 'skill' as const, detail: 'Dribble in a tight space with cones, react to visual cues' },
+    { name: 'Free throw shooting', time: '7 min', type: 'shooting' as const, detail: '3 sets of 10 — focus on routine consistency' },
+    { name: 'Lane slides', time: '5 min', type: 'conditioning' as const, detail: 'Defensive slides baseline to baseline — 8 reps' },
   ],
 };
 
@@ -53,8 +46,40 @@ const TYPE_LABELS: Record<string, string> = {
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { plan, completedDrills, toggleDrill, currentStreak, totalSessions, loadFromStorage } = usePlanStore();
   const [expandedDrill, setExpandedDrill] = useState<number | null>(null);
-  const [completedDrills, setCompletedDrills] = useState<Record<number, boolean>>({});
+  const [selectedDayIndex, setSelectedDayIndex] = useState(0);
+
+  useEffect(() => {
+    loadFromStorage();
+  }, []);
+
+  // Find today's day index based on day of week
+  useEffect(() => {
+    if (plan?.days) {
+      const today = DAYS_OF_WEEK[new Date().getDay()];
+      const todayShort = today.slice(0, 3);
+      const idx = plan.days.findIndex(d =>
+        d.day.toLowerCase().startsWith(todayShort.toLowerCase())
+      );
+      if (idx >= 0) setSelectedDayIndex(idx);
+    }
+  }, [plan]);
+
+  const todayDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  // Use AI plan or fallback
+  const hasPlan = plan && plan.days && plan.days.length > 0;
+  const currentDay: PlanDay | null = hasPlan ? plan.days[selectedDayIndex] : null;
+  const session = currentDay && !currentDay.isRest ? currentDay : null;
+  const drills = session?.drills || FALLBACK_SESSION.drills;
+  const sessionFocus = session?.focus || FALLBACK_SESSION.focus;
+  const sessionDuration = session?.duration || FALLBACK_SESSION.duration;
 
   const handleDrillPress = (index: number) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -63,11 +88,17 @@ export default function TodayScreen() {
 
   const handleDrillComplete = (index: number) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setCompletedDrills({ ...completedDrills, [index]: !completedDrills[index] });
+    toggleDrill(selectedDayIndex, index);
   };
 
-  const completedCount = Object.values(completedDrills).filter(Boolean).length;
-  const totalDrills = TODAY_SESSION.drills.length;
+  const handleDaySelect = (index: number) => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedDayIndex(index);
+    setExpandedDrill(null);
+  };
+
+  const isDrillDone = (index: number) => completedDrills[`${selectedDayIndex}-${index}`] || false;
+  const completedCount = drills.filter((_, i) => isDrillDone(i)).length;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -75,108 +106,159 @@ export default function TodayScreen() {
 
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Today</Text>
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakText}>3 day streak</Text>
+          <View>
+            <Text style={styles.headerDate}>{todayDate}</Text>
+            <Text style={styles.headerTitle}>
+              {hasPlan ? plan.weekTitle : 'Today\'s Session'}
+            </Text>
           </View>
+          {currentStreak > 0 && (
+            <View style={styles.streakBadge}>
+              <Text style={styles.streakText}>{currentStreak} day streak</Text>
+            </View>
+          )}
         </View>
+
+        {/* AI Insight */}
+        {hasPlan && plan.aiInsight && (
+          <View style={styles.insightCard}>
+            <View style={styles.insightDot} />
+            <Text style={styles.insightText}>{plan.aiInsight}</Text>
+          </View>
+        )}
 
         {/* Weekly schedule bar */}
-        <View style={styles.weekBar}>
-          {WEEK_SCHEDULE.map((day, i) => (
-            <View key={i} style={styles.weekDay}>
-              <Text style={[
-                styles.weekDayLabel,
-                day.status === 'today' && styles.weekDayLabelActive,
-              ]}>{day.day}</Text>
-              <View style={[
-                styles.weekDot,
-                day.status === 'done' && styles.weekDotDone,
-                day.status === 'today' && styles.weekDotToday,
-                day.status === 'rest' && styles.weekDotRest,
-              ]}>
-                {day.status === 'done' && <Text style={styles.weekCheck}>✓</Text>}
-                {day.status === 'today' && <View style={styles.weekTodayInner} />}
-              </View>
-            </View>
-          ))}
-        </View>
+        {hasPlan && (
+          <View style={styles.weekBar}>
+            {plan.days.map((day, i) => {
+              const isSelected = i === selectedDayIndex;
+              const isRest = day.isRest;
+              const dayDrills = day.drills || [];
+              const dayCompleted = dayDrills.filter((_, di) => completedDrills[`${i}-${di}`]).length;
+              const allDone = dayDrills.length > 0 && dayCompleted === dayDrills.length;
 
-        {/* Session card */}
-        <View style={styles.sessionCard}>
-          <View style={styles.sessionHeader}>
-            <View>
-              <Text style={styles.sessionFocus}>{TODAY_SESSION.focus}</Text>
-              <Text style={styles.sessionMeta}>
-                {TODAY_SESSION.duration} · {totalDrills} drills
-                {completedCount > 0 && ` · ${completedCount}/${totalDrills} done`}
-              </Text>
-            </View>
-            <View style={styles.durationBadge}>
-              <Text style={styles.durationBadgeText}>{TODAY_SESSION.duration}</Text>
-            </View>
-          </View>
-
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${(completedCount / totalDrills) * 100}%` }]} />
-          </View>
-
-          {TODAY_SESSION.drills.map((drill, index) => {
-            const isDone = completedDrills[index];
-            const isExpanded = expandedDrill === index;
-            const typeColor = TYPE_COLORS[drill.type] || Colors.textMuted;
-            const typeLabel = TYPE_LABELS[drill.type] || '';
-
-            return (
-              <TouchableOpacity
-                key={index}
-                style={[styles.drillRow, isDone && styles.drillRowDone]}
-                onPress={() => handleDrillPress(index)}
-                activeOpacity={0.7}
-              >
+              return (
                 <TouchableOpacity
-                  style={[
-                    styles.completeCircle,
-                    isDone && { borderColor: typeColor, backgroundColor: typeColor },
-                  ]}
-                  onPress={() => handleDrillComplete(index)}
+                  key={i}
+                  style={[styles.weekDay, isSelected && styles.weekDaySelected]}
+                  onPress={() => handleDaySelect(i)}
                   activeOpacity={0.7}
                 >
-                  {isDone && <Text style={styles.checkmark}>✓</Text>}
-                </TouchableOpacity>
-
-                <View style={styles.drillInfo}>
-                  <Text style={[styles.drillName, isDone && styles.drillNameDone]}>{drill.name}</Text>
-                  <View style={styles.drillMetaRow}>
-                    <View style={[styles.typeTag, { backgroundColor: typeColor + '20' }]}>
-                      <Text style={[styles.typeTagText, { color: typeColor }]}>{typeLabel}</Text>
-                    </View>
-                    <Text style={styles.drillTime}>{drill.time}</Text>
+                  <Text style={[styles.weekDayLabel, isSelected && styles.weekDayLabelActive]}>
+                    {day.day}
+                  </Text>
+                  <View style={[
+                    styles.weekDot,
+                    allDone && styles.weekDotDone,
+                    isSelected && !allDone && styles.weekDotToday,
+                    isRest && styles.weekDotRest,
+                  ]}>
+                    {allDone && <Text style={styles.weekCheck}>✓</Text>}
+                    {isSelected && !allDone && !isRest && <View style={styles.weekTodayInner} />}
                   </View>
-                  {isExpanded && <Text style={styles.drillDetail}>{drill.detail}</Text>}
-                </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
-                <Text style={styles.expandArrow}>{isExpanded ? '−' : '+'}</Text>
-              </TouchableOpacity>
-            );
-          })}
-
-          <TouchableOpacity style={styles.startButton} activeOpacity={0.85} onPress={() => router.push('/session' as any)}>
-            <Text style={styles.startButtonText}>
-              {completedCount > 0 && completedCount < totalDrills ? 'CONTINUE SESSION' : completedCount === totalDrills ? 'SESSION COMPLETE' : 'START SESSION'}
+        {/* Rest day */}
+        {currentDay?.isRest && (
+          <View style={styles.restCard}>
+            <Text style={styles.restTitle}>Recovery Day</Text>
+            <Text style={styles.restSubtitle}>
+              Your body builds muscle during rest, not during training. Stretch, hydrate, and get good sleep tonight.
             </Text>
-          </TouchableOpacity>
-        </View>
+          </View>
+        )}
+
+        {/* Session card */}
+        {!currentDay?.isRest && (
+          <View style={styles.sessionCard}>
+            <View style={styles.sessionHeader}>
+              <View>
+                <Text style={styles.sessionFocus}>{sessionFocus}</Text>
+                <Text style={styles.sessionMeta}>
+                  {sessionDuration} · {drills.length} drills
+                  {completedCount > 0 && ` · ${completedCount}/${drills.length} done`}
+                </Text>
+              </View>
+              <View style={styles.durationBadge}>
+                <Text style={styles.durationBadgeText}>{sessionDuration}</Text>
+              </View>
+            </View>
+
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${(completedCount / Math.max(drills.length, 1)) * 100}%` }]} />
+            </View>
+
+            {drills.map((drill, index) => {
+              const isDone = isDrillDone(index);
+              const isExpanded = expandedDrill === index;
+              const typeColor = TYPE_COLORS[drill.type] || Colors.textMuted;
+              const typeLabel = TYPE_LABELS[drill.type] || drill.type?.toUpperCase() || '';
+
+              return (
+                <TouchableOpacity
+                  key={index}
+                  style={[styles.drillRow, isDone && styles.drillRowDone]}
+                  onPress={() => handleDrillPress(index)}
+                  activeOpacity={0.7}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.completeCircle,
+                      isDone && { borderColor: typeColor, backgroundColor: typeColor },
+                    ]}
+                    onPress={() => handleDrillComplete(index)}
+                    activeOpacity={0.7}
+                  >
+                    {isDone && <Text style={styles.checkmark}>✓</Text>}
+                  </TouchableOpacity>
+
+                  <View style={styles.drillInfo}>
+                    <Text style={[styles.drillName, isDone && styles.drillNameDone]}>{drill.name}</Text>
+                    <View style={styles.drillMetaRow}>
+                      <View style={[styles.typeTag, { backgroundColor: typeColor + '20' }]}>
+                        <Text style={[styles.typeTagText, { color: typeColor }]}>{typeLabel}</Text>
+                      </View>
+                      <Text style={styles.drillTime}>{drill.time}</Text>
+                    </View>
+                    {isExpanded && drill.detail && (
+                      <Text style={styles.drillDetail}>{drill.detail}</Text>
+                    )}
+                  </View>
+
+                  <Text style={styles.expandArrow}>{isExpanded ? '−' : '+'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+
+            <TouchableOpacity
+              style={styles.startButton}
+              activeOpacity={0.85}
+              onPress={() => router.push('/session' as any)}
+            >
+              <Text style={styles.startButtonText}>
+                {completedCount > 0 && completedCount < drills.length
+                  ? 'CONTINUE SESSION'
+                  : completedCount === drills.length
+                  ? 'SESSION COMPLETE'
+                  : 'START SESSION'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Stats row */}
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>3</Text>
-            <Text style={styles.statLabel}>Sessions{'\n'}this week</Text>
+            <Text style={styles.statValue}>{totalSessions}</Text>
+            <Text style={styles.statLabel}>Total{'\n'}sessions</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={styles.statValue}>2h 15m</Text>
-            <Text style={styles.statLabel}>Total{'\n'}trained</Text>
+            <Text style={styles.statValue}>{currentStreak}</Text>
+            <Text style={styles.statLabel}>Day{'\n'}streak</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={[styles.statValue, { color: Colors.accent }]}>W1</Text>
@@ -184,26 +266,28 @@ export default function TodayScreen() {
           </View>
         </View>
 
-        {/* AI insight */}
-        <View style={styles.insightCard}>
-          <View style={styles.insightHeader}>
-            <View style={styles.insightDot} />
-            <Text style={styles.insightLabel}>AI INSIGHT</Text>
-          </View>
-          <Text style={styles.insightText}>
-            You've been consistent with ball handling this week. Your plan shifts to finishing and shooting next week to build on that foundation.
-          </Text>
-        </View>
-
-        {/* Up next */}
-        <TouchableOpacity style={styles.upNextCard} activeOpacity={0.8}>
-          <View style={styles.upNextContent}>
-            <Text style={styles.upNextLabel}>TOMORROW</Text>
-            <Text style={styles.upNextFocus}>Defense & Agility</Text>
-            <Text style={styles.upNextMeta}>45 min · Closeouts, slides, help & recover</Text>
-          </View>
-          <ChevronRight size={18} color={Colors.textMuted} />
-        </TouchableOpacity>
+        {/* Up next - show next non-rest day */}
+        {hasPlan && (() => {
+          const nextIdx = plan.days.findIndex((d, i) => i > selectedDayIndex && !d.isRest);
+          const nextDay = nextIdx >= 0 ? plan.days[nextIdx] : null;
+          if (!nextDay) return null;
+          return (
+            <TouchableOpacity
+              style={styles.upNextCard}
+              activeOpacity={0.8}
+              onPress={() => handleDaySelect(nextIdx)}
+            >
+              <View style={styles.upNextContent}>
+                <Text style={styles.upNextLabel}>NEXT SESSION — {nextDay.day.toUpperCase()}</Text>
+                <Text style={styles.upNextFocus}>{nextDay.focus}</Text>
+                <Text style={styles.upNextMeta}>
+                  {nextDay.duration} · {nextDay.drills.length} drills
+                </Text>
+              </View>
+              <ChevronRight size={18} color={Colors.textMuted} />
+            </TouchableOpacity>
+          );
+        })()}
 
         <View style={{ height: 30 }} />
       </ScrollView>
@@ -218,32 +302,53 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingTop: 16, paddingBottom: 16,
   },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary },
+  headerDate: { fontSize: 13, color: Colors.textMuted, marginBottom: 4 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary },
   streakBadge: {
     backgroundColor: Colors.surface, borderRadius: 20,
     paddingHorizontal: 14, paddingVertical: 8,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
   streakText: { fontSize: 12, fontWeight: '700', color: Colors.textSecondary },
+  // Insight
+  insightCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 16, marginBottom: 16,
+  },
+  insightDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary, marginTop: 4 },
+  insightText: { fontSize: 13, color: Colors.primary, lineHeight: 19, flex: 1, fontWeight: '500' },
+  // Week bar
   weekBar: {
     flexDirection: 'row', justifyContent: 'space-between',
     backgroundColor: Colors.surface, borderRadius: 14,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 14, marginBottom: 16,
+    padding: 12, marginBottom: 16,
   },
-  weekDay: { alignItems: 'center', gap: 8 },
-  weekDayLabel: { fontSize: 12, fontWeight: '600', color: Colors.textMuted },
+  weekDay: { alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingVertical: 4, borderRadius: 8 },
+  weekDaySelected: { backgroundColor: '#1A1708' },
+  weekDayLabel: { fontSize: 11, fontWeight: '600', color: Colors.textMuted },
   weekDayLabelActive: { color: Colors.primary },
   weekDot: {
-    width: 28, height: 28, borderRadius: 14,
+    width: 26, height: 26, borderRadius: 13,
     borderWidth: 1.5, borderColor: Colors.surfaceBorder,
     alignItems: 'center', justifyContent: 'center',
   },
   weekDotDone: { borderColor: Colors.accent, backgroundColor: Colors.accent },
   weekDotToday: { borderColor: Colors.primary, borderWidth: 2 },
-  weekDotRest: { borderColor: Colors.surfaceBorder, borderStyle: 'dashed' as any },
-  weekCheck: { fontSize: 12, color: Colors.black, fontWeight: '800' },
-  weekTodayInner: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
+  weekDotRest: { borderStyle: 'dashed' as any },
+  weekCheck: { fontSize: 11, color: Colors.black, fontWeight: '800' },
+  weekTodayInner: { width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.primary },
+  // Rest card
+  restCard: {
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 28, alignItems: 'center', marginBottom: 16,
+  },
+  restTitle: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 },
+  restSubtitle: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 21 },
+  // Session card
   sessionCard: {
     backgroundColor: Colors.surface, borderRadius: 18,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
@@ -259,6 +364,7 @@ const styles = StyleSheet.create({
   durationBadgeText: { fontSize: 12, fontWeight: '800', color: Colors.black },
   progressTrack: { height: 4, backgroundColor: '#252525', borderRadius: 2, marginBottom: 14, overflow: 'hidden' },
   progressFill: { height: 4, backgroundColor: Colors.accent, borderRadius: 2 },
+  // Drills
   drillRow: {
     flexDirection: 'row', alignItems: 'flex-start',
     paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#222222', gap: 12,
@@ -284,6 +390,7 @@ const styles = StyleSheet.create({
     paddingVertical: 18, alignItems: 'center', marginTop: 16,
   },
   startButtonText: { fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
+  // Stats
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 12 },
   statCard: {
     flex: 1, backgroundColor: Colors.surface, borderRadius: 14,
@@ -291,15 +398,7 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 6 },
   statLabel: { fontSize: 10, color: Colors.textMuted, textAlign: 'center', lineHeight: 14 },
-  insightCard: {
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 18, marginBottom: 12,
-  },
-  insightHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  insightDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
-  insightLabel: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
-  insightText: { fontSize: 13, color: Colors.primary, lineHeight: 19, fontWeight: '500' },
+  // Up next
   upNextCard: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: Colors.surface, borderRadius: 14,
