@@ -37,8 +37,14 @@ interface OnboardingStep {
   id?: string; question?: string; subtitle?: string;
   selectType?: 'select' | 'multiselect'; section?: string;
   options?: { label: string; subtitle?: string; disabled?: boolean }[];
-  infoTitle?: string; infoBody?: string; infoIcon?: string;
+  infoTitle?: string; infoBody?: string; infoIcon?: string; infoImage?: any;
 }
+
+const INFO_IMAGES = {
+  dribble: require('@/assets/images/coach-x-dribble.png'),
+  pointing: require('@/assets/images/coach-x-pointing.png'),
+  clipboard: require('@/assets/images/coach-x-clipboard.png'),
+};
 
 const ONBOARDING_STEPS: OnboardingStep[] = [
   { type:'question',id:'sport',section:'About You',question:'What sport do you play?',subtitle:'We\'ll tailor everything to your game.',selectType:'select',
@@ -47,25 +53,25 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
     options:[{label:'Point Guard'},{label:'Shooting Guard'},{label:'Small Forward'},{label:'Power Forward'},{label:'Center'}] },
   { type:'question',id:'experience',section:'About You',question:'How long have you been playing?',subtitle:'So we match the right intensity.',selectType:'select',
     options:[{label:'Less than a year',subtitle:'Just getting started'},{label:'1-2 years',subtitle:'Learning the fundamentals'},{label:'3-5 years',subtitle:'Most school team players'},{label:'6-10 years',subtitle:'Most varsity / travel players'},{label:'10+ years',subtitle:'College level and beyond'}] },
-  { type:'info',infoIcon:'🏀',infoTitle:'Great — we know who you are.',infoBody:'Now let\'s figure out what to work on. The best players don\'t just practice what they\'re good at — they attack their weaknesses.' },
+  { type:'info',infoImage:INFO_IMAGES.dribble,infoTitle:'Great \u2014 we know who you are.',infoBody:'Now let\'s figure out what to work on. The best players don\'t just practice what they\'re good at \u2014 they attack their weaknesses.' },
   { type:'question',id:'goal',section:'Your Goals',question:'What do you want to improve most?',subtitle:'Pick the one that matters most right now.',selectType:'select',
     options:[{label:'Become a better scorer'},{label:'Improve my defense'},{label:'Get faster and more athletic'},{label:'Become a more complete player'},{label:'Get recruited / play at the next level'}] },
   { type:'question',id:'weakness',section:'Your Goals',question:'What part of your game needs the most work?',subtitle:'We\'ll focus most of your plan here.',selectType:'select',
     options:[{label:'Shooting'},{label:'Ball handling'},{label:'Defense'},{label:'Finishing at the rim'},{label:'Speed & agility'},{label:'Basketball IQ'}] },
-  { type:'info',infoIcon:'📈',infoTitle:'Players who train their weaknesses improve 2x faster.',infoBody:'Most players only practice what they\'re already good at. Your plan will be different — we\'ll push you where it matters most.' },
-  { type:'question',id:'driving',section:'How You Play',question:'When you drive to the basket, what usually happens?',subtitle:'Be honest — this helps us build the right drills.',selectType:'select',
+  { type:'info',infoImage:INFO_IMAGES.pointing,infoTitle:'Players who train their weaknesses improve 2x faster.',infoBody:'Most players only practice what they\'re already good at. Your plan will be different \u2014 we\'ll push you where it matters most.' },
+  { type:'question',id:'driving',section:'How You Play',question:'When you drive to the basket, what usually happens?',subtitle:'Be honest \u2014 this helps us build the right drills.',selectType:'select',
     options:[{label:'I usually score'},{label:'I get blocked or altered'},{label:'I pass it out'},{label:'I lose the ball'},{label:'I don\'t really drive'}] },
   { type:'question',id:'leftHand',section:'How You Play',question:'How\'s your left hand?',subtitle:'Your weak hand tells us a lot.',selectType:'select',
-    options:[{label:'Strong — I finish with both hands'},{label:'Getting there — I use it sometimes'},{label:'Weak — I avoid it'},{label:'I only use my right hand'}] },
+    options:[{label:'Strong \u2014 I finish with both hands'},{label:'Getting there \u2014 I use it sometimes'},{label:'Weak \u2014 I avoid it'},{label:'I only use my right hand'}] },
   { type:'question',id:'pressure',section:'How You Play',question:'What happens when you\'re guarded tight?',selectType:'select',
     options:[{label:'I can still create my shot'},{label:'I struggle but fight through'},{label:'I usually pass it away'},{label:'I turn it over'}] },
   { type:'question',id:'goToMove',section:'How You Play',question:'What\'s your go-to move?',subtitle:'We\'ll help you build on it.',selectType:'select',
     options:[{label:'Pull-up jumper'},{label:'Drive right'},{label:'Drive left'},{label:'Three pointer'},{label:'Post up'},{label:'I don\'t have one yet'}] },
   { type:'question',id:'threeConfidence',section:'How You Play',question:'How confident are you shooting threes?',selectType:'select',
-    options:[{label:'Very — I\'m a shooter'},{label:'Somewhat — I\'ll take open ones'},{label:'Not really — I prefer mid-range'},{label:'I don\'t shoot them'}] },
+    options:[{label:'Very \u2014 I\'m a shooter'},{label:'Somewhat \u2014 I\'ll take open ones'},{label:'Not really \u2014 I prefer mid-range'},{label:'I don\'t shoot them'}] },
   { type:'question',id:'freeThrow',section:'How You Play',question:'What\'s your free throw percentage?',subtitle:'Best guess is fine.',selectType:'select',
     options:[{label:'80% or higher'},{label:'60-80%'},{label:'40-60%'},{label:'Below 40%'},{label:'No idea'}] },
-  { type:'info',infoIcon:'🧠',infoTitle:'This is what makes ATHLT different.',infoBody:'Most apps give everyone the same plan. We just learned how you actually play — your plan will be built around YOUR game.' },
+  { type:'info',infoImage:INFO_IMAGES.clipboard,infoTitle:'This is what makes us different.',infoBody:'Most apps give everyone the same plan. We just learned how you actually play \u2014 your plan will be built around YOUR game.' },
   { type:'question',id:'frequency',section:'Your Schedule',question:'How often can you train?',subtitle:'Outside of team practice.',selectType:'select',
     options:[{label:'Once or twice a week'},{label:'3-4 times a week'},{label:'5-6 times a week'},{label:'Every day'}] },
   { type:'question',id:'duration',section:'Your Schedule',question:'How long do you want each session?',subtitle:'You can change this before every session.',selectType:'select',
@@ -91,42 +97,26 @@ export default function TodayScreen() {
   const router = useRouter();
   const { plan, profile, completedDrills, toggleDrill, currentStreak, totalSessions, loadFromStorage, setPlan, setProfile } = usePlanStore();
 
-  // App state
   const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'generating' | 'coach' | 'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
-
-  // Onboarding state
   const [quizStep, setQuizStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
-
-  // Loading state
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [currentLoadingStep, setCurrentLoadingStep] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
-
-  // Plan state
   const [expandedDrill, setExpandedDrill] = useState<number | null>(null);
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
 
-  // Load from storage on mount
-  useEffect(() => {
-    loadFromStorage().then(() => setIsReady(true));
-  }, []);
+  useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
 
-  // Determine initial state
   useEffect(() => {
     if (isReady) {
-      if (profile && plan) {
-        setAppState('plan');
-      } else {
-        setAppState('welcome');
-      }
+      if (profile && plan) { setAppState('plan'); } else { setAppState('welcome'); }
     }
   }, [isReady, profile, plan]);
 
-  // Find today's day index
   useEffect(() => {
     if (plan?.days) {
       const today = DAYS_OF_WEEK[new Date().getDay()];
@@ -135,14 +125,12 @@ export default function TodayScreen() {
     }
   }, [plan]);
 
-  // Smooth loading bar
   useEffect(() => {
     if (appState === 'generating') {
       Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start();
     }
   }, [loadingProgress, appState]);
 
-  // ─── HELPERS ───
   const animateQuizTransition = (direction: 'forward' | 'back', callback: () => void) => {
     const out = direction === 'forward' ? -30 : 30;
     const inn = direction === 'forward' ? 30 : -30;
@@ -163,7 +151,6 @@ export default function TodayScreen() {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const step = ONBOARDING_STEPS[quizStep];
     if (!step.id) return;
-
     if (step.selectType === 'multiselect') {
       const current = (answers[step.id] as string[]) || [];
       const updated = current.includes(option) ? current.filter(o => o !== option) : [...current, option];
@@ -177,17 +164,12 @@ export default function TodayScreen() {
   const goQuizNext = () => {
     if (quizStep < ONBOARDING_STEPS.length - 1) {
       animateQuizTransition('forward', () => setQuizStep(quizStep + 1));
-    } else {
-      handleGeneratePlan();
-    }
+    } else { handleGeneratePlan(); }
   };
 
   const goQuizBack = () => {
-    if (quizStep > 0) {
-      animateQuizTransition('back', () => setQuizStep(quizStep - 1));
-    } else {
-      setAppState('welcome');
-    }
+    if (quizStep > 0) { animateQuizTransition('back', () => setQuizStep(quizStep - 1)); }
+    else { setAppState('welcome'); }
   };
 
   const handleGeneratePlan = async () => {
@@ -195,7 +177,6 @@ export default function TodayScreen() {
     setAppState('generating');
     setLoadingProgress(0);
     setCurrentLoadingStep(0);
-
     let stepIdx = 0;
     const stepInterval = setInterval(() => {
       stepIdx++;
@@ -204,21 +185,16 @@ export default function TodayScreen() {
         setLoadingProgress(Math.round((stepIdx / LOADING_STEPS.length) * 95));
       }
     }, 2000);
-
     try {
       const response = await fetch('https://collectiq-xi.vercel.app/api/generate-plan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(answers),
       });
-
       clearInterval(stepInterval);
       setLoadingProgress(100);
       setCurrentLoadingStep(LOADING_STEPS.length);
-
       const result = await response.json();
       await new Promise(resolve => setTimeout(resolve, 1000));
-
       if (response.ok && result.days) {
         setPlan(result);
         setProfile({
@@ -231,27 +207,18 @@ export default function TodayScreen() {
           threeConfidence: answers.threeConfidence as string, freeThrow: answers.freeThrow as string,
         });
         setAppState(result.coachSummary ? 'coach' : 'plan');
-      } else {
-        setAppState('plan');
-      }
-    } catch (error) {
-      clearInterval(stepInterval);
-      setAppState('plan');
-    }
+      } else { setAppState('plan'); }
+    } catch (error) { clearInterval(stepInterval); setAppState('plan'); }
   };
 
   const isDrillDone = (index: number) => completedDrills[`${selectedDayIndex}-${index}`] || false;
 
-  // ─────────────────────────────────────────────
-  // RENDER: LOADING APP STATE
-  // ─────────────────────────────────────────────
+  // ── LOADING ──
   if (appState === 'loading') {
     return <View style={[s.container, { paddingTop: insets.top }]} />;
   }
 
-  // ─────────────────────────────────────────────
-  // RENDER: WELCOME SCREEN
-  // ─────────────────────────────────────────────
+  // ── WELCOME ──
   if (appState === 'welcome') {
     return (
       <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -259,7 +226,6 @@ export default function TodayScreen() {
           <View style={{ paddingTop: 16, paddingBottom: 24, alignItems: 'center' }}>
             <Image source={require('@/assets/images/logo.png')} style={{ width: 180, height: 50 }} resizeMode="contain" />
           </View>
-
           <View style={{ backgroundColor: '#141414', borderRadius: 20, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 28 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
               <View>
@@ -271,10 +237,10 @@ export default function TodayScreen() {
               </View>
             </View>
             {[
-              { name: 'Dynamic warmup + ball handling', meta: '5 min · 3 drills', done: true },
-              { name: 'Left hand finishing package', meta: '20 min · Mikan, reverse layups', active: true },
-              { name: 'Catch & shoot from weak spots', meta: '15 min · Left wing, top of key' },
-              { name: 'Game-speed suicides', meta: '5 min · Conditioning finisher', last: true },
+              { name: 'Dynamic warmup + ball handling', meta: '5 min', done: true },
+              { name: 'Left hand finishing package', meta: '20 min', active: true },
+              { name: 'Catch & shoot from weak spots', meta: '15 min' },
+              { name: 'Game-speed suicides', meta: '5 min', last: true },
             ].map((d, i) => (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: d.last ? 0 : 1, borderBottomColor: '#1E1E1E', gap: 12 }}>
                 <View style={{ width: 10, height: 10, borderRadius: 5, borderWidth: 1.5, borderColor: d.active ? Colors.primary : Colors.textMuted, backgroundColor: d.active ? Colors.primary : 'transparent' }} />
@@ -286,12 +252,7 @@ export default function TodayScreen() {
                 {d.active && <Text style={{ fontSize: 16, color: Colors.primary, fontWeight: '700' }}>→</Text>}
               </View>
             ))}
-            <View style={{ flexDirection: 'row', alignItems: 'flex-start', backgroundColor: '#1A1A1A', borderRadius: 12, padding: 14, marginTop: 16, gap: 10, borderWidth: 1, borderColor: '#252525' }}>
-              <Text style={{ fontSize: 16 }}>⚡</Text>
-              <Text style={{ fontSize: 13, color: Colors.primary, lineHeight: 18, flex: 1, fontWeight: '500' }}>Based on your last game: your left hand finishing was 2/8. Today's plan targets that.</Text>
-            </View>
           </View>
-
           <Text style={{ fontSize: 26, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', lineHeight: 34, marginBottom: 24 }}>
             Training plans that know{'\n'}how you play.
           </Text>
@@ -300,7 +261,7 @@ export default function TodayScreen() {
             onPress={() => { if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setAppState('onboarding'); }}
             activeOpacity={0.85}
           >
-            <Text style={{ fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 }}>GET STARTED — IT'S FREE</Text>
+            <Text style={{ fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 }}>GET STARTED</Text>
           </TouchableOpacity>
           <TouchableOpacity style={{ marginTop: 18, paddingVertical: 8 }} activeOpacity={0.7}>
             <Text style={{ fontSize: 13, color: Colors.textMuted, textAlign: 'center' }}>
@@ -312,13 +273,11 @@ export default function TodayScreen() {
     );
   }
 
-  // ─────────────────────────────────────────────
-  // RENDER: ONBOARDING
-  // ─────────────────────────────────────────────
+  // ── ONBOARDING ──
   if (appState === 'onboarding') {
     const step = ONBOARDING_STEPS[quizStep];
-    const totalQ = ONBOARDING_STEPS.filter(s => s.type === 'question').length;
-    const currentQ = ONBOARDING_STEPS.slice(0, quizStep + 1).filter(s => s.type === 'question').length;
+    const totalQ = ONBOARDING_STEPS.filter(st => st.type === 'question').length;
+    const currentQ = ONBOARDING_STEPS.slice(0, quizStep + 1).filter(st => st.type === 'question').length;
     const progress = (quizStep + 1) / ONBOARDING_STEPS.length;
 
     const isSelected = (option: string) => {
@@ -326,7 +285,6 @@ export default function TodayScreen() {
       const a = answers[step.id];
       return Array.isArray(a) ? a.includes(option) : a === option;
     };
-
     const canProceed = () => {
       if (!step.id) return true;
       const a = answers[step.id];
@@ -335,17 +293,16 @@ export default function TodayScreen() {
       return true;
     };
 
-    // Info screen
     if (step.type === 'info') {
       return (
         <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={s.quizHeader}>
-            <TouchableOpacity onPress={goQuizBack} style={s.backBtn}><Text style={s.backTxt}>←</Text></TouchableOpacity>
+            <TouchableOpacity onPress={goQuizBack} style={s.backBtn}><Text style={s.backTxt}>{'\u2190'}</Text></TouchableOpacity>
             <View style={s.progContainer}><View style={s.progTrack}><View style={[s.progFill, { width: `${progress * 100}%` }]} /></View></View>
             <View style={{ width: 60 }} />
           </View>
           <Animated.View style={[s.infoScreen, { opacity: fadeAnim, transform: [{ translateX: slideAnim }] }]}>
-            <Text style={s.infoIcon}>{step.infoIcon}</Text>
+            {step.infoImage && <Image source={step.infoImage} style={s.infoImg} resizeMode="contain" />}
             <Text style={s.infoTitle}>{step.infoTitle}</Text>
             <Text style={s.infoBody}>{step.infoBody}</Text>
           </Animated.View>
@@ -358,11 +315,10 @@ export default function TodayScreen() {
       );
     }
 
-    // Question screen
     return (
       <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={s.quizHeader}>
-          <TouchableOpacity onPress={goQuizBack} style={s.backBtn}><Text style={s.backTxt}>←</Text></TouchableOpacity>
+          <TouchableOpacity onPress={goQuizBack} style={s.backBtn}><Text style={s.backTxt}>{'\u2190'}</Text></TouchableOpacity>
           <View style={s.progContainer}><View style={s.progTrack}><View style={[s.progFill, { width: `${progress * 100}%` }]} /></View></View>
           <Text style={s.stepTxt}>{currentQ}/{totalQ}</Text>
         </View>
@@ -402,9 +358,7 @@ export default function TodayScreen() {
     );
   }
 
-  // ─────────────────────────────────────────────
-  // RENDER: GENERATING PLAN
-  // ─────────────────────────────────────────────
+  // ── GENERATING ──
   if (appState === 'generating') {
     const pw = progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
     return (
@@ -420,7 +374,7 @@ export default function TodayScreen() {
               const done = i < currentLoadingStep;
               return (
                 <View key={i} style={s.loadCheckItem}>
-                  <View style={[s.loadCheckCircle, done && s.loadCheckDone]}>{done && <Text style={s.loadCheckMark}>✓</Text>}</View>
+                  <View style={[s.loadCheckCircle, done && s.loadCheckDone]}>{done && <Text style={s.loadCheckMark}>{'\u2713'}</Text>}</View>
                   <Text style={[s.loadCheckText, done && s.loadCheckTextDone]}>{st}</Text>
                 </View>
               );
@@ -431,9 +385,7 @@ export default function TodayScreen() {
     );
   }
 
-  // ─────────────────────────────────────────────
-  // RENDER: COACH SUMMARY
-  // ─────────────────────────────────────────────
+  // ── COACH SUMMARY ──
   if (appState === 'coach') {
     const cs = (plan as any)?.coachSummary;
     const trainingDays = plan?.days?.filter(d => !d.isRest) || [];
@@ -441,12 +393,10 @@ export default function TodayScreen() {
       <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 100 }}>
           <View style={{ alignItems: 'center', marginBottom: 28 }}>
-            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.surface, borderWidth: 2, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 12, overflow: 'hidden' }}>
-              <Image source={require('@/assets/images/logo.png')} style={{ width: 50, height: 50 }} resizeMode="contain" />
-            </View>
-            <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 2 }}>YOUR AI COACH</Text>
+            <Image source={require('@/assets/images/coach-x.png')} style={{ width: 120, height: 120, borderRadius: 60 }} resizeMode="cover" />
+            <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 2, marginTop: 12 }}>COACH X</Text>
           </View>
-          <Text style={{ fontSize: 24, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', lineHeight: 32, marginBottom: 28 }}>{cs?.greeting || 'Your plan is ready.'}</Text>
+          <Text style={{ fontSize: 24, fontWeight: '800', color: Colors.primary, textAlign: 'center', lineHeight: 32, marginBottom: 28 }}>{cs?.greeting || 'Your plan is ready.'}</Text>
           {cs?.assessment && (
             <View style={s.coachCard}><Text style={s.coachCardTitle}>WHAT I SEE</Text><Text style={s.coachCardBody}>{cs.assessment}</Text></View>
           )}
@@ -480,9 +430,7 @@ export default function TodayScreen() {
     );
   }
 
-  // ─────────────────────────────────────────────
-  // RENDER: TRAINING PLAN
-  // ─────────────────────────────────────────────
+  // ── TRAINING PLAN ──
   const hasPlan = plan && plan.days && plan.days.length > 0;
   const currentDay = hasPlan ? plan.days[selectedDayIndex] : null;
   const session = currentDay && !currentDay.isRest ? currentDay : null;
@@ -534,7 +482,7 @@ export default function TodayScreen() {
                     allDone && { borderColor: Colors.accent, backgroundColor: Colors.accent },
                     isSel && !allDone && { borderColor: Colors.primary, borderWidth: 2 },
                     day.isRest && { borderStyle: 'dashed' as any }]}>
-                    {allDone && <Text style={{ fontSize: 11, color: Colors.black, fontWeight: '800' }}>✓</Text>}
+                    {allDone && <Text style={{ fontSize: 11, color: Colors.black, fontWeight: '800' }}>{'\u2713'}</Text>}
                     {isSel && !allDone && !day.isRest && <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: Colors.primary }} />}
                   </View>
                 </TouchableOpacity>
@@ -574,7 +522,7 @@ export default function TodayScreen() {
                   onPress={() => { if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setExpandedDrill(expanded ? null : index); }} activeOpacity={0.7}>
                   <TouchableOpacity style={[{ width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center', marginTop: 2 }, done && { borderColor: tc, backgroundColor: tc }]}
                     onPress={() => { if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); toggleDrill(selectedDayIndex, index); }} activeOpacity={0.7}>
-                    {done && <Text style={{ fontSize: 13, color: Colors.black, fontWeight: '800' }}>✓</Text>}
+                    {done && <Text style={{ fontSize: 13, color: Colors.black, fontWeight: '800' }}>{'\u2713'}</Text>}
                   </TouchableOpacity>
                   <View style={{ flex: 1 }}>
                     <Text style={[{ fontSize: 15, fontWeight: '600', color: Colors.textPrimary, marginBottom: 5 }, done && { textDecorationLine: 'line-through', color: Colors.textMuted }]}>{drill.name}</Text>
@@ -584,7 +532,7 @@ export default function TodayScreen() {
                     </View>
                     {expanded && drill.detail && <Text style={{ fontSize: 13, color: Colors.textSecondary, lineHeight: 19, marginTop: 10 }}>{drill.detail}</Text>}
                   </View>
-                  <Text style={{ fontSize: 18, color: Colors.textMuted, marginTop: 4 }}>{expanded ? '−' : '+'}</Text>
+                  <Text style={{ fontSize: 18, color: Colors.textMuted, marginTop: 4 }}>{expanded ? '\u2212' : '+'}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -605,17 +553,14 @@ export default function TodayScreen() {
             </View>
           ))}
         </View>
-
         <View style={{ height: 30 }} />
       </ScrollView>
     </View>
   );
 }
 
-// ─── STYLES ───
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  // Quiz
   quizHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, gap: 14 },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   backTxt: { fontSize: 22, color: Colors.textSecondary },
@@ -643,12 +588,11 @@ const s = StyleSheet.create({
   continueBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18, alignItems: 'center' },
   continueDis: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
   continueTxt: { fontSize: 15, fontWeight: '800', color: Colors.black, letterSpacing: 2 },
-  // Info
   infoScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 36 },
+  infoImg: { width: 200, height: 200, marginBottom: 24 },
   infoIcon: { fontSize: 48, marginBottom: 24 },
-  infoTitle: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', lineHeight: 32, marginBottom: 16 },
+  infoTitle: { fontSize: 24, fontWeight: '800', color: Colors.primary, textAlign: 'center', lineHeight: 32, marginBottom: 16 },
   infoBody: { fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24 },
-  // Loading
   loadScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
   loadPercent: { fontSize: 52, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 },
   loadTitle: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 24 },
@@ -663,7 +607,6 @@ const s = StyleSheet.create({
   loadCheckMark: { fontSize: 12, color: Colors.black, fontWeight: '800' },
   loadCheckText: { fontSize: 14, color: Colors.textMuted },
   loadCheckTextDone: { color: Colors.textPrimary },
-  // Coach
   coachCard: { backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 16 },
   coachCardTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
   coachCardBody: { fontSize: 15, color: Colors.textSecondary, lineHeight: 23 },
