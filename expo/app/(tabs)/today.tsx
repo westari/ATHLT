@@ -16,6 +16,7 @@ import { useRouter } from 'expo-router';
 import { ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
+import AuthScreen from '@/components/AuthScreen';
 import { usePlanStore } from '@/store/planStore';
 import type { PlanDay } from '@/store/planStore';
 
@@ -83,7 +84,7 @@ export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { plan, profile, completedDrills, toggleDrill, currentStreak, totalSessions, loadFromStorage, setPlan, setProfile } = usePlanStore();
-  const [appState, setAppState] = useState<'loading'|'welcome'|'onboarding'|'generating'|'coach'|'plan'>('loading');
+  const [appState, setAppState] = useState<'loading'|'welcome'|'onboarding'|'auth'|'generating'|'coach'|'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [quizStep, setQuizStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string|string[]>>({});
@@ -113,7 +114,7 @@ export default function TodayScreen() {
     if (st.selectType === 'multiselect') { const c = (answers[st.id] as string[])||[]; setAnswers({...answers,[st.id]:c.includes(opt)?c.filter(o=>o!==opt):[...c,opt]}); }
     else { setAnswers({...answers,[st.id]:opt}); setTimeout(() => goNext(), 300); }
   };
-  const goNext = () => { if (quizStep < ONBOARDING_STEPS.length-1) animTrans('forward',()=>setQuizStep(quizStep+1)); else handleGen(); };
+  const goNext = () => { if (quizStep < ONBOARDING_STEPS.length-1) animTrans('forward',()=>setQuizStep(quizStep+1));else setAppState('auth'); };
   const goBack = () => { if (quizStep > 0) animTrans('back',()=>setQuizStep(quizStep-1)); else setAppState('welcome'); };
   const handleGen = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -195,7 +196,9 @@ export default function TodayScreen() {
       </View>
     );
   }
-
+if (appState === 'auth') {
+    return <AuthScreen onComplete={(isGuest) => handleGen()} onBack={() => setAppState('onboarding')} />;
+  }
   if (appState === 'generating') {
     const pw = progressAnim.interpolate({inputRange:[0,100],outputRange:['0%','100%']});
     return (
