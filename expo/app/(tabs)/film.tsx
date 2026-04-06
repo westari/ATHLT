@@ -1,161 +1,330 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Platform,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Upload, Play, ChevronRight, AlertCircle, TrendingUp, TrendingDown } from 'lucide-react-native';
+import { Upload, Film, ChevronDown, ChevronUp, Play } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import Colors from '@/constants/colors';
+import { usePlanStore } from '@/store/planStore';
 
-const MOCK_ANALYSIS = {
-  title: 'vs. Westside Hawks — March 28',
-  duration: 'Full game · 32 min played',
-  overallGrade: 'B+',
-  strengths: [
-    { area: 'Transition offense', detail: 'Pushed the ball in transition 8 times, scored on 6. Great decision making in the open court.' },
-    { area: 'Catch & shoot', detail: '4/6 on catch and shoot threes. Quick release, good balance on every attempt.' },
-    { area: 'Help defense', detail: 'Rotated to help side correctly on 9/11 possessions. Good awareness.' },
-  ],
-  weaknesses: [
-    { area: 'Left hand finishing', detail: '1/5 on left hand layups. Switched to right hand twice when left was the better option.' },
-    { area: 'Ball security in half court', detail: '4 turnovers in half court sets. Most came from picking up dribble too early under pressure.' },
-    { area: 'Off-ball movement', detail: 'Stood still on weak side for 12+ seconds on 7 possessions. Need to cut and relocate.' },
-  ],
-  planImpact: 'Based on this game, your next 2 weeks will emphasize left hand finishing and ball handling under pressure. We also added off-ball movement drills to your warmups.',
+interface FilmAnalysis {
+  overallGrade: string;
+  summary: string;
+  strengths: { skill: string; detail: string }[];
+  weaknesses: { skill: string; detail: string }[];
+  keyPlays: { timestamp: string; description: string; grade: string }[];
+  drillRecommendations: { name: string; reason: string }[];
+  coachNote: string;
+}
+
+const GRADE_COLORS: Record<string, string> = {
+  'A': '#8B9A6B', 'B': Colors.primary, 'C': '#B08D57', 'D': '#C47A6C', 'F': '#C44A4A',
 };
 
 export default function FilmScreen() {
   const insets = useSafeAreaInsets();
+  const { profile } = usePlanStore();
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<FilmAnalysis | null>(null);
+  const [error, setError] = useState('');
+  const [expandedSection, setExpandedSection] = useState<string | null>('strengths');
+  const [analyzeProgress, setAnalyzeProgress] = useState('');
 
-  return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+  const handlePickVideo = async () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setError('');
 
-        {/* Header */}
-        <Text style={styles.headerTitle}>Film Study</Text>
-        <Text style={styles.headerSubtitle}>Upload game footage and get AI analysis that feeds directly into your training plan.</Text>
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'We need access to your camera roll to analyze game film.');
+      return;
+    }
 
-        {/* Upload section */}
-        <View style={styles.uploadSection}>
-          <TouchableOpacity style={styles.uploadCard} activeOpacity={0.8}>
-            <View style={styles.uploadIconWrap}>
-              <Upload size={24} color={Colors.primary} />
-            </View>
-            <View style={styles.uploadContent}>
-              <Text style={styles.uploadTitle}>Upload full game</Text>
-              <Text style={styles.uploadSubtitle}>Best for overall analysis — record from the stands showing full court</Text>
-            </View>
-            <ChevronRight size={16} color={Colors.textMuted} />
-          </TouchableOpacity>
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsEditing: true,
+      videoMaxDuration: 120,
+      quality: 0.5,
+    });
 
-          <TouchableOpacity style={styles.uploadCard} activeOpacity={0.8}>
-            <View style={styles.uploadIconWrap}>
-              <Play size={24} color={Colors.primary} />
-            </View>
-            <View style={styles.uploadContent}>
-              <Text style={styles.uploadTitle}>Upload specific plays</Text>
-              <Text style={styles.uploadSubtitle}>Clips of possessions you want analyzed — good or bad</Text>
-            </View>
-            <ChevronRight size={16} color={Colors.textMuted} />
-          </TouchableOpacity>
+    if (result.canceled) return;
 
-          <TouchableOpacity style={styles.uploadCard} activeOpacity={0.8}>
-            <View style={styles.uploadIconWrap}>
-              <AlertCircle size={24} color={Colors.primary} />
-            </View>
-            <View style={styles.uploadContent}>
-              <Text style={styles.uploadTitle}>Upload a workout</Text>
-              <Text style={styles.uploadSubtitle}>Shooting, handles, or drill footage for form feedback</Text>
-            </View>
-            <ChevronRight size={16} color={Colors.textMuted} />
-          </TouchableOpacity>
+    const video = result.assets[0];
+    if (!video.uri) return;
+
+    setIsAnalyzing(true);
+    setAnalyzeProgress('Reading video file...');
+
+    try {
+      const base64 = await FileSystem.readAsStringAsync(video.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setAnalyzeProgress('Coach X is watching your film...');
+
+      const mimeType = video.uri.endsWith('.mov') ? 'video/quicktime' : 'video/mp4';
+
+      const response = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoBase64: base64,
+          mimeType: mimeType,
+          profile: profile,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.overallGrade) {
+        setAnalysis(data);
+      } else {
+        setError(data.error || 'Failed to analyze video. Try a shorter clip.');
+      }
+    } catch (e: any) {
+      setError('Failed to upload video. Try a shorter clip (under 30 seconds).');
+    }
+
+    setIsAnalyzing(false);
+    setAnalyzeProgress('');
+  };
+
+  const handleRecordVideo = async () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setError('');
+
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'We need camera access to record game film.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['videos'],
+      videoMaxDuration: 120,
+      quality: 0.5,
+    });
+
+    if (result.canceled) return;
+
+    const video = result.assets[0];
+    if (!video.uri) return;
+
+    setIsAnalyzing(true);
+    setAnalyzeProgress('Reading video file...');
+
+    try {
+      const base64 = await FileSystem.readAsStringAsync(video.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setAnalyzeProgress('Coach X is watching your film...');
+
+      const response = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoBase64: base64,
+          mimeType: 'video/mp4',
+          profile: profile,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.overallGrade) {
+        setAnalysis(data);
+      } else {
+        setError(data.error || 'Failed to analyze video.');
+      }
+    } catch (e) {
+      setError('Failed to upload video. Try a shorter clip.');
+    }
+
+    setIsAnalyzing(false);
+    setAnalyzeProgress('');
+  };
+
+  const toggleSection = (section: string) => {
+    setExpandedSection(expandedSection === section ? null : section);
+  };
+
+  if (isAnalyzing) {
+    return (
+      <View style={[s.container, { paddingTop: insets.top }]}>
+        <View style={s.analyzingScreen}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={s.analyzingTitle}>Analyzing your film</Text>
+          <Text style={s.analyzingText}>{analyzeProgress}</Text>
+          <Text style={s.analyzingHint}>This may take up to 30 seconds for longer clips.</Text>
         </View>
+      </View>
+    );
+  }
 
-        {/* Divider */}
-        <View style={styles.divider} />
-
-        {/* Past analysis section */}
-        <Text style={styles.sectionTitle}>RECENT ANALYSIS</Text>
-
-        {/* Example analysis card */}
-        <View style={styles.analysisCard}>
-          {/* Analysis header */}
-          <View style={styles.analysisHeader}>
-            <View>
-              <Text style={styles.analysisTitle}>{MOCK_ANALYSIS.title}</Text>
-              <Text style={styles.analysisMeta}>{MOCK_ANALYSIS.duration}</Text>
-            </View>
-            <View style={styles.gradeBadge}>
-              <Text style={styles.gradeText}>{MOCK_ANALYSIS.overallGrade}</Text>
-            </View>
+  if (analysis) {
+    const gc = GRADE_COLORS[analysis.overallGrade] || Colors.primary;
+    return (
+      <View style={[s.container, { paddingTop: insets.top }]}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+          <View style={s.headerRow}>
+            <Text style={s.headerTitle}>Film Analysis</Text>
+            <TouchableOpacity style={s.newBtn} onPress={() => setAnalysis(null)} activeOpacity={0.7}>
+              <Text style={s.newBtnTxt}>New Analysis</Text>
+            </TouchableOpacity>
           </View>
+
+          {/* Grade card */}
+          <View style={s.gradeCard}>
+            <View style={[s.gradeCircle, { borderColor: gc }]}>
+              <Text style={[s.gradeText, { color: gc }]}>{analysis.overallGrade}</Text>
+            </View>
+            <Text style={s.gradeSummary}>{analysis.summary}</Text>
+          </View>
+
+          {/* Coach note */}
+          {analysis.coachNote && (
+            <View style={s.coachNote}>
+              <Text style={s.coachNoteLabel}>COACH X SAYS</Text>
+              <Text style={s.coachNoteText}>{analysis.coachNote}</Text>
+            </View>
+          )}
 
           {/* Strengths */}
-          <View style={styles.analysisSection}>
-            <View style={styles.analysisSectionHeader}>
-              <TrendingUp size={14} color={Colors.accent} />
-              <Text style={styles.analysisSectionTitle}>Strengths</Text>
-            </View>
-            {MOCK_ANALYSIS.strengths.map((item, i) => (
-              <View key={i} style={styles.analysisItem}>
-                <View style={[styles.analysisDot, { backgroundColor: Colors.accent }]} />
-                <View style={styles.analysisItemContent}>
-                  <Text style={styles.analysisItemArea}>{item.area}</Text>
-                  <Text style={styles.analysisItemDetail}>{item.detail}</Text>
-                </View>
+          <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('strengths')} activeOpacity={0.7}>
+            <Text style={s.sectionTitle}>STRENGTHS</Text>
+            <Text style={[s.sectionCount, { color: '#8B9A6B' }]}>{analysis.strengths.length}</Text>
+            {expandedSection === 'strengths' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
+          </TouchableOpacity>
+          {expandedSection === 'strengths' && analysis.strengths.map((s2, i) => (
+            <View key={i} style={s.itemCard}>
+              <View style={[s.itemDot, { backgroundColor: '#8B9A6B' }]} />
+              <View style={s.itemContent}>
+                <Text style={s.itemSkill}>{s2.skill}</Text>
+                <Text style={s.itemDetail}>{s2.detail}</Text>
               </View>
-            ))}
-          </View>
+            </View>
+          ))}
 
           {/* Weaknesses */}
-          <View style={styles.analysisSection}>
-            <View style={styles.analysisSectionHeader}>
-              <TrendingDown size={14} color={Colors.danger} />
-              <Text style={styles.analysisSectionTitle}>Needs work</Text>
-            </View>
-            {MOCK_ANALYSIS.weaknesses.map((item, i) => (
-              <View key={i} style={styles.analysisItem}>
-                <View style={[styles.analysisDot, { backgroundColor: Colors.danger }]} />
-                <View style={styles.analysisItemContent}>
-                  <Text style={styles.analysisItemArea}>{item.area}</Text>
-                  <Text style={styles.analysisItemDetail}>{item.detail}</Text>
-                </View>
+          <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('weaknesses')} activeOpacity={0.7}>
+            <Text style={s.sectionTitle}>AREAS TO IMPROVE</Text>
+            <Text style={[s.sectionCount, { color: '#C47A6C' }]}>{analysis.weaknesses.length}</Text>
+            {expandedSection === 'weaknesses' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
+          </TouchableOpacity>
+          {expandedSection === 'weaknesses' && analysis.weaknesses.map((w, i) => (
+            <View key={i} style={s.itemCard}>
+              <View style={[s.itemDot, { backgroundColor: '#C47A6C' }]} />
+              <View style={s.itemContent}>
+                <Text style={s.itemSkill}>{w.skill}</Text>
+                <Text style={s.itemDetail}>{w.detail}</Text>
               </View>
-            ))}
-          </View>
-
-          {/* Plan impact */}
-          <View style={styles.planImpact}>
-            <View style={styles.planImpactHeader}>
-              <View style={styles.planImpactDot} />
-              <Text style={styles.planImpactLabel}>HOW THIS CHANGES YOUR PLAN</Text>
             </View>
-            <Text style={styles.planImpactText}>{MOCK_ANALYSIS.planImpact}</Text>
+          ))}
+
+          {/* Key plays */}
+          {analysis.keyPlays && analysis.keyPlays.length > 0 && (
+            <>
+              <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('plays')} activeOpacity={0.7}>
+                <Text style={s.sectionTitle}>KEY PLAYS</Text>
+                <Text style={[s.sectionCount, { color: Colors.primary }]}>{analysis.keyPlays.length}</Text>
+                {expandedSection === 'plays' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
+              </TouchableOpacity>
+              {expandedSection === 'plays' && analysis.keyPlays.map((p, i) => (
+                <View key={i} style={s.itemCard}>
+                  <View style={[s.itemDot, { backgroundColor: p.grade === 'good' ? '#8B9A6B' : p.grade === 'bad' ? '#C47A6C' : Colors.textMuted }]} />
+                  <View style={s.itemContent}>
+                    <Text style={s.itemSkill}>{p.timestamp}</Text>
+                    <Text style={s.itemDetail}>{p.description}</Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* Drill recommendations */}
+          {analysis.drillRecommendations && analysis.drillRecommendations.length > 0 && (
+            <>
+              <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('drills')} activeOpacity={0.7}>
+                <Text style={s.sectionTitle}>RECOMMENDED DRILLS</Text>
+                <Text style={[s.sectionCount, { color: Colors.primary }]}>{analysis.drillRecommendations.length}</Text>
+                {expandedSection === 'drills' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
+              </TouchableOpacity>
+              {expandedSection === 'drills' && analysis.drillRecommendations.map((d, i) => (
+                <View key={i} style={s.itemCard}>
+                  <View style={[s.itemDot, { backgroundColor: Colors.primary }]} />
+                  <View style={s.itemContent}>
+                    <Text style={s.itemSkill}>{d.name}</Text>
+                    <Text style={s.itemDetail}>{d.reason}</Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
+
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[s.container, { paddingTop: insets.top }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+        <Text style={s.headerTitle}>Film Study</Text>
+        <Text style={s.headerSub}>Upload game film and Coach X will break down your performance.</Text>
+
+        {error ? <Text style={s.error}>{error}</Text> : null}
+
+        {/* Upload options */}
+        <TouchableOpacity style={s.uploadCard} onPress={handlePickVideo} activeOpacity={0.85}>
+          <View style={s.uploadIcon}>
+            <Upload size={28} color={Colors.primary} />
           </View>
+          <Text style={s.uploadTitle}>Upload from Camera Roll</Text>
+          <Text style={s.uploadSub}>Select a game clip (under 2 minutes)</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={s.uploadCard} onPress={handleRecordVideo} activeOpacity={0.85}>
+          <View style={s.uploadIcon}>
+            <Film size={28} color={Colors.primary} />
+          </View>
+          <Text style={s.uploadTitle}>Record New Clip</Text>
+          <Text style={s.uploadSub}>Film yourself or a game right now</Text>
+        </TouchableOpacity>
+
+        {/* How it works */}
+        <View style={s.howItWorks}>
+          <Text style={s.howTitle}>HOW IT WORKS</Text>
+          {[
+            { num: '1', text: 'Upload a game clip or practice footage' },
+            { num: '2', text: 'Coach X analyzes your movements, decisions, and technique' },
+            { num: '3', text: 'Get a detailed breakdown with strengths, weaknesses, and drills to improve' },
+          ].map((step, i) => (
+            <View key={i} style={s.howStep}>
+              <View style={s.howNum}><Text style={s.howNumTxt}>{step.num}</Text></View>
+              <Text style={s.howText}>{step.text}</Text>
+            </View>
+          ))}
         </View>
 
-        {/* Tips card */}
-        <View style={styles.tipsCard}>
-          <Text style={styles.tipsTitle}>Tips for better film</Text>
-          <View style={styles.tipRow}>
-            <Text style={styles.tipBullet}>·</Text>
-            <Text style={styles.tipText}>Record from the stands, not the sideline — we need to see the full court</Text>
-          </View>
-          <View style={styles.tipRow}>
-            <Text style={styles.tipBullet}>·</Text>
-            <Text style={styles.tipText}>Landscape mode, steady camera — propped up is better than handheld</Text>
-          </View>
-          <View style={styles.tipRow}>
-            <Text style={styles.tipBullet}>·</Text>
-            <Text style={styles.tipText}>Even phone footage works — you don't need a professional camera</Text>
-          </View>
-          <View style={styles.tipRow}>
-            <Text style={styles.tipBullet}>·</Text>
-            <Text style={styles.tipText}>Tell us your jersey number so we can track you</Text>
-          </View>
+        {/* Tips */}
+        <View style={s.tipsCard}>
+          <Text style={s.tipsTitle}>TIPS FOR BEST RESULTS</Text>
+          <Text style={s.tipItem}>• Keep clips under 2 minutes</Text>
+          <Text style={s.tipItem}>• Film from the side or behind the court</Text>
+          <Text style={s.tipItem}>• Good lighting helps the AI see better</Text>
+          <Text style={s.tipItem}>• Game footage works better than practice</Text>
         </View>
 
         <View style={{ height: 30 }} />
@@ -164,66 +333,81 @@ export default function FilmScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scrollContent: { paddingHorizontal: 20 },
+  scroll: { paddingHorizontal: 20 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, marginBottom: 16 },
   headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, paddingTop: 16, marginBottom: 8 },
-  headerSubtitle: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20, marginBottom: 24 },
-  uploadSection: { gap: 10, marginBottom: 8 },
+  headerSub: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 24 },
+  error: { fontSize: 13, color: '#C47A6C', backgroundColor: '#2A1515', borderRadius: 10, padding: 12, marginBottom: 16 },
+  newBtn: { backgroundColor: Colors.surface, borderRadius: 10, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 14, paddingVertical: 8 },
+  newBtnTxt: { fontSize: 13, fontWeight: '600', color: Colors.primary },
+  // Upload cards
   uploadCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 16, gap: 14,
+    backgroundColor: Colors.surface, borderRadius: 18, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 24, alignItems: 'center', marginBottom: 14,
   },
-  uploadIconWrap: {
-    width: 44, height: 44, borderRadius: 12,
-    backgroundColor: '#1A1708', alignItems: 'center', justifyContent: 'center',
+  uploadIcon: {
+    width: 56, height: 56, borderRadius: 28, backgroundColor: '#1A1708',
+    borderWidth: 2, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 14,
   },
-  uploadContent: { flex: 1 },
-  uploadTitle: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 3 },
-  uploadSubtitle: { fontSize: 12, color: Colors.textMuted, lineHeight: 16 },
-  divider: { height: 1, backgroundColor: Colors.surfaceBorder, marginVertical: 24 },
-  sectionTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 14 },
-  analysisCard: {
-    backgroundColor: Colors.surface, borderRadius: 18,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 20, marginBottom: 16,
+  uploadTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
+  uploadSub: { fontSize: 13, color: Colors.textMuted },
+  // How it works
+  howItWorks: {
+    backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 20, marginBottom: 14,
   },
-  analysisHeader: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 20,
+  howTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 16 },
+  howStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, marginBottom: 14 },
+  howNum: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
   },
-  analysisTitle: { fontSize: 18, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  analysisMeta: { fontSize: 13, color: Colors.textSecondary },
-  gradeBadge: {
-    width: 44, height: 44, borderRadius: 12,
-    backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
-  },
-  gradeText: { fontSize: 18, fontWeight: '900', color: Colors.black },
-  analysisSection: { marginBottom: 20 },
-  analysisSectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  analysisSectionTitle: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary },
-  analysisItem: { flexDirection: 'row', gap: 12, marginBottom: 14 },
-  analysisDot: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
-  analysisItemContent: { flex: 1 },
-  analysisItemArea: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary, marginBottom: 3 },
-  analysisItemDetail: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
-  planImpact: {
-    backgroundColor: '#141210', borderRadius: 12,
-    borderWidth: 1, borderColor: '#2A2518', padding: 16,
-  },
-  planImpactHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  planImpactDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary },
-  planImpactLabel: { fontSize: 10, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
-  planImpactText: { fontSize: 13, color: Colors.primary, lineHeight: 19, fontWeight: '500' },
+  howNumTxt: { fontSize: 13, fontWeight: '800', color: Colors.black },
+  howText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20, flex: 1, paddingTop: 3 },
+  // Tips
   tipsCard: {
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 18, marginBottom: 12,
+    backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 20, marginBottom: 14,
   },
-  tipsTitle: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 14 },
-  tipRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  tipBullet: { fontSize: 14, color: Colors.textMuted },
-  tipText: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18, flex: 1 },
+  tipsTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
+  tipItem: { fontSize: 13, color: Colors.textSecondary, lineHeight: 22 },
+  // Analyzing screen
+  analyzingScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  analyzingTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, marginTop: 24, marginBottom: 8 },
+  analyzingText: { fontSize: 15, color: Colors.primary, fontWeight: '500', marginBottom: 8 },
+  analyzingHint: { fontSize: 13, color: Colors.textMuted },
+  // Analysis results
+  gradeCard: {
+    backgroundColor: Colors.surface, borderRadius: 18, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 24, alignItems: 'center', marginBottom: 16,
+  },
+  gradeCircle: {
+    width: 80, height: 80, borderRadius: 40, borderWidth: 4,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+  },
+  gradeText: { fontSize: 36, fontWeight: '900' },
+  gradeSummary: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  coachNote: {
+    backgroundColor: '#141210', borderRadius: 14, borderWidth: 1, borderColor: '#2A2518',
+    padding: 18, marginBottom: 16,
+  },
+  coachNoteLabel: { fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5, marginBottom: 8 },
+  coachNoteText: { fontSize: 15, color: Colors.primary, lineHeight: 22, fontStyle: 'italic' },
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 16, marginBottom: 8,
+  },
+  sectionTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, flex: 1 },
+  sectionCount: { fontSize: 16, fontWeight: '800' },
+  itemCard: {
+    flexDirection: 'row', gap: 12, paddingVertical: 12, paddingHorizontal: 16,
+    marginBottom: 4,
+  },
+  itemDot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
+  itemContent: { flex: 1 },
+  itemSkill: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, marginBottom: 3 },
+  itemDetail: { fontSize: 13, color: Colors.textSecondary, lineHeight: 19 },
 });
