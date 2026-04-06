@@ -118,7 +118,7 @@ export default function CoachX() {
       {!isOpen && (
         <Animated.View style={[s.fabWrap, { transform: [{ scale: pulseAnim }], bottom: 95 + insets.bottom }]}>
           <TouchableOpacity style={s.fab} onPress={openChat} activeOpacity={0.85}>
-            <Image source={require('@/assets/images/coach-x.png')} style={s.fabImage} resizeMode="cover" />
+            <Text style={{ fontSize: 22, fontWeight: '900', color: Colors.primary }}>X</Text>
           </TouchableOpacity>
         </Animated.View>
       )}

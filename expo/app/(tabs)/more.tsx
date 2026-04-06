@@ -71,7 +71,7 @@ export default function MoreScreen() {
           <View style={s.playerCard}>
             <View style={s.playerHeader}>
               <View style={s.avatarWrap}>
-                <Image source={require('@/assets/images/coach-x.png')} style={s.avatar} resizeMode="cover" />
+                <Text style={{ fontSize: 24, fontWeight: '800', color: Colors.primary }}>{profile.position?.charAt(0) || 'P'}</Text>
               </View>
               <View style={s.playerInfo}>
                 <Text style={s.playerPosition}>{profile.position}</Text>
