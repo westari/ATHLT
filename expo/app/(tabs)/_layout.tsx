@@ -4,8 +4,12 @@ import { View } from 'react-native';
 import { Calendar, Film, BookOpen, BarChart3, Menu } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import CoachX from '@/components/CoachX';
+import { Asset } from 'expo-asset';
 
 export default function TabsLayout() {
+React.useEffect(() => {
+    Asset.loadAsync(require('@/assets/images/coach-x-small.png'));
+  }, []);
   return (
     <View style={{ flex: 1 }}>
       <Tabs
