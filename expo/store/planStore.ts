@@ -6,8 +6,10 @@ export interface PlanDrill {
   time: string;
   type: 'warmup' | 'skill' | 'shooting' | 'conditioning';
   detail: string;
+  duration?: number;
+  sets?: number;
+  reps?: number;
 }
-
 export interface PlanDay {
   day: string;
   date: string;
@@ -16,14 +18,13 @@ export interface PlanDay {
   isRest?: boolean;
   drills: PlanDrill[];
 }
-
 export interface TrainingPlan {
   weekTitle: string;
   aiInsight: string;
   days: PlanDay[];
 }
-
 export interface PlayerProfile {
+  name?: string;
   sport: string;
   position: string;
   experience: string;
@@ -39,7 +40,6 @@ export interface PlayerProfile {
   duration: string;
   access: string | string[];
 }
-
 export interface CompletedSession {
   date: string;
   focus: string;
@@ -55,9 +55,14 @@ interface PlanStore {
   completedSessions: CompletedSession[];
   currentStreak: number;
   totalSessions: number;
-
+  currentDayIndex: number;
+  isGenerating: boolean;
+  skillLevels: Record<string, number>;
   setPlan: (plan: TrainingPlan) => void;
   setProfile: (profile: PlayerProfile) => void;
+  setSkillLevels: (skills: Record<string, number>) => void;
+  setIsGenerating: (val: boolean) => void;
+  setCurrentDayIndex: (i: number) => void;
   toggleDrill: (dayIndex: number, drillIndex: number) => void;
   completeSession: (session: CompletedSession) => void;
   loadFromStorage: () => Promise<void>;
@@ -75,6 +80,8 @@ const saveToStorage = async (state: Partial<PlanStore>) => {
       completedSessions: state.completedSessions,
       currentStreak: state.currentStreak,
       totalSessions: state.totalSessions,
+      currentDayIndex: state.currentDayIndex,
+      skillLevels: state.skillLevels,
     };
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch (e) {
@@ -89,17 +96,29 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   completedSessions: [],
   currentStreak: 0,
   totalSessions: 0,
+  currentDayIndex: 0,
+  isGenerating: false,
+  skillLevels: {},
 
   setPlan: (plan) => {
     set({ plan });
     saveToStorage(get());
   },
-
   setProfile: (profile) => {
     set({ profile });
     saveToStorage(get());
   },
-
+  setSkillLevels: (skills) => {
+    set({ skillLevels: skills });
+    saveToStorage(get());
+  },
+  setIsGenerating: (val) => {
+    set({ isGenerating: val });
+  },
+  setCurrentDayIndex: (i) => {
+    set({ currentDayIndex: i });
+    saveToStorage(get());
+  },
   toggleDrill: (dayIndex, drillIndex) => {
     const key = `${dayIndex}-${drillIndex}`;
     const current = get().completedDrills;
@@ -107,7 +126,6 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     set({ completedDrills: updated });
     saveToStorage(get());
   },
-
   completeSession: (session) => {
     const sessions = [...get().completedSessions, session];
     set({
@@ -117,7 +135,6 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     });
     saveToStorage(get());
   },
-
   loadFromStorage: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -130,13 +147,14 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
           completedSessions: data.completedSessions || [],
           currentStreak: data.currentStreak || 0,
           totalSessions: data.totalSessions || 0,
+          currentDayIndex: data.currentDayIndex || 0,
+          skillLevels: data.skillLevels || {},
         });
       }
     } catch (e) {
       console.error('Failed to load from storage:', e);
     }
   },
-
   clearAll: () => {
     set({
       plan: null,
@@ -145,6 +163,8 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       completedSessions: [],
       currentStreak: 0,
       totalSessions: 0,
+      currentDayIndex: 0,
+      skillLevels: {},
     });
     AsyncStorage.removeItem(STORAGE_KEY);
   },
