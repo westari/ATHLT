@@ -64,10 +64,10 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
 ];
 
 const ASSESSMENT_CLIPS = [
-  { id:'one_on_one', clipType:'1on1', title:'One-on-One', instruction:'A possession of you playing 1-on-1', detail:'Half court is fine.' },
-  { id:'threes', clipType:'threes', title:'Open Threes', instruction:'2 open three pointers', detail:'No defender. Show me your form.' },
-  { id:'dribble', clipType:'dribble', title:'Dribble Combo', instruction:'Basic dribble combo moves', detail:'Crossover, between the legs, behind the back.' },
-  { id:'game', clipType:'game', title:'Game Footage', instruction:'Footage from a real game', detail:"No game footage? Film yourself finishing with each hand instead." },
+  { id:'defense', clipType:'defense', title:'Defense', instruction:'A possession of you guarding someone 1-on-1', detail:'Show me your stance and footwork. Full possession.' },
+  { id:'shooting', clipType:'shooting', title:'Shooting', instruction:'3-5 jump shots from your range', detail:'Catch-and-shoot or pull-up. Show me your form.' },
+  { id:'finishing', clipType:'finishing', title:'Finishing', instruction:'Layups with BOTH hands', detail:'Right hand and left hand finishes at the rim. Both required.' },
+  { id:'oneOnOne', clipType:'oneOnOne', title:'1-on-1 Offense', instruction:'A possession of you with the ball attacking', detail:'Show me your moves and how you score.' },
 ];
 
 const LOADING_STEPS = [
