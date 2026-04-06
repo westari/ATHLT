@@ -118,7 +118,7 @@ export default function CoachX() {
       {!isOpen && (
         <Animated.View style={[s.fabWrap, { transform: [{ scale: pulseAnim }], bottom: 95 + insets.bottom }]}>
          <TouchableOpacity style={s.fab} onPress={openChat} activeOpacity={0.85}>
-            <View style={s.fabInner}><Text style={s.fabText}>X</Text></View>
+            <Image source={require('@/assets/images/coach-x-small.png')} style={s.fabImage} resizeMode="cover" />
           </TouchableOpacity>
                    </Animated.View>
       )}
@@ -168,7 +168,7 @@ export default function CoachX() {
                 {messages.map((msg, i) => (
                   <View key={i} style={[s.messageBubble, msg.role === 'user' ? s.userBubble : s.coachBubble]}>
                     {msg.role === 'assistant' && (
-                      <Image source={require('@/assets/images/coach-x.png')} style={s.msgAvatar} resizeMode="cover" />
+                      <Image source={require('@/assets/images/coach-x-small.png')} style={s.msgAvatar} resizeMode="cover" />
                     )}
                     <View style={[s.msgContent, msg.role === 'user' ? s.userContent : s.coachContent]}>
                       <Text style={[s.msgText, msg.role === 'user' ? s.userText : s.coachText]}>{msg.content}</Text>
