@@ -13,16 +13,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Upload, Film, ChevronDown, ChevronUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
-import { supabase } from '@/constants/supabase';
 
 interface FilmAnalysis {
   overallGrade: string;
   summary: string;
   strengths: { skill: string; detail: string }[];
   weaknesses: { skill: string; detail: string }[];
-  keyPlays: { timestamp: string; description: string; grade: string }[];
   drillRecommendations: { name: string; reason: string }[];
   coachNote: string;
 }
@@ -40,52 +39,36 @@ export default function FilmScreen() {
   const [expandedSection, setExpandedSection] = useState<string | null>('strengths');
   const [analyzeProgress, setAnalyzeProgress] = useState('');
 
-  const uploadAndAnalyze = async (uri: string) => {
+  const analyzeVideo = async (uri: string) => {
     setIsAnalyzing(true);
     setError('');
-    setAnalyzeProgress('Uploading video...');
+    setAnalyzeProgress('Reading video file...');
 
     try {
-      const fileName = 'film_' + Date.now() + '.mp4';
-
-      const response = await fetch(uri);
-      const blob = await response.blob();
-
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('films')
-        .upload(fileName, blob, { contentType: 'video/mp4', upsert: true });
-
-      if (uploadError) {
-        console.error('Upload error:', uploadError);
-        setError('Failed to upload video. Try again.');
-        setIsAnalyzing(false);
-        return;
-      }
-
-      const { data: urlData } = supabase.storage.from('films').getPublicUrl(fileName);
-      const videoUrl = urlData.publicUrl;
+      var base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
 
       setAnalyzeProgress('Coach X is watching your film...');
 
-      const analysisResponse = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
+      var response = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoUrl: videoUrl,
+          videoBase64: base64,
           profile: profile,
         }),
       });
 
-      const data = await analysisResponse.json();
+      var data = await response.json();
 
-      if (analysisResponse.ok && data.overallGrade) {
+      if (response.ok && data.overallGrade) {
         setAnalysis(data);
       } else {
         setError(data.error || 'Failed to analyze video. Try a shorter clip.');
       }
     } catch (e: any) {
-      console.error('Film error:', e);
-      setError('Something went wrong. Try a shorter clip.');
+      setError('Something went wrong. Try a shorter clip (under 15 seconds).');
     }
 
     setIsAnalyzing(false);
@@ -96,44 +79,44 @@ export default function FilmScreen() {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setError('');
 
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'We need access to your camera roll to analyze game film.');
+    var perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') {
+      Alert.alert('Permission needed', 'We need access to your camera roll.');
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
+    var result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['videos'],
       allowsEditing: true,
-      videoMaxDuration: 120,
+      videoMaxDuration: 30,
       quality: 0.3,
     });
 
     if (result.canceled || !result.assets[0]?.uri) return;
-    await uploadAndAnalyze(result.assets[0].uri);
+    await analyzeVideo(result.assets[0].uri);
   };
 
   const handleRecordVideo = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setError('');
 
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission needed', 'We need camera access to record game film.');
+    var perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (perm.status !== 'granted') {
+      Alert.alert('Permission needed', 'We need camera access.');
       return;
     }
 
-    const result = await ImagePicker.launchCameraAsync({
+    var result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['videos'],
-      videoMaxDuration: 120,
+      videoMaxDuration: 30,
       quality: 0.3,
     });
 
     if (result.canceled || !result.assets[0]?.uri) return;
-    await uploadAndAnalyze(result.assets[0].uri);
+    await analyzeVideo(result.assets[0].uri);
   };
 
-  const toggleSection = (section: string) => {
+  var toggleSection = (section: string) => {
     setExpandedSection(expandedSection === section ? null : section);
   };
 
@@ -151,7 +134,7 @@ export default function FilmScreen() {
   }
 
   if (analysis) {
-    const gc = GRADE_COLORS[analysis.overallGrade] || Colors.primary;
+    var gc = GRADE_COLORS[analysis.overallGrade] || Colors.primary;
     return (
       <View style={[s.container, { paddingTop: insets.top }]}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
@@ -178,10 +161,10 @@ export default function FilmScreen() {
 
           <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('strengths')} activeOpacity={0.7}>
             <Text style={s.sectionTitle}>STRENGTHS</Text>
-            <Text style={[s.sectionCount, { color: '#8B9A6B' }]}>{analysis.strengths.length}</Text>
+            <Text style={[s.sectionCount, { color: '#8B9A6B' }]}>{analysis.strengths?.length || 0}</Text>
             {expandedSection === 'strengths' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
           </TouchableOpacity>
-          {expandedSection === 'strengths' && analysis.strengths.map((item, i) => (
+          {expandedSection === 'strengths' && analysis.strengths?.map((item, i) => (
             <View key={i} style={s.itemCard}>
               <View style={[s.itemDot, { backgroundColor: '#8B9A6B' }]} />
               <View style={s.itemContent}>
@@ -193,10 +176,10 @@ export default function FilmScreen() {
 
           <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('weaknesses')} activeOpacity={0.7}>
             <Text style={s.sectionTitle}>AREAS TO IMPROVE</Text>
-            <Text style={[s.sectionCount, { color: '#C47A6C' }]}>{analysis.weaknesses.length}</Text>
+            <Text style={[s.sectionCount, { color: '#C47A6C' }]}>{analysis.weaknesses?.length || 0}</Text>
             {expandedSection === 'weaknesses' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
           </TouchableOpacity>
-          {expandedSection === 'weaknesses' && analysis.weaknesses.map((item, i) => (
+          {expandedSection === 'weaknesses' && analysis.weaknesses?.map((item, i) => (
             <View key={i} style={s.itemCard}>
               <View style={[s.itemDot, { backgroundColor: '#C47A6C' }]} />
               <View style={s.itemContent}>
@@ -205,25 +188,6 @@ export default function FilmScreen() {
               </View>
             </View>
           ))}
-
-          {analysis.keyPlays && analysis.keyPlays.length > 0 && (
-            <>
-              <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('plays')} activeOpacity={0.7}>
-                <Text style={s.sectionTitle}>KEY PLAYS</Text>
-                <Text style={[s.sectionCount, { color: Colors.primary }]}>{analysis.keyPlays.length}</Text>
-                {expandedSection === 'plays' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
-              </TouchableOpacity>
-              {expandedSection === 'plays' && analysis.keyPlays.map((item, i) => (
-                <View key={i} style={s.itemCard}>
-                  <View style={[s.itemDot, { backgroundColor: item.grade === 'good' ? '#8B9A6B' : item.grade === 'bad' ? '#C47A6C' : Colors.textMuted }]} />
-                  <View style={s.itemContent}>
-                    <Text style={s.itemSkill}>{item.timestamp}</Text>
-                    <Text style={s.itemDetail}>{item.description}</Text>
-                  </View>
-                </View>
-              ))}
-            </>
-          )}
 
           {analysis.drillRecommendations && analysis.drillRecommendations.length > 0 && (
             <>
@@ -261,7 +225,7 @@ export default function FilmScreen() {
         <TouchableOpacity style={s.uploadCard} onPress={handlePickVideo} activeOpacity={0.85}>
           <View style={s.uploadIcon}><Upload size={28} color={Colors.primary} /></View>
           <Text style={s.uploadTitle}>Upload from Camera Roll</Text>
-          <Text style={s.uploadSub}>Select a game clip (under 2 minutes)</Text>
+          <Text style={s.uploadSub}>Select a game clip (under 30 seconds)</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={s.uploadCard} onPress={handleRecordVideo} activeOpacity={0.85}>
@@ -273,9 +237,9 @@ export default function FilmScreen() {
         <View style={s.howCard}>
           <Text style={s.howTitle}>HOW IT WORKS</Text>
           {[
-            { n: '1', t: 'Upload a game clip or practice footage' },
-            { n: '2', t: 'Coach X analyzes your movements, decisions, and technique' },
-            { n: '3', t: 'Get a detailed breakdown with drills to improve' },
+            { n: '1', t: 'Upload a short game clip or practice footage' },
+            { n: '2', t: 'Coach X analyzes your movements and decisions' },
+            { n: '3', t: 'Get a breakdown with drills to improve' },
           ].map((step, i) => (
             <View key={i} style={s.howStep}>
               <View style={s.howNum}><Text style={s.howNumTxt}>{step.n}</Text></View>
@@ -286,7 +250,7 @@ export default function FilmScreen() {
 
         <View style={s.tipsCard}>
           <Text style={s.tipsTitle}>TIPS FOR BEST RESULTS</Text>
-          <Text style={s.tipItem}>Keep clips under 2 minutes</Text>
+          <Text style={s.tipItem}>Keep clips under 30 seconds</Text>
           <Text style={s.tipItem}>Film from the side or behind the court</Text>
           <Text style={s.tipItem}>Good lighting helps the AI see better</Text>
           <Text style={s.tipItem}>Game footage works better than practice</Text>
