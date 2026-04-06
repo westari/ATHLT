@@ -13,7 +13,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Upload, Film, ChevronDown, ChevronUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { supabase } from '@/constants/supabase';
@@ -43,35 +42,44 @@ export default function FilmScreen() {
   const analyzeVideo = async (uri: string) => {
     setIsAnalyzing(true);
     setError('');
-    setAnalyzeProgress('Reading video file...');
+    setAnalyzeProgress('Uploading video...');
 
     try {
       var fileName = 'film_' + Date.now() + '.mp4';
 
-      var base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      // Create FormData with the file URI - this works on React Native
+      var formData = new FormData();
+      formData.append('file', {
+        uri: uri,
+        type: 'video/mp4',
+        name: fileName,
+      } as any);
 
-      setAnalyzeProgress('Uploading video...');
+      // Upload directly to Supabase Storage REST API
+      var supabaseUrl = 'https://tvtojlwdpipntkktguck.supabase.co';
+      var supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2dG9qbHdkcGlwbnRra3RndWNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0ODMxNDYsImV4cCI6MjA5MTA1OTE0Nn0.9GiDMwjhdZNotoJT_mFlxvxgns0I0pgjVNmM1oyPqFY';
 
-      var byteChars = atob(base64);
-      var byteArray = new Uint8Array(byteChars.length);
-      for (var i = 0; i < byteChars.length; i++) {
-        byteArray[i] = byteChars.charCodeAt(i);
-      }
+      var uploadRes = await fetch(
+        supabaseUrl + '/storage/v1/object/films/' + fileName,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + supabaseKey,
+            'apikey': supabaseKey,
+          },
+          body: formData,
+        }
+      );
 
-      var uploadResult = await supabase.storage
-        .from('films')
-        .upload(fileName, byteArray, { contentType: 'video/mp4', upsert: true });
-
-      if (uploadResult.error) {
+      if (!uploadRes.ok) {
+        var errText = await uploadRes.text();
+        console.error('Upload error:', errText);
         setError('Failed to upload video. Try again.');
         setIsAnalyzing(false);
         return;
       }
 
-      var urlResult = supabase.storage.from('films').getPublicUrl(fileName);
-      var videoUrl = urlResult.data.publicUrl;
+      var videoUrl = supabaseUrl + '/storage/v1/object/public/films/' + fileName;
 
       setAnalyzeProgress('Coach X is watching your film... this takes about a minute.');
 
@@ -92,6 +100,7 @@ export default function FilmScreen() {
         setError(data.error || 'Failed to analyze video. Try a shorter clip.');
       }
     } catch (e: any) {
+      console.error('Film error:', e);
       setError('Something went wrong. Try again.');
     }
 
