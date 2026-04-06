@@ -105,7 +105,7 @@ export default function TodayScreen() {
   const [resultsCoachNote, setResultsCoachNote] = useState('');
 
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
-  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady, profile, plan]);
+  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
   const animTrans = (dir: 'forward'|'back', cb: () => void) => {
