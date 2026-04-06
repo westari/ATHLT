@@ -589,7 +589,7 @@ export default function TodayScreen() {
               );
             })}
             <TouchableOpacity style={{ backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 18, alignItems: 'center', marginTop: 16 }}
-              activeOpacity={0.85} onPress={() => router.push('/session' as any)}>
+              activeOpacity={0.85} onPress={() => router.push({ pathname: '/session', params: { dayIndex: selectedDayIndex.toString() } } as any)}>
               <Text style={{ fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 }}>
                 {completedCount > 0 && completedCount < drills.length ? 'CONTINUE SESSION' : completedCount === drills.length ? 'SESSION COMPLETE' : 'START SESSION'}
               </Text>
