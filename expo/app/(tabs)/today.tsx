@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView, Image,
-  Animated, ActivityIndicator, Alert,
+  Animated, ActivityIndicator, Alert, TextInput, KeyboardAvoidingView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Play, Flame, Clock, Dumbbell, Target, Zap, Wind, Activity, Upload, Film, Check, X } from 'lucide-react-native';
+import { Play, Flame, Clock, Dumbbell, Target, Zap, Wind, Activity, Upload, Check, X, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import Colors from '@/constants/colors';
@@ -15,8 +15,8 @@ import { usePlanStore } from '@/store/planStore';
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 interface OnboardingStep {
-  type: 'question' | 'info';
-  id?: string; question?: string; subtitle?: string;
+  type: 'question' | 'info' | 'text';
+  id?: string; question?: string; subtitle?: string; placeholder?: string;
   selectType?: 'select' | 'multiselect'; section?: string;
   options?: { label: string; subtitle?: string; disabled?: boolean }[];
   infoTitle?: string; infoBody?: string; infoImage?: any;
@@ -35,6 +35,7 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
     options:[{label:'Point Guard'},{label:'Shooting Guard'},{label:'Small Forward'},{label:'Power Forward'},{label:'Center'}] },
   { type:'question',id:'experience',section:'About You',question:'How long have you been playing?',subtitle:'So we match the right intensity.',selectType:'select',
     options:[{label:'Less than a year'},{label:'1-2 years'},{label:'3-5 years'},{label:'6-10 years'},{label:'10+ years'}] },
+  { type:'text',id:'description',section:'About You',question:'Describe yourself.',subtitle:"So Coach X knows who you are when watching your film. Height, jersey color, hair, anything.",placeholder:'e.g. 5\'10", red jersey #5, curly hair' },
   { type:'info',infoImage:INFO_IMAGES.dribble,infoTitle:"Now let's see what you're made of.",infoBody:"The best players don't just practice what they're good at. They attack their weaknesses head on." },
   { type:'question',id:'goal',section:'Your Goals',question:'What do you want to improve most?',selectType:'select',
     options:[{label:'Become a better scorer'},{label:'Improve my defense'},{label:'Get faster and more athletic'},{label:'Become a more complete player'},{label:'Get recruited / play at the next level'}] },
@@ -69,27 +70,39 @@ const ASSESSMENT_CLIPS = [
   { id:'game', clipType:'game', title:'Game Footage', instruction:'Footage from a real game', detail:"No game footage? Film yourself finishing with each hand instead." },
 ];
 
-const LOADING_STEPS = ['Watching your one-on-one','Analyzing your shooting form','Reviewing your handle','Studying your game','Scoring your skills','Building your plan'];
+const LOADING_STEPS = [
+  'Watching your one-on-one',
+  'Analyzing your shooting form',
+  'Reviewing your handle',
+  'Studying your game',
+  'Scoring your skills',
+  'Building your plan',
+];
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { plan, profile, completedDrills, currentDayIndex, currentStreak, loadFromStorage, setPlan, setProfile, setSkillLevels } = usePlanStore();
 
-  const [appState, setAppState] = useState<'loading'|'welcome'|'onboarding'|'auth'|'assessment'|'analyzing'|'plan'>('loading');
+  const [appState, setAppState] = useState<'loading'|'welcome'|'onboarding'|'auth'|'assessment'|'analyzing'|'results'|'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [quizStep, setQuizStep] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string|string[]>>({});
+  const [textInput, setTextInput] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [currentLoadingStep, setCurrentLoadingStep] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
-  // Assessment - now stores video URLs not analysis results
+  // Assessment
   const [clipUrls, setClipUrls] = useState<Record<string, string>>({});
   const [uploadingClipId, setUploadingClipId] = useState<string | null>(null);
   const [assessError, setAssessError] = useState('');
+
+  // Results
+  const [resultsSkills, setResultsSkills] = useState<Record<string, number>>({});
+  const [resultsCoachNote, setResultsCoachNote] = useState('');
 
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
   useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady, profile, plan]);
@@ -115,10 +128,33 @@ export default function TodayScreen() {
     }
   };
 
-  const goNext = () => { if (quizStep < ONBOARDING_STEPS.length-1) animTrans('forward',()=>setQuizStep(quizStep+1)); else setAppState('auth'); };
-  const goBack = () => { if (quizStep > 0) animTrans('back',()=>setQuizStep(quizStep-1)); else setAppState('welcome'); };
+  const handleTextSubmit = () => {
+    const st = ONBOARDING_STEPS[quizStep];
+    if (!st.id || !textInput.trim()) return;
+    setAnswers({...answers, [st.id]: textInput.trim()});
+    setTextInput('');
+    goNext();
+  };
 
-  // Just upload to Supabase - no analysis yet
+  const goNext = () => {
+    if (quizStep < ONBOARDING_STEPS.length-1) {
+      const next = ONBOARDING_STEPS[quizStep+1];
+      if (next.type === 'text' && next.id) setTextInput((answers[next.id] as string) || '');
+      animTrans('forward',()=>setQuizStep(quizStep+1));
+    } else {
+      setAppState('auth');
+    }
+  };
+  const goBack = () => {
+    if (quizStep > 0) {
+      const prev = ONBOARDING_STEPS[quizStep-1];
+      if (prev.type === 'text' && prev.id) setTextInput((answers[prev.id] as string) || '');
+      animTrans('back',()=>setQuizStep(quizStep-1));
+    } else {
+      setAppState('welcome');
+    }
+  };
+
   const uploadClip = async (clipId: string, uri: string) => {
     setUploadingClipId(clipId);
     setAssessError('');
@@ -163,7 +199,6 @@ export default function TodayScreen() {
     });
   };
 
-  // Analyze all clips and generate plan
   const analyzeAllAndGenerate = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setAppState('analyzing');
@@ -180,19 +215,23 @@ export default function TodayScreen() {
     }, 8000);
 
     try {
-      // Analyze all 4 clips in parallel
+      // Analyze all 4 clips in parallel - pass description so Gemini knows who to watch
+      const playerDescription = answers.description as string || '';
       const analyzePromises = ASSESSMENT_CLIPS.map(clip => {
         if (!clipUrls[clip.id]) return Promise.resolve(null);
         return fetch('https://collectiq-xi.vercel.app/api/assess-clip', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ videoUrl: clipUrls[clip.id], clipType: clip.clipType, profile: answers }),
+          body: JSON.stringify({
+            videoUrl: clipUrls[clip.id],
+            clipType: clip.clipType,
+            playerDescription: playerDescription,
+          }),
         }).then(r => r.json()).catch(() => null);
       });
 
       const results = await Promise.all(analyzePromises);
 
-      // Calculate skill averages
       const skillTotals: Record<string, { sum: number; count: number }> = {};
       results.forEach((a: any) => {
         if (!a) return;
@@ -211,8 +250,8 @@ export default function TodayScreen() {
       });
 
       setSkillLevels(finalSkills);
+      setResultsSkills(finalSkills);
 
-      // Generate plan with skill levels
       setCurrentLoadingStep(LOADING_STEPS.length - 1);
       setLoadingProgress(95);
 
@@ -238,7 +277,8 @@ export default function TodayScreen() {
           pressure: answers.pressure as string, goToMove: answers.goToMove as string,
           threeConfidence: answers.threeConfidence as string, freeThrow: answers.freeThrow as string,
         });
-        setAppState('plan');
+        setResultsCoachNote(planData.coachSummary?.assessment || '');
+        setAppState('results');
       } else {
         setAppState('welcome');
       }
@@ -296,8 +336,8 @@ export default function TodayScreen() {
 
   if (appState === 'onboarding') {
     const st = ONBOARDING_STEPS[quizStep];
-    const tq = ONBOARDING_STEPS.filter(x => x.type === 'question').length;
-    const cq = ONBOARDING_STEPS.slice(0, quizStep + 1).filter(x => x.type === 'question').length;
+    const tq = ONBOARDING_STEPS.filter(x => x.type === 'question' || x.type === 'text').length;
+    const cq = ONBOARDING_STEPS.slice(0, quizStep + 1).filter(x => x.type === 'question' || x.type === 'text').length;
     const pr = (quizStep + 1) / ONBOARDING_STEPS.length;
     const isSel = (o: string) => { if (!st.id) return false; const a = answers[st.id]; return Array.isArray(a) ? a.includes(o) : a === o; };
     const canGo = () => { if (!st.id) return true; const a = answers[st.id]; if (!a) return false; if (Array.isArray(a) && a.length === 0) return false; return true; };
@@ -318,6 +358,52 @@ export default function TodayScreen() {
           <TouchableOpacity style={s.cb} onPress={goNext} activeOpacity={0.85}><Text style={s.ct}>CONTINUE</Text></TouchableOpacity>
         </View>
       </View>
+    );
+
+    if (st.type === 'text') return (
+      <KeyboardAvoidingView style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={s.qh}>
+          <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+          <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (pr * 100) + '%' }]} /></View></View>
+          <Text style={s.st}>{cq}/{tq}</Text>
+        </View>
+        {st.section && <Text style={s.sl}>{st.section}</Text>}
+        <ScrollView contentContainerStyle={s.qc} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Text style={s.q}>{st.question}</Text>
+          {st.subtitle && <Text style={s.qs}>{st.subtitle}</Text>}
+          <TextInput
+            style={{
+              backgroundColor: Colors.surface,
+              borderRadius: 14,
+              borderWidth: 1.5,
+              borderColor: textInput ? Colors.primary : Colors.surfaceBorder,
+              padding: 18,
+              fontSize: 16,
+              color: Colors.textPrimary,
+              minHeight: 100,
+              textAlignVertical: 'top',
+            }}
+            value={textInput}
+            onChangeText={setTextInput}
+            placeholder={st.placeholder}
+            placeholderTextColor={Colors.textMuted}
+            multiline
+            maxLength={200}
+            autoFocus
+          />
+          <Text style={{ fontSize: 11, color: Colors.textMuted, textAlign: 'right', marginTop: 8 }}>{textInput.length}/200</Text>
+        </ScrollView>
+        <View style={s.bn}>
+          <TouchableOpacity
+            style={[s.cb, !textInput.trim() && s.cd]}
+            onPress={handleTextSubmit}
+            activeOpacity={0.85}
+            disabled={!textInput.trim()}
+          >
+            <Text style={[s.ct, !textInput.trim() && { color: Colors.textMuted }]}>CONTINUE</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     );
 
     return (
@@ -366,7 +452,7 @@ export default function TodayScreen() {
     return <AuthScreen onComplete={() => setAppState('assessment')} onBack={() => setAppState('onboarding')} />;
   }
 
-  // ASSESSMENT - new design with all 4 clips on one screen
+  // ASSESSMENT
   if (appState === 'assessment') {
     const uploadedCount = Object.keys(clipUrls).length;
     const allUploaded = uploadedCount === ASSESSMENT_CLIPS.length;
@@ -455,18 +541,104 @@ export default function TodayScreen() {
     );
   }
 
-  // ANALYZING (was 'generating')
+  // ANALYZING - with checklist back
   if (appState === 'analyzing') {
     const pw = progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] });
     return (
       <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={s.ls}>
-          <Image source={require('@/assets/images/coach-x.png')} style={{ width: 100, height: 100, marginBottom: 24 }} resizeMode="contain" />
+          <Image source={require('@/assets/images/coach-x.png')} style={{ width: 110, height: 110, marginBottom: 20 }} resizeMode="contain" />
           <Text style={s.lp}>{loadingProgress}%</Text>
           <Text style={s.lt}>Coach X is watching</Text>
           <View style={s.lbt}><Animated.View style={[s.lbf, { width: pw }]} /></View>
           <Text style={s.lsu}>{currentLoadingStep < LOADING_STEPS.length ? LOADING_STEPS[currentLoadingStep] + '...' : 'Almost done!'}</Text>
+
+          <View style={s.lc}>
+            <Text style={s.lct}>Your personalized plan includes</Text>
+            {LOADING_STEPS.map((step, i) => {
+              const done = i < currentLoadingStep;
+              return (
+                <View key={i} style={s.lci}>
+                  <View style={[s.lcc, done && s.lcd]}>
+                    {done && <Text style={s.lcm}>✓</Text>}
+                  </View>
+                  <Text style={[s.lcx, done && s.lcxd]}>{step}</Text>
+                </View>
+              );
+            })}
+          </View>
         </View>
+      </View>
+    );
+  }
+
+  // RESULTS - Coach X talking to you
+  if (appState === 'results') {
+    const SKILL_LABELS: Record<string, string> = {
+      ballHandling: 'Ball Handling', shooting: 'Shooting', shotForm: 'Shot Form',
+      finishing: 'Finishing', defense: 'Defense', iq: 'Basketball IQ',
+      athleticism: 'Athleticism', weakHand: 'Weak Hand', creativity: 'Creativity',
+      touch: 'Touch', courtVision: 'Court Vision', decisionMaking: 'Decision Making',
+    };
+    const skillEntries = Object.entries(resultsSkills).sort((a, b) => b[1] - a[1]);
+    const avgLevel = skillEntries.length > 0 ? skillEntries.reduce((sum, e) => sum + e[1], 0) / skillEntries.length : 0;
+
+    return (
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20, marginBottom: 20 }}>
+            <Image source={require('@/assets/images/coach-x-small.png')} style={{ width: 44, height: 44, borderRadius: 22 }} resizeMode="cover" />
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: Colors.primary }}>Coach X</Text>
+              <Text style={{ fontSize: 11, color: Colors.textMuted }}>Just finished watching you</Text>
+            </View>
+          </View>
+
+          {/* Coach message bubble */}
+          {resultsCoachNote && (
+            <View style={{ backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 18, marginBottom: 16 }}>
+              <Text style={{ fontSize: 15, color: Colors.textPrimary, lineHeight: 22 }}>{resultsCoachNote}</Text>
+            </View>
+          )}
+
+          {/* Overall rating */}
+          <View style={{ backgroundColor: Colors.surface, borderRadius: 18, borderWidth: 2, borderColor: Colors.primary, padding: 22, alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 8 }}>YOUR OVERALL RATING</Text>
+            <Text style={{ fontSize: 52, fontWeight: '900', color: Colors.primary, lineHeight: 58 }}>{avgLevel.toFixed(1)}<Text style={{ fontSize: 22, color: Colors.textMuted, fontWeight: '700' }}>/10</Text></Text>
+            <Text style={{ fontSize: 12, color: Colors.textMuted, marginTop: 4 }}>This will go up as you train</Text>
+          </View>
+
+          {/* Skill breakdown */}
+          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 10, marginLeft: 4 }}>SKILL BREAKDOWN</Text>
+          <View style={{ gap: 8, marginBottom: 20 }}>
+            {skillEntries.map((entry) => {
+              const skillKey = entry[0];
+              const level = entry[1];
+              const label = SKILL_LABELS[skillKey] || skillKey;
+              const color = level >= 7 ? '#8B9A6B' : level >= 5 ? Colors.primary : level >= 3 ? '#B08D57' : '#C47A6C';
+              return (
+                <View key={skillKey} style={{ backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 14 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.textPrimary }}>{label}</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: color }}>{level}/10</Text>
+                  </View>
+                  <View style={{ height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' }}>
+                    <View style={{ height: 6, borderRadius: 3, width: (level * 10) + '%', backgroundColor: color }} />
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18 }}
+            onPress={() => setAppState('plan')}
+            activeOpacity={0.85}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 1 }}>SEE MY PLAN</Text>
+            <ChevronRight size={18} color={Colors.black} />
+          </TouchableOpacity>
+        </ScrollView>
       </View>
     );
   }
@@ -551,9 +723,9 @@ export default function TodayScreen() {
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
               <View style={{ flex: 1 }}>
                 <Text style={{ fontSize: 10, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginBottom: 4 }}>TODAY'S FOCUS</Text>
-                <Text style={{ fontSize: 18, fontWeight: '800', color: Colors.textPrimary }}>{todayDay?.focus || 'Training'}</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: Colors.textPrimary }} numberOfLines={2}>{todayDay?.focus || 'Training'}</Text>
               </View>
-              <View style={{ gap: 4 }}>
+              <View style={{ gap: 4, marginLeft: 12 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <Clock size={12} color={Colors.textMuted} />
                   <Text style={{ fontSize: 11, color: Colors.textMuted, fontWeight: '600' }}>{totalMinutes}m</Text>
@@ -625,10 +797,18 @@ const s = StyleSheet.create({
   ii: { width: 280, height: 280, marginBottom: 32 },
   it: { fontSize: 24, fontWeight: '800', color: Colors.primary, textAlign: 'center', lineHeight: 32, marginBottom: 16 },
   ib: { fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24 },
-  ls: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
-  lp: { fontSize: 52, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 },
-  lt: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 24 },
-  lbt: { width: '100%', height: 8, backgroundColor: Colors.surface, borderRadius: 4, overflow: 'hidden', marginBottom: 16 },
-  lbf: { height: 8, backgroundColor: Colors.primary, borderRadius: 4 },
-  lsu: { fontSize: 14, color: Colors.textSecondary },
+  ls: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, paddingTop: 20 },
+  lp: { fontSize: 48, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
+  lt: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 18 },
+  lbt: { width: '100%', height: 6, backgroundColor: Colors.surface, borderRadius: 3, overflow: 'hidden', marginBottom: 12 },
+  lbf: { height: 6, backgroundColor: Colors.primary, borderRadius: 3 },
+  lsu: { fontSize: 13, color: Colors.textSecondary, marginBottom: 24 },
+  lc: { width: '100%', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 18 },
+  lct: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary, marginBottom: 12 },
+  lci: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  lcc: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
+  lcd: { borderColor: Colors.primary, backgroundColor: Colors.primary },
+  lcm: { fontSize: 11, color: Colors.black, fontWeight: '800' },
+  lcx: { fontSize: 12, color: Colors.textMuted, flex: 1 },
+  lcxd: { color: Colors.textPrimary },
 });
