@@ -589,7 +589,7 @@ const s = StyleSheet.create({
   continueDis: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
   continueTxt: { fontSize: 15, fontWeight: '800', color: Colors.black, letterSpacing: 2 },
   infoScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 36 },
-  infoImg: { width: 200, height: 200, marginBottom: 24 },
+  infoImg: { width: 280, height: 280, marginBottom: 32 },
   infoIcon: { fontSize: 48, marginBottom: 24 },
   infoTitle: { fontSize: 24, fontWeight: '800', color: Colors.primary, textAlign: 'center', lineHeight: 32, marginBottom: 16 },
   infoBody: { fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24 },

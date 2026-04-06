@@ -1,21 +1,35 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View } from 'react-native';
 import { Calendar, Film, BookOpen, BarChart3, Menu } from 'lucide-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Colors from '@/constants/colors';
 import CoachX from '@/components/CoachX';
-import { Asset } from 'expo-asset';
 
 export default function TabsLayout() {
-React.useEffect(() => {
-    Asset.loadAsync(require('@/assets/images/coach-x-small.png'));
+  const [hideTabBar, setHideTabBar] = useState(true);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const raw = await AsyncStorage.getItem('athlt_plan_store');
+        if (raw) {
+          const d = JSON.parse(raw);
+          if (d.profile) setHideTabBar(false);
+        }
+      } catch(e) {}
+    };
+    check();
+    const interval = setInterval(check, 2000);
+    return () => clearInterval(interval);
   }, []);
+
   return (
     <View style={{ flex: 1 }}>
       <Tabs
         screenOptions={{
           headerShown: false,
-          tabBarStyle: {
+          tabBarStyle: hideTabBar ? { display: 'none' } : {
             backgroundColor: '#0F0F0F',
             borderTopColor: Colors.surfaceBorder,
             borderTopWidth: 0.5,
