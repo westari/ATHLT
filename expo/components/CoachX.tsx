@@ -117,7 +117,9 @@ export default function CoachX() {
     <>
       {!isOpen && (
         <Animated.View style={[s.fabWrap, { transform: [{ scale: pulseAnim }], bottom: 95 + insets.bottom }]}>
-          <TouchableOpacity style={s.fab} onPress={openChat} activeOpacity={0.85}>
+         <TouchableOpacity style={s.fab} onPress={openChat} activeOpacity={0.85}>
+            <View style={s.fabInner}><Text style={s.fabText}>X</Text></View>
+          </TouchableOpacity>
             <Image source={require('@/assets/images/coach-x-small.png')} style={s.fabImage} resizeMode="cover" />
           </TouchableOpacity>
         </Animated.View>
@@ -223,6 +225,8 @@ const s = StyleSheet.create({
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 8,
   },
   fabImage: { width: 48, height: 48, borderRadius: 24 },
+fabInner: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#1A1708', alignItems: 'center', justifyContent: 'center' },
+  fabText: { fontSize: 26, fontWeight: '900', color: Colors.primary, letterSpacing: -1 },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.7)' },
   chatPanel: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
