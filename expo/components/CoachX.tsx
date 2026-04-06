@@ -120,9 +120,7 @@ export default function CoachX() {
          <TouchableOpacity style={s.fab} onPress={openChat} activeOpacity={0.85}>
             <View style={s.fabInner}><Text style={s.fabText}>X</Text></View>
           </TouchableOpacity>
-            <Image source={require('@/assets/images/coach-x-small.png')} style={s.fabImage} resizeMode="cover" />
-          </TouchableOpacity>
-        </Animated.View>
+                   </Animated.View>
       )}
 
       {isOpen && (
