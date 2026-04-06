@@ -7,256 +7,183 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ChevronRight } from 'lucide-react-native';
+import { TrendingUp, Flame, Target, Calendar, ChevronRight } from 'lucide-react-native';
 import Colors from '@/constants/colors';
-
-const MOCK_STATS = {
-  currentStreak: 4,
-  longestStreak: 7,
-  totalSessions: 18,
-  totalHours: 13.5,
-  totalDrills: 108,
-  thisWeekSessions: 3,
-  thisWeekMinutes: 135,
-};
-
-const SKILL_BREAKDOWN = [
-  { name: 'Ball Handling', level: 72, change: +8, sessions: 6 },
-  { name: 'Shooting', level: 65, change: +5, sessions: 5 },
-  { name: 'Finishing', level: 58, change: +12, sessions: 4 },
-  { name: 'Defense', level: 45, change: +3, sessions: 2 },
-  { name: 'Speed & Agility', level: 61, change: +6, sessions: 3 },
-  { name: 'Basketball IQ', level: 40, change: 0, sessions: 1 },
-];
-
-const WEEKLY_ACTIVITY = [
-  { week: 'W1', sessions: 4, minutes: 180 },
-  { week: 'W2', sessions: 3, minutes: 135 },
-  { week: 'W3', sessions: 5, minutes: 225 },
-  { week: 'W4', sessions: 3, minutes: 135 },
-];
-
-const RECENT_SESSIONS = [
-  { date: 'Today', focus: 'Shooting', duration: '45 min', drillsCompleted: 6, drillsTotal: 6 },
-  { date: 'Yesterday', focus: 'Ball Handling', duration: '45 min', drillsCompleted: 6, drillsTotal: 6 },
-  { date: 'Mon, Apr 5', focus: 'Left Hand Finishing', duration: '45 min', drillsCompleted: 5, drillsTotal: 6 },
-  { date: 'Sat, Apr 3', focus: 'Full Game Skills', duration: '60 min', drillsCompleted: 6, drillsTotal: 6 },
-  { date: 'Fri, Apr 2', focus: 'Defense & Agility', duration: '45 min', drillsCompleted: 4, drillsTotal: 6 },
-  { date: 'Thu, Apr 1', focus: 'Shooting', duration: '45 min', drillsCompleted: 6, drillsTotal: 6 },
-];
-
-const ACHIEVEMENTS = [
-  { name: 'First Session', description: 'Completed your first training session', earned: true, icon: '🏀' },
-  { name: '3 Day Streak', description: 'Trained 3 days in a row', earned: true, icon: '🔥' },
-  { name: '7 Day Streak', description: 'Trained 7 days in a row', earned: true, icon: '⚡' },
-  { name: '10 Sessions', description: 'Completed 10 total sessions', earned: true, icon: '💪' },
-  { name: 'Left Hand Warrior', description: 'Completed 5 left hand finishing sessions', earned: false, icon: '🤚' },
-  { name: 'Sharpshooter', description: 'Completed 10 shooting sessions', earned: false, icon: '🎯' },
-  { name: '30 Day Streak', description: 'Trained 30 days in a row', earned: false, icon: '👑' },
-];
+import { usePlanStore } from '@/store/planStore';
 
 export default function ProgressScreen() {
   const insets = useSafeAreaInsets();
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'history' | 'achievements'>('overview');
+  const { plan, profile, completedDrills, totalSessions, currentStreak } = usePlanStore();
 
-  const maxSkillLevel = Math.max(...SKILL_BREAKDOWN.map(s => s.level));
+  // Calculate stats
+  const totalDrillsCompleted = Object.keys(completedDrills).length;
+  const days = plan?.days || [];
+  const totalDrillsInPlan = days.reduce((sum, day) => sum + (day.drills?.length || 0), 0);
+  const completionRate = totalDrillsInPlan > 0 ? Math.round((totalDrillsCompleted / totalDrillsInPlan) * 100) : 0;
+
+  // Per-day completion
+  const dayStats = days.map((day, dayIndex) => {
+    const drillCount = day.drills?.length || 0;
+    const doneCount = day.drills?.filter((_, di) => completedDrills[`${dayIndex}-${di}`]).length || 0;
+    return {
+      day: day.day,
+      focus: day.focus,
+      isRest: day.isRest,
+      total: drillCount,
+      done: doneCount,
+      pct: drillCount > 0 ? Math.round((doneCount / drillCount) * 100) : 0,
+    };
+  });
+
+  // Drill type breakdown
+  const typeCount: Record<string, { total: number; done: number }> = {};
+  days.forEach((day, dayIndex) => {
+    (day.drills || []).forEach((drill, drillIndex) => {
+      var t = drill.type || 'other';
+      if (!typeCount[t]) typeCount[t] = { total: 0, done: 0 };
+      typeCount[t].total++;
+      if (completedDrills[`${dayIndex}-${drillIndex}`]) typeCount[t].done++;
+    });
+  });
+
+  const TYPE_LABELS: Record<string, string> = {
+    warmup: 'Warmup', skill: 'Skill Work', shooting: 'Shooting', conditioning: 'Conditioning', other: 'Other',
+  };
+  const TYPE_COLORS: Record<string, string> = {
+    warmup: '#8B9A6B', skill: Colors.primary, shooting: '#B08D57', conditioning: '#C47A6C', other: Colors.textMuted,
+  };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+    <View style={[s.container, { paddingTop: insets.top }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
+        <Text style={s.headerTitle}>Progress</Text>
 
-        {/* Header */}
-        <Text style={styles.headerTitle}>Progress</Text>
-
-        {/* Tab selector */}
-        <View style={styles.tabRow}>
-          {(['overview', 'history', 'achievements'] as const).map(tab => (
-            <TouchableOpacity
-              key={tab}
-              style={[styles.tab, selectedTab === tab && styles.tabActive]}
-              onPress={() => setSelectedTab(tab)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.tabText, selectedTab === tab && styles.tabTextActive]}>
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </Text>
-            </TouchableOpacity>
-          ))}
+        {/* Big stats row */}
+        <View style={s.statsRow}>
+          <View style={s.statCard}>
+            <View style={[s.statIcon, { backgroundColor: '#1A1708' }]}>
+              <Target size={20} color={Colors.primary} />
+            </View>
+            <Text style={s.statValue}>{totalSessions}</Text>
+            <Text style={s.statLabel}>Sessions</Text>
+          </View>
+          <View style={s.statCard}>
+            <View style={[s.statIcon, { backgroundColor: '#1A1210' }]}>
+              <Flame size={20} color="#C47A6C" />
+            </View>
+            <Text style={s.statValue}>{currentStreak}</Text>
+            <Text style={s.statLabel}>Day Streak</Text>
+          </View>
+          <View style={s.statCard}>
+            <View style={[s.statIcon, { backgroundColor: '#121A12' }]}>
+              <TrendingUp size={20} color="#8B9A6B" />
+            </View>
+            <Text style={s.statValue}>{completionRate}%</Text>
+            <Text style={s.statLabel}>Complete</Text>
+          </View>
         </View>
 
-        {selectedTab === 'overview' && (
-          <>
-            {/* Big stats row */}
-            <View style={styles.bigStatsRow}>
-              <View style={styles.bigStat}>
-                <Text style={styles.bigStatValue}>{MOCK_STATS.currentStreak}</Text>
-                <Text style={styles.bigStatLabel}>Day{'\n'}streak</Text>
-              </View>
-              <View style={styles.bigStatDivider} />
-              <View style={styles.bigStat}>
-                <Text style={styles.bigStatValue}>{MOCK_STATS.totalSessions}</Text>
-                <Text style={styles.bigStatLabel}>Total{'\n'}sessions</Text>
-              </View>
-              <View style={styles.bigStatDivider} />
-              <View style={styles.bigStat}>
-                <Text style={styles.bigStatValue}>{MOCK_STATS.totalHours}h</Text>
-                <Text style={styles.bigStatLabel}>Hours{'\n'}trained</Text>
-              </View>
-            </View>
-
-            {/* This week card */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>THIS WEEK</Text>
-              <View style={styles.thisWeekRow}>
-                <View style={styles.thisWeekStat}>
-                  <Text style={styles.thisWeekValue}>{MOCK_STATS.thisWeekSessions}</Text>
-                  <Text style={styles.thisWeekLabel}>sessions</Text>
-                </View>
-                <View style={styles.thisWeekStat}>
-                  <Text style={styles.thisWeekValue}>{MOCK_STATS.thisWeekMinutes}</Text>
-                  <Text style={styles.thisWeekLabel}>minutes</Text>
-                </View>
-                <View style={styles.thisWeekStat}>
-                  <Text style={styles.thisWeekValue}>{MOCK_STATS.totalDrills}</Text>
-                  <Text style={styles.thisWeekLabel}>drills done</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Weekly activity chart */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>WEEKLY ACTIVITY</Text>
-              <View style={styles.chartRow}>
-                {WEEKLY_ACTIVITY.map((week, i) => {
-                  const maxMinutes = Math.max(...WEEKLY_ACTIVITY.map(w => w.minutes));
-                  const height = (week.minutes / maxMinutes) * 100;
-                  const isCurrentWeek = i === WEEKLY_ACTIVITY.length - 1;
-                  return (
-                    <View key={i} style={styles.chartCol}>
-                      <View style={styles.barContainer}>
-                        <View
-                          style={[
-                            styles.bar,
-                            { height: `${height}%` },
-                            isCurrentWeek && styles.barActive,
-                          ]}
-                        />
-                      </View>
-                      <Text style={[styles.chartLabel, isCurrentWeek && styles.chartLabelActive]}>
-                        {week.week}
-                      </Text>
-                      <Text style={styles.chartValue}>{week.sessions}x</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Skill breakdown */}
-            <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>SKILL BREAKDOWN</Text>
-              {SKILL_BREAKDOWN.map((skill, i) => (
-                <View key={i} style={styles.skillRow}>
-                  <View style={styles.skillInfo}>
-                    <Text style={styles.skillName}>{skill.name}</Text>
-                    <Text style={styles.skillSessions}>{skill.sessions} sessions</Text>
+        {/* Weekly overview */}
+        {plan && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>THIS WEEK</Text>
+            <Text style={s.weekTitle}>{plan.weekTitle}</Text>
+            <View style={s.weekBar}>
+              {dayStats.map((d, i) => (
+                <View key={i} style={s.weekDay}>
+                  <View style={s.weekBarOuter}>
+                    <View style={[s.weekBarInner, {
+                      height: d.isRest ? '0%' : (d.pct + '%'),
+                      backgroundColor: d.pct === 100 ? '#8B9A6B' : d.pct > 0 ? Colors.primary : 'transparent',
+                    }]} />
                   </View>
-                  <View style={styles.skillBarContainer}>
-                    <View style={styles.skillBarTrack}>
-                      <View style={[styles.skillBarFill, { width: `${skill.level}%` }]} />
-                    </View>
-                  </View>
-                  <View style={styles.skillChange}>
-                    <Text style={[
-                      styles.skillChangeText,
-                      skill.change > 0 && styles.skillChangePositive,
-                      skill.change === 0 && styles.skillChangeNeutral,
-                    ]}>
-                      {skill.change > 0 ? `+${skill.change}` : skill.change === 0 ? '—' : skill.change}
-                    </Text>
-                  </View>
+                  <Text style={[s.weekDayLabel, d.pct === 100 && { color: '#8B9A6B' }]}>{d.day}</Text>
                 </View>
               ))}
             </View>
-
-            {/* AI insight */}
-            <View style={styles.insightCard}>
-              <View style={styles.insightDot} />
-              <Text style={styles.insightText}>
-                Your finishing improved the most this month (+12). Defense is your least trained skill — next week's plan will include more defensive drills to balance your development.
-              </Text>
-            </View>
-          </>
+          </View>
         )}
 
-        {selectedTab === 'history' && (
-          <>
-            <View style={styles.historyHeader}>
-              <Text style={styles.historyCount}>{RECENT_SESSIONS.length} sessions</Text>
-            </View>
-
-            {RECENT_SESSIONS.map((session, i) => (
-              <TouchableOpacity key={i} style={styles.sessionCard} activeOpacity={0.7}>
-                <View style={styles.sessionLeft}>
-                  <Text style={styles.sessionDate}>{session.date}</Text>
-                  <Text style={styles.sessionFocus}>{session.focus}</Text>
-                  <Text style={styles.sessionMeta}>
-                    {session.duration} · {session.drillsCompleted}/{session.drillsTotal} drills
-                  </Text>
+        {/* Drill type breakdown */}
+        {Object.keys(typeCount).length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>DRILL BREAKDOWN</Text>
+            {Object.entries(typeCount).map(([type, counts], i) => {
+              var pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
+              var color = TYPE_COLORS[type] || Colors.textMuted;
+              return (
+                <View key={i} style={s.breakdownRow}>
+                  <View style={s.breakdownInfo}>
+                    <View style={[s.breakdownDot, { backgroundColor: color }]} />
+                    <Text style={s.breakdownLabel}>{TYPE_LABELS[type] || type}</Text>
+                  </View>
+                  <View style={s.breakdownBarOuter}>
+                    <View style={[s.breakdownBarInner, { width: pct + '%', backgroundColor: color }]} />
+                  </View>
+                  <Text style={s.breakdownCount}>{counts.done}/{counts.total}</Text>
                 </View>
-                <View style={styles.sessionRight}>
-                  {session.drillsCompleted === session.drillsTotal ? (
-                    <View style={styles.completeBadge}>
-                      <Text style={styles.completeBadgeText}>✓</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.partialBadge}>
-                      <Text style={styles.partialBadgeText}>
-                        {Math.round((session.drillsCompleted / session.drillsTotal) * 100)}%
-                      </Text>
-                    </View>
-                  )}
-                  <ChevronRight size={14} color={Colors.textMuted} />
-                </View>
-              </TouchableOpacity>
-            ))}
-          </>
+              );
+            })}
+          </View>
         )}
 
-        {selectedTab === 'achievements' && (
-          <>
-            <Text style={styles.achievementSubtitle}>
-              {ACHIEVEMENTS.filter(a => a.earned).length}/{ACHIEVEMENTS.length} earned
-            </Text>
-
-            {ACHIEVEMENTS.map((achievement, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.achievementCard,
-                  !achievement.earned && styles.achievementCardLocked,
-                ]}
-              >
-                <Text style={[styles.achievementIcon, !achievement.earned && styles.achievementIconLocked]}>
-                  {achievement.icon}
-                </Text>
-                <View style={styles.achievementContent}>
-                  <Text style={[
-                    styles.achievementName,
-                    !achievement.earned && styles.achievementNameLocked,
-                  ]}>
-                    {achievement.name}
-                  </Text>
-                  <Text style={styles.achievementDesc}>{achievement.description}</Text>
+        {/* Day by day */}
+        {plan && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>DAY BY DAY</Text>
+            {dayStats.map((d, i) => (
+              <View key={i} style={s.dayRow}>
+                <View style={s.dayInfo}>
+                  <Text style={s.dayName}>{d.day}</Text>
+                  <Text style={s.dayFocus}>{d.isRest ? 'Rest Day' : d.focus}</Text>
                 </View>
-                {achievement.earned && (
-                  <View style={styles.earnedBadge}>
-                    <Text style={styles.earnedBadgeText}>✓</Text>
+                {d.isRest ? (
+                  <Text style={s.dayRest}>REST</Text>
+                ) : (
+                  <View style={s.dayProgress}>
+                    <View style={s.dayBarOuter}>
+                      <View style={[s.dayBarInner, {
+                        width: d.pct + '%',
+                        backgroundColor: d.pct === 100 ? '#8B9A6B' : Colors.primary,
+                      }]} />
+                    </View>
+                    <Text style={[s.dayPct, d.pct === 100 && { color: '#8B9A6B' }]}>{d.done}/{d.total}</Text>
                   </View>
                 )}
               </View>
             ))}
-          </>
+          </View>
+        )}
+
+        {/* Player info */}
+        {profile && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>TRAINING FOCUS</Text>
+            <View style={s.focusRow}>
+              <Text style={s.focusLabel}>Primary Goal</Text>
+              <Text style={s.focusValue}>{profile.goal}</Text>
+            </View>
+            <View style={s.focusRow}>
+              <Text style={s.focusLabel}>Main Weakness</Text>
+              <Text style={[s.focusValue, { color: '#C47A6C' }]}>{profile.weakness}</Text>
+            </View>
+            <View style={s.focusRow}>
+              <Text style={s.focusLabel}>Frequency</Text>
+              <Text style={s.focusValue}>{profile.frequency}</Text>
+            </View>
+            <View style={s.focusRow}>
+              <Text style={s.focusLabel}>Session Length</Text>
+              <Text style={s.focusValue}>{profile.duration}</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Empty state */}
+        {!plan && (
+          <View style={s.emptyState}>
+            <Text style={s.emptyTitle}>No training data yet</Text>
+            <Text style={s.emptyBody}>Complete your first session to start tracking progress.</Text>
+          </View>
         )}
 
         <View style={{ height: 30 }} />
@@ -265,120 +192,65 @@ export default function ProgressScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scrollContent: { paddingHorizontal: 20 },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, paddingTop: 16, marginBottom: 16 },
-
-  // Tabs
-  tabRow: {
-    flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 12,
-    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 4, marginBottom: 20,
+  scroll: { paddingHorizontal: 20 },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, paddingTop: 16, marginBottom: 20 },
+  // Stats row
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  statCard: {
+    flex: 1, backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 16, alignItems: 'center',
   },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
-  tabActive: { backgroundColor: '#1A1708' },
-  tabText: { fontSize: 13, fontWeight: '600', color: Colors.textMuted },
-  tabTextActive: { color: Colors.primary },
-
-  // Big stats
-  bigStatsRow: {
-    flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 24, marginBottom: 14,
-    alignItems: 'center',
+  statIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  statValue: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
+  statLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500' },
+  // Section
+  section: {
+    backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 20, marginBottom: 14,
   },
-  bigStat: { flex: 1, alignItems: 'center' },
-  bigStatValue: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, marginBottom: 6 },
-  bigStatLabel: { fontSize: 11, color: Colors.textMuted, textAlign: 'center', lineHeight: 15 },
-  bigStatDivider: { width: 1, height: 40, backgroundColor: Colors.surfaceBorder },
-
-  // Section card
-  sectionCard: {
-    backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 14,
+  sectionTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 14 },
+  weekTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary, marginBottom: 18 },
+  // Weekly bar chart
+  weekBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 120 },
+  weekDay: { alignItems: 'center', flex: 1 },
+  weekBarOuter: {
+    width: 24, height: 100, backgroundColor: '#1A1A1A', borderRadius: 12, overflow: 'hidden',
+    justifyContent: 'flex-end', marginBottom: 8,
   },
-  sectionTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 16 },
-
-  // This week
-  thisWeekRow: { flexDirection: 'row', justifyContent: 'space-around' },
-  thisWeekStat: { alignItems: 'center' },
-  thisWeekValue: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  thisWeekLabel: { fontSize: 11, color: Colors.textMuted },
-
-  // Chart
-  chartRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', height: 120 },
-  chartCol: { alignItems: 'center', flex: 1 },
-  barContainer: { width: 28, height: 80, justifyContent: 'flex-end', marginBottom: 8 },
-  bar: { width: 28, borderRadius: 6, backgroundColor: Colors.surfaceBorder },
-  barActive: { backgroundColor: Colors.primary },
-  chartLabel: { fontSize: 11, color: Colors.textMuted, marginBottom: 4 },
-  chartLabelActive: { color: Colors.primary, fontWeight: '700' },
-  chartValue: { fontSize: 10, color: Colors.textMuted },
-
-  // Skill breakdown
-  skillRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 12 },
-  skillInfo: { width: 110 },
-  skillName: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary, marginBottom: 2 },
-  skillSessions: { fontSize: 10, color: Colors.textMuted },
-  skillBarContainer: { flex: 1 },
-  skillBarTrack: { height: 6, backgroundColor: '#1E1E1E', borderRadius: 3, overflow: 'hidden' },
-  skillBarFill: { height: 6, backgroundColor: Colors.primary, borderRadius: 3 },
-  skillChange: { width: 36, alignItems: 'flex-end' },
-  skillChangeText: { fontSize: 13, fontWeight: '700' },
-  skillChangePositive: { color: Colors.accent },
-  skillChangeNeutral: { color: Colors.textMuted },
-
-  // Insight
-  insightCard: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 18, marginBottom: 14,
-  },
-  insightDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: Colors.primary, marginTop: 4 },
-  insightText: { fontSize: 13, color: Colors.primary, lineHeight: 19, flex: 1, fontWeight: '500' },
-
-  // History
-  historyHeader: { marginBottom: 14 },
-  historyCount: { fontSize: 14, color: Colors.textSecondary },
-  sessionCard: {
+  weekBarInner: { width: '100%', borderRadius: 12, minHeight: 4 },
+  weekDayLabel: { fontSize: 11, fontWeight: '600', color: Colors.textMuted },
+  // Breakdown
+  breakdownRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#222' },
+  breakdownInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, width: 100 },
+  breakdownDot: { width: 8, height: 8, borderRadius: 4 },
+  breakdownLabel: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
+  breakdownBarOuter: { flex: 1, height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
+  breakdownBarInner: { height: 6, borderRadius: 3 },
+  breakdownCount: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', width: 36, textAlign: 'right' },
+  // Day by day
+  dayRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 16, marginBottom: 10,
+    paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#222',
   },
-  sessionLeft: { flex: 1 },
-  sessionDate: { fontSize: 12, color: Colors.textMuted, marginBottom: 4 },
-  sessionFocus: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
-  sessionMeta: { fontSize: 12, color: Colors.textSecondary },
-  sessionRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  completeBadge: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: Colors.accent, alignItems: 'center', justifyContent: 'center',
+  dayInfo: { flex: 1 },
+  dayName: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
+  dayFocus: { fontSize: 12, color: Colors.textMuted },
+  dayRest: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1 },
+  dayProgress: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dayBarOuter: { width: 80, height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
+  dayBarInner: { height: 6, borderRadius: 3 },
+  dayPct: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', width: 30, textAlign: 'right' },
+  // Focus
+  focusRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#222',
   },
-  completeBadgeText: { fontSize: 14, color: Colors.black, fontWeight: '800' },
-  partialBadge: {
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8,
-    backgroundColor: Colors.primary + '20',
-  },
-  partialBadgeText: { fontSize: 12, fontWeight: '700', color: Colors.primary },
-
-  // Achievements
-  achievementSubtitle: { fontSize: 14, color: Colors.textSecondary, marginBottom: 16 },
-  achievementCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 16, marginBottom: 10,
-  },
-  achievementCardLocked: { opacity: 0.4 },
-  achievementIcon: { fontSize: 28 },
-  achievementIconLocked: { opacity: 0.5 },
-  achievementContent: { flex: 1 },
-  achievementName: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 3 },
-  achievementNameLocked: { color: Colors.textMuted },
-  achievementDesc: { fontSize: 12, color: Colors.textSecondary },
-  earnedBadge: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: Colors.accent, alignItems: 'center', justifyContent: 'center',
-  },
-  earnedBadgeText: { fontSize: 12, color: Colors.black, fontWeight: '800' },
+  focusLabel: { fontSize: 13, color: Colors.textMuted },
+  focusValue: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary, textAlign: 'right', flex: 1, marginLeft: 16 },
+  // Empty
+  emptyState: { alignItems: 'center', paddingVertical: 60 },
+  emptyTitle: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8 },
+  emptyBody: { fontSize: 14, color: Colors.textMuted, textAlign: 'center' },
 });
