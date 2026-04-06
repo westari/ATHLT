@@ -37,12 +37,8 @@ export default function CoachX() {
   const scrollRef = useRef<ScrollView>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  // Don't show if no profile (not onboarded yet)
-  if (!profile) return null;
-
-  // Pulse animation for the floating button
   useEffect(() => {
-    if (!isOpen && messages.length === 0) {
+    if (!isOpen && messages.length === 0 && profile) {
       const pulse = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, { toValue: 1.1, duration: 1500, useNativeDriver: true }),
@@ -52,14 +48,16 @@ export default function CoachX() {
       pulse.start();
       return () => pulse.stop();
     }
-  }, [isOpen, messages.length]);
+  }, [isOpen, messages.length, profile]);
+
+  if (!profile) return null;
 
   const openChat = () => {
     setIsOpen(true);
     if (messages.length === 0) {
       setMessages([{
         role: 'assistant',
-        content: "What's up? I'm Coach X. Ask me anything about your training, drills, or game. I know your profile and your plan — let's work.",
+        content: "What's up? I'm Coach X. Ask me anything about your training, drills, or game. I know your profile and your plan \u2014 let's work.",
       }]);
     }
     Animated.parallel([
@@ -81,7 +79,7 @@ export default function CoachX() {
 
     const userMessage = inputText.trim();
     setInputText('');
-    
+
     const newMessages: ChatMessage[] = [...messages, { role: 'user', content: userMessage }];
     setMessages(newMessages);
     setIsLoading(true);
@@ -101,7 +99,7 @@ export default function CoachX() {
       });
 
       const data = await response.json();
-      
+
       if (response.ok && data.reply) {
         setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
       } else {
@@ -117,7 +115,6 @@ export default function CoachX() {
 
   return (
     <>
-      {/* Floating button */}
       {!isOpen && (
         <Animated.View style={[s.fabWrap, { transform: [{ scale: pulseAnim }], bottom: 95 + insets.bottom }]}>
           <TouchableOpacity style={s.fab} onPress={openChat} activeOpacity={0.85}>
@@ -126,22 +123,14 @@ export default function CoachX() {
         </Animated.View>
       )}
 
-      {/* Chat overlay */}
       {isOpen && (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-          {/* Backdrop */}
           <Animated.View style={[s.backdrop, { opacity: fadeAnim }]}>
             <TouchableOpacity style={StyleSheet.absoluteFill} onPress={closeChat} activeOpacity={1} />
           </Animated.View>
 
-          {/* Chat panel */}
           <Animated.View style={[s.chatPanel, { transform: [{ translateY: slideAnim }], paddingBottom: insets.bottom }]}>
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              style={{ flex: 1 }}
-              keyboardVerticalOffset={0}
-            >
-              {/* Chat header */}
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }} keyboardVerticalOffset={0}>
               <View style={s.chatHeader}>
                 <Image source={require('@/assets/images/coach-x.png')} style={s.chatAvatar} resizeMode="cover" />
                 <View style={s.chatHeaderInfo}>
@@ -153,7 +142,6 @@ export default function CoachX() {
                 </TouchableOpacity>
               </View>
 
-              {/* Quick actions */}
               {messages.length <= 1 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.quickActions} contentContainerStyle={s.quickActionsContent}>
                   {[
@@ -170,7 +158,6 @@ export default function CoachX() {
                 </ScrollView>
               )}
 
-              {/* Messages */}
               <ScrollView
                 ref={scrollRef}
                 style={s.messageList}
@@ -198,7 +185,6 @@ export default function CoachX() {
                 )}
               </ScrollView>
 
-              {/* Input bar */}
               <View style={s.inputBar}>
                 <TextInput
                   style={s.input}
@@ -228,7 +214,6 @@ export default function CoachX() {
 }
 
 const s = StyleSheet.create({
-  // Floating button
   fabWrap: { position: 'absolute', right: 20, zIndex: 999 },
   fab: {
     width: 56, height: 56, borderRadius: 28,
@@ -238,21 +223,14 @@ const s = StyleSheet.create({
     shadowOpacity: 0.3, shadowRadius: 8, elevation: 8,
   },
   fabImage: { width: 48, height: 48, borderRadius: 24 },
-  // Backdrop
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-  },
-  // Chat panel
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.7)' },
   chatPanel: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     height: SCREEN_HEIGHT * 0.75,
     backgroundColor: Colors.background,
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderBottomWidth: 0,
+    borderWidth: 1, borderColor: Colors.surfaceBorder, borderBottomWidth: 0,
   },
-  // Header
   chatHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 20, paddingVertical: 16,
@@ -266,7 +244,6 @@ const s = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.surface,
     alignItems: 'center', justifyContent: 'center',
   },
-  // Quick actions
   quickActions: { maxHeight: 50, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder },
   quickActionsContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
   quickAction: {
@@ -274,7 +251,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, marginRight: 8,
   },
   quickActionText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
-  // Messages
   messageList: { flex: 1 },
   messageListContent: { paddingHorizontal: 16, paddingVertical: 16, gap: 12 },
   messageBubble: { flexDirection: 'row', gap: 8, maxWidth: '85%' },
@@ -287,7 +263,6 @@ const s = StyleSheet.create({
   msgText: { fontSize: 14, lineHeight: 20 },
   userText: { color: Colors.black, fontWeight: '500' },
   coachText: { color: Colors.textPrimary },
-  // Input
   inputBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 16, paddingVertical: 12,
