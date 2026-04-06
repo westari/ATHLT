@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Upload, Film, ChevronDown, ChevronUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { supabase } from '@/constants/supabase';
@@ -42,17 +43,26 @@ export default function FilmScreen() {
   const analyzeVideo = async (uri: string) => {
     setIsAnalyzing(true);
     setError('');
-    setAnalyzeProgress('Uploading video...');
+    setAnalyzeProgress('Reading video file...');
 
     try {
-      // Upload to Supabase Storage
       var fileName = 'film_' + Date.now() + '.mp4';
-      var fetchRes = await fetch(uri);
-      var blob = await fetchRes.blob();
+
+      var base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setAnalyzeProgress('Uploading video...');
+
+      var byteChars = atob(base64);
+      var byteArray = new Uint8Array(byteChars.length);
+      for (var i = 0; i < byteChars.length; i++) {
+        byteArray[i] = byteChars.charCodeAt(i);
+      }
 
       var uploadResult = await supabase.storage
         .from('films')
-        .upload(fileName, blob, { contentType: 'video/mp4', upsert: true });
+        .upload(fileName, byteArray, { contentType: 'video/mp4', upsert: true });
 
       if (uploadResult.error) {
         setError('Failed to upload video. Try again.');
@@ -60,13 +70,11 @@ export default function FilmScreen() {
         return;
       }
 
-      // Get public URL
       var urlResult = supabase.storage.from('films').getPublicUrl(fileName);
       var videoUrl = urlResult.data.publicUrl;
 
       setAnalyzeProgress('Coach X is watching your film... this takes about a minute.');
 
-      // Send URL to our API
       var response = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
