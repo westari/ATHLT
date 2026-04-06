@@ -13,9 +13,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Upload, Film, ChevronDown, ChevronUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
+import { supabase } from '@/constants/supabase';
 
 interface FilmAnalysis {
   overallGrade: string;
@@ -42,20 +42,36 @@ export default function FilmScreen() {
   const analyzeVideo = async (uri: string) => {
     setIsAnalyzing(true);
     setError('');
-    setAnalyzeProgress('Reading video file...');
+    setAnalyzeProgress('Uploading video...');
 
     try {
-      var base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      // Upload to Supabase Storage
+      var fileName = 'film_' + Date.now() + '.mp4';
+      var fetchRes = await fetch(uri);
+      var blob = await fetchRes.blob();
 
-      setAnalyzeProgress('Coach X is watching your film...');
+      var uploadResult = await supabase.storage
+        .from('films')
+        .upload(fileName, blob, { contentType: 'video/mp4', upsert: true });
 
+      if (uploadResult.error) {
+        setError('Failed to upload video. Try again.');
+        setIsAnalyzing(false);
+        return;
+      }
+
+      // Get public URL
+      var urlResult = supabase.storage.from('films').getPublicUrl(fileName);
+      var videoUrl = urlResult.data.publicUrl;
+
+      setAnalyzeProgress('Coach X is watching your film... this takes about a minute.');
+
+      // Send URL to our API
       var response = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoBase64: base64,
+          videoUrl: videoUrl,
           profile: profile,
         }),
       });
@@ -68,7 +84,7 @@ export default function FilmScreen() {
         setError(data.error || 'Failed to analyze video. Try a shorter clip.');
       }
     } catch (e: any) {
-      setError('Something went wrong. Try a shorter clip (under 15 seconds).');
+      setError('Something went wrong. Try again.');
     }
 
     setIsAnalyzing(false);
@@ -88,7 +104,7 @@ export default function FilmScreen() {
     var result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['videos'],
       allowsEditing: true,
-      videoMaxDuration: 30,
+      videoMaxDuration: 60,
       quality: 0.3,
     });
 
@@ -108,7 +124,7 @@ export default function FilmScreen() {
 
     var result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['videos'],
-      videoMaxDuration: 30,
+      videoMaxDuration: 60,
       quality: 0.3,
     });
 
@@ -127,7 +143,7 @@ export default function FilmScreen() {
           <ActivityIndicator size="large" color={Colors.primary} />
           <Text style={s.analyzingTitle}>Analyzing your film</Text>
           <Text style={s.analyzingText}>{analyzeProgress}</Text>
-          <Text style={s.analyzingHint}>This may take up to 60 seconds.</Text>
+          <Text style={s.analyzingHint}>Coach X is breaking down every play.</Text>
         </View>
       </View>
     );
@@ -225,7 +241,7 @@ export default function FilmScreen() {
         <TouchableOpacity style={s.uploadCard} onPress={handlePickVideo} activeOpacity={0.85}>
           <View style={s.uploadIcon}><Upload size={28} color={Colors.primary} /></View>
           <Text style={s.uploadTitle}>Upload from Camera Roll</Text>
-          <Text style={s.uploadSub}>Select a game clip (under 30 seconds)</Text>
+          <Text style={s.uploadSub}>Select a game clip (under 60 seconds)</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={s.uploadCard} onPress={handleRecordVideo} activeOpacity={0.85}>
@@ -237,7 +253,7 @@ export default function FilmScreen() {
         <View style={s.howCard}>
           <Text style={s.howTitle}>HOW IT WORKS</Text>
           {[
-            { n: '1', t: 'Upload a short game clip or practice footage' },
+            { n: '1', t: 'Upload a game clip or practice footage' },
             { n: '2', t: 'Coach X analyzes your movements and decisions' },
             { n: '3', t: 'Get a breakdown with drills to improve' },
           ].map((step, i) => (
@@ -246,14 +262,6 @@ export default function FilmScreen() {
               <Text style={s.howText}>{step.t}</Text>
             </View>
           ))}
-        </View>
-
-        <View style={s.tipsCard}>
-          <Text style={s.tipsTitle}>TIPS FOR BEST RESULTS</Text>
-          <Text style={s.tipItem}>Keep clips under 30 seconds</Text>
-          <Text style={s.tipItem}>Film from the side or behind the court</Text>
-          <Text style={s.tipItem}>Good lighting helps the AI see better</Text>
-          <Text style={s.tipItem}>Game footage works better than practice</Text>
         </View>
 
         <View style={{ height: 30 }} />
@@ -282,9 +290,6 @@ const s = StyleSheet.create({
   howNum: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   howNumTxt: { fontSize: 13, fontWeight: '800', color: Colors.black },
   howText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20, flex: 1, paddingTop: 3 },
-  tipsCard: { backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 14 },
-  tipsTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
-  tipItem: { fontSize: 13, color: Colors.textSecondary, lineHeight: 24 },
   analyzingScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
   analyzingTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, marginTop: 24, marginBottom: 8 },
   analyzingText: { fontSize: 15, color: Colors.primary, fontWeight: '500', marginBottom: 8 },
