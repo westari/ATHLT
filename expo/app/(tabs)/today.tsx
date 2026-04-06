@@ -309,7 +309,7 @@ const z = StyleSheet.create({
   cd:{backgroundColor:Colors.surface,borderWidth:1,borderColor:Colors.surfaceBorder},
   ct:{fontSize:15,fontWeight:'800',color:Colors.black,letterSpacing:2},
   is:{flex:1,justifyContent:'center',alignItems:'center',paddingHorizontal:36},
-  ii:{width:280,height:280,marginBottom:32},
+  ii:{width:400,height:400,marginBottom:32},
   it:{fontSize:24,fontWeight:'800',color:Colors.primary,textAlign:'center',lineHeight:32,marginBottom:16},
   ib:{fontSize:16,color:Colors.textSecondary,textAlign:'center',lineHeight:24},
   ls:{flex:1,justifyContent:'center',alignItems:'center',paddingHorizontal:32},
