@@ -8,7 +8,7 @@ import {
   ScrollView,
   Animated,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, ChevronRight, ChevronLeft, Play, Pause, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -18,10 +18,9 @@ import { usePlanStore } from '@/store/planStore';
 export default function SessionScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const params = useLocalSearchParams();
-  const { plan, completedDrills, toggleDrill } = usePlanStore();
+  const { plan, completedDrills, toggleDrill, currentDayIndex } = usePlanStore();
 
-  const dayIndex = params.dayIndex ? parseInt(params.dayIndex as string) : 0;
+  const dayIndex = currentDayIndex;
   const currentDay = plan?.days?.[dayIndex];
   const drills = currentDay?.drills || [];
 
