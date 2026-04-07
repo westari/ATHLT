@@ -82,7 +82,7 @@ const LOADING_STEPS = [
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, profile, completedDrills, currentDayIndex, currentStreak, loadFromStorage, setPlan, setProfile, setSkillLevels } = usePlanStore();
+  const { plan, profile, completedDrills, currentDayIndex, currentStreak, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
 
   const [appState, setAppState] = useState<'loading'|'welcome'|'onboarding'|'auth'|'assessment'|'analyzing'|'results'|'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
@@ -449,7 +449,14 @@ export default function TodayScreen() {
   }
 
   if (appState === 'auth') {
-    return <AuthScreen onComplete={() => setAppState('assessment')} onBack={() => setAppState('onboarding')} />;
+    return <AuthScreen onComplete={async () => {
+      const result = await usePlanStore.getState().loadFromCloud();
+      if (result.hasCloudData) {
+        setAppState('plan');
+      } else {
+        setAppState('assessment');
+      }
+    }} onBack={() => setAppState('onboarding')} />;
   }
 
   // ASSESSMENT
