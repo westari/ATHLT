@@ -150,10 +150,35 @@ const BALL_HANDLING_DRILLS: Drill[] = [
     steps:['Place cones at the three-point line, elbow, and free throw line.','Start at half court. Speed dribble to the first cone.','Make a move at the cone and keep attacking to the next cone.','Make another move. Then finish at the rim.','10 trips. Use different move combinations each time.'],
     coachingPoints:['Set up each move with a change of speed — slow down before attacking the cone.','Each cone is a new defender — reset your body position.','Finish strong at the rim every single time.','Game speed. Don\'t practice slow.'],
     commonMistakes:['Jogging through the drill — attack each cone.','Same moves every time — challenge yourself.','Soft finishes at the rim — be aggressive.'] },
+  { id:'bh-26',name:'Move Chaining Drill',category:'Ball Handling',duration:8,difficulty:'intermediate',equipment:['ball'],type:'skill',
+    summary:'Chain 3 different moves in a row without stopping — builds creative move sequences.',
+    steps:['Start dribbling at the top of the key.','Pick any 3 moves from your arsenal: crossover, between-legs, behind-back, in-and-out, hesitation, spin.','Chain them in any order without pausing between moves.','After the 3rd move, attack the rim and finish.','10 reps. Use a DIFFERENT 3-move combination each time.','You should never repeat the same combo twice in a session.'],
+    coachingPoints:['Creativity comes from variety — if you only know 2 combos, you\'re predictable.','Each move should set up the next one.','Force yourself to use moves you\'re uncomfortable with.','In a game, the best players invent move combinations on the fly. This drill trains that.'],
+    commonMistakes:['Defaulting to the same combo every time — challenge yourself.','Pausing between moves — the chain has to be smooth.','Slow speed — game speed only.'] },
+  { id:'bh-27',name:'Random Move Drill',category:'Ball Handling',duration:8,difficulty:'intermediate',equipment:['ball','partner'],type:'skill',
+    summary:'A partner calls out a move at random — you have to react and execute instantly.',
+    steps:['Start dribbling at the top of the key. Partner stands a few feet away.','Partner randomly calls out a move: "cross!" "between!" "behind!" "spin!" "hesi!" "in-and-out!"','You have to execute that move IMMEDIATELY without thinking.','After every 3 calls, attack the rim and finish.','30 seconds of random calls. Rest 30. 6 rounds.'],
+    coachingPoints:['Reaction is creativity. The best handles are the ones that respond to what\'s happening.','You can\'t plan creativity — you have to react.','If you hesitate when the call comes, you\'re not ready in a game either.','This trains your brain to bypass thinking and just execute.'],
+    commonMistakes:['Pausing to think before the move — react instantly.','Asking the partner to slow down — speed is the point.','Doing the move sloppily — it still has to be technically clean.'] },
+  { id:'bh-28',name:'Counter Move Drill',category:'Ball Handling',duration:8,difficulty:'advanced',equipment:['ball','hoop'],type:'skill',
+    summary:'Practice counter moves — when one move doesn\'t work, immediately go to the counter.',
+    steps:['Start at the wing. Drive right with a hard crossover.','Your "imaginary defender" stays in front. INSTANTLY counter: between-the-legs back to your right hand.','Attack the rim. Finish.','10 reps with crossover → between-legs counter.','10 reps with hesitation → in-and-out counter.','10 reps with behind-back → spin counter.','10 reps freestyle: any first move, any counter.'],
+    coachingPoints:['Real defenders don\'t fall for the first move. You need a counter ready.','The counter has to be IMMEDIATE — no pause to think.','Counter moves are what separate good handles from elite handles.','Each first move should have a built-in counter you can go to without thinking.'],
+    commonMistakes:['Slow counter — has to be instant.','Always using the same counter — vary it.','Not finishing after the counter — the move is pointless without a finish.'] },
+  { id:'bh-29',name:'Live Ball Improvisation Drill',category:'Ball Handling',duration:10,difficulty:'advanced',equipment:['ball','hoop','chair or partner'],type:'skill',
+    summary:'Attack a moving target and improvise your moves based on what they do.',
+    steps:['Place a partner (or moving chair) in the lane. They move side to side randomly.','Drive at them. You don\'t know which way they\'ll move.','Read their movement and improvise: if they go right, you go left. If they freeze, attack straight.','Finish at the rim with whatever finish makes sense.','10 reps. The partner should be unpredictable.','Then switch — you defend, they drive.'],
+    coachingPoints:['Creativity is reading and reacting. You can\'t plan it.','Trust your handle — you have to look at the defender, not the ball.','The best moments in basketball happen when you improvise.','This drill builds the connection between your eyes and your hands.'],
+    commonMistakes:['Looking at the ball — keep your eyes up on the target.','Pre-deciding your move before reading them.','Slow reactions — the read has to be instant.'] },
+  { id:'bh-30',name:'Weak Hand Combo Series',category:'Ball Handling',duration:8,difficulty:'intermediate',equipment:['ball'],type:'skill',
+    summary:'A complete weak hand workout — every move you do with your strong hand, do with your weak.',
+    steps:['Weak hand only for the entire drill.','30 seconds: weak hand pound dribbles.','30 seconds: weak hand crossover into weak hand.','30 seconds: weak hand between-legs.','30 seconds: weak hand behind-back.','30 seconds: weak hand in-and-out.','30 seconds: weak hand hesitation.','Rest 30. Repeat the entire sequence one more time.'],
+    coachingPoints:['Your weak hand will never improve if you only do drills that "include" the weak hand. You have to dedicate full sessions to it.','Force the weak hand to do everything the strong hand can do.','This is uncomfortable. That\'s why most players never do it. That\'s also why most players have a bad weak hand.','30 days of this drill 3x per week and your weak hand transforms.'],
+    commonMistakes:['Switching to strong hand when it gets sloppy — DON\'T.','Going too fast before clean technique.','Skipping moves you\'re bad at — those are the ones you need most.'] },
 ];
 
 // ============================================================
-// SHOOTING (25 drills)
+// SHOOTING (28 drills)
 // ============================================================
 const SHOOTING_DRILLS: Drill[] = [
   { id:'sh-1',name:'Form Shooting',category:'Shooting',duration:5,difficulty:'beginner',equipment:['ball','hoop'],type:'shooting',
@@ -281,10 +306,25 @@ const SHOOTING_DRILLS: Drill[] = [
     steps:['Pick your 5 favorite spots on the floor.','Shoot from any spot until you make 100 total shots.','Track how many attempts it takes to get to 100.','Move around — don\'t stand in one spot.','Mix catch-and-shoot and off-the-dribble shots.','Your goal: 100 makes in under 200 attempts (50%).'],
     coachingPoints:['This is a grind drill. It builds mental toughness and shooting endurance.','Your last 20 shots should look like your first 20 — same form when tired.','Move between spots to simulate game movement.','Track your total attempts each time — that number should go down week over week.'],
     commonMistakes:['Standing in one spot for all 100 — move around.','Losing form when tired — stay disciplined.','Counting makes loosely — be honest with yourself.'] },
+  { id:'sh-26',name:'Elbow Alignment Drill',category:'Shooting',duration:6,difficulty:'beginner',equipment:['ball','hoop','wall'],type:'shooting',
+    summary:'Diagnose and fix elbow flare by shooting next to a wall — your elbow physically can\'t flare out.',
+    steps:['Stand 5 feet from the basket, RIGHT side of your shooting hand against a wall.','Get into your shooting form. Your shooting elbow should not touch the wall.','If your elbow hits the wall, your elbow is flaring out — that\'s your problem.','Shoot 10 form shots. Elbow stays off the wall the entire time.','Move to 8 feet. 10 more shots.','Move to free throw line. 10 more shots.'],
+    coachingPoints:['Elbow flare is the #1 cause of inconsistent shooting.','The wall is a physical reminder — it can\'t lie to you.','Your elbow should be directly under the ball, pointing at the rim.','When you fix elbow alignment, your shot becomes a straight line instead of a curve.'],
+    commonMistakes:['Compensating by twisting your body away from the wall — keep your shoulders square.','Elbow touching the wall and ignoring it — fix it.','Only doing this once and forgetting — make it part of your regular shooting routine.'] },
+  { id:'sh-27',name:'Guide Hand Removal Drill',category:'Shooting',duration:6,difficulty:'beginner',equipment:['ball','hoop'],type:'shooting',
+    summary:'Diagnose guide hand interference by shooting with your guide hand off the ball entirely.',
+    steps:['Stand 5 feet from the basket.','Hold the ball with your shooting hand only — guide hand at your side.','Shoot the ball using only your shooting hand.','Watch the ball flight: if it goes left or right, your shooting hand alignment is off.','Make 10 from 5 feet. Move to 8 feet. Make 10.','Then add the guide hand back, but DO NOT let it push the ball. Guide hand only steadies — it never moves.','Make 10 from each spot with the guide hand back on.'],
+    coachingPoints:['The guide hand is the silent killer of jumpshots — most missed shots are because the off hand pushes.','Your guide hand should leave the ball BEFORE the shooting hand releases.','If your shot goes left, your guide hand is pushing.','Watch the ball flight — it tells you everything.'],
+    commonMistakes:['Guide hand thumb pushing the ball — keep it relaxed.','Guide hand fingers gripping — they should be loose.','Adding the guide hand back too soon — feel the difference first.'] },
+  { id:'sh-28',name:'Dip Fix Drill',category:'Shooting',duration:6,difficulty:'intermediate',equipment:['ball','hoop'],type:'shooting',
+    summary:'Eliminate the "dip" — the bad habit of lowering the ball before your shot.',
+    steps:['Catch the ball in your shot pocket — high, near your chest, not low at your waist.','Shoot WITHOUT lowering the ball first. Catch high, shoot from there.','5 form shots from 5 feet, focusing on no dip.','5 from 8 feet.','Then have a partner pass to you (or toss to yourself). Catch in shot pocket. No dip. Shoot.','15 catch-and-shoot reps from the wing.'],
+    coachingPoints:['The dip wastes time — every dip is an extra fraction of a second the defender has to contest.','Catch the ball where you\'re going to shoot it. No moving it down first.','This is what makes shooters quick — eliminating wasted motion.','Steph Curry barely dips — that\'s why his release is so fast.'],
+    commonMistakes:['Catching low at your waist — catch in your shot pocket.','Dipping out of habit — film yourself to see if you\'re doing it.','Sacrificing power for speed — your legs provide power, not your dip.'] },
 ];
 
 // ============================================================
-// FINISHING (25 drills)
+// FINISHING (27 drills)
 // ============================================================
 const FINISHING_DRILLS: Drill[] = [
   { id:'fn-1',name:'Mikan Drill',category:'Finishing',duration:5,difficulty:'beginner',equipment:['ball','hoop'],type:'skill',
@@ -412,6 +452,16 @@ const FINISHING_DRILLS: Drill[] = [
     steps:['Right block: 5 drop step power layups.','Right block: 5 up-and-under moves.','Right block: 5 hook shots across the lane.','Right block: 5 fadeaway jumpers.','Repeat entire series from the left block.'],
     coachingPoints:['A complete post game makes you unguardable.','Read the defender to choose your move.','Each move should set up the next — show the hook, they jump, go up-and-under.','Footwork is everything in the post — slow your feet down and be precise.'],
     commonMistakes:['Always going to the same move.','Rushing the post moves — be patient.','Poor footwork — travels happen when feet are sloppy.'] },
+  { id:'fn-26',name:'Weak Hand Finishing Series',category:'Finishing',duration:10,difficulty:'intermediate',equipment:['ball','hoop'],type:'skill',
+    summary:'A complete weak hand finishing workout from every angle around the basket.',
+    steps:['Weak hand only for the entire drill.','5 weak hand layups from the right side.','5 weak hand layups from the left side.','5 weak hand reverse layups from each side.','5 weak hand floaters from the lane.','5 weak hand power layups (jump off two feet).','5 weak hand euro step finishes.','5 weak hand finishes off one dribble from the wing.'],
+    coachingPoints:['Your weak hand finishing is the difference between scoring and getting blocked when defenders take away your strong hand.','Use the backboard on every finish — the backboard is your friend with the weak hand.','Don\'t cheat by using your strong hand even once.','This is the drill that wins you a roster spot — coaches notice players who can finish both ways.'],
+    commonMistakes:['Switching hands when it gets hard.','Soft touch — finish with authority.','Skipping reps because it feels uncomfortable.'] },
+  { id:'fn-27',name:'Mid-Range Touch Drill',category:'Finishing',duration:8,difficulty:'intermediate',equipment:['ball','hoop'],type:'skill',
+    summary:'Build soft touch on mid-range bank shots and short jumpers.',
+    steps:['Start at the right elbow.','Shoot 10 mid-range bank shots — kiss the ball off the top corner of the backboard square.','Move to the left elbow. 10 more bank shots.','Then 10 short jumpers from each block (no backboard).','Then 10 from the free throw line, focusing on a soft swish — no rim contact.','Track your makes — the goal is 70%+ from mid-range.'],
+    coachingPoints:['Touch is softer hands and a higher arc.','Mid-range bank shots from the elbow are nearly impossible to defend — every great mid-range scorer uses them.','Soft touch comes from your fingertips, not your palm.','High arc gives the ball more chances to drop in.'],
+    commonMistakes:['Flat shots — get more arc.','Hard shots that bounce off — softer hands.','Only practicing threes and layups, ignoring mid-range — mid-range wins close games.'] },
 ];
 
 // ============================================================
@@ -1067,6 +1117,21 @@ const BASKETBALL_IQ_DRILLS: Drill[] = [
     steps:['Pick a full game or half of game film (yours or a pro player at your position).','Watch the whole thing once without stopping.','Watch it again. Pause after every 5 possessions.','For each possession, ask: What was the right play? Was it made?','Write down 3 things to work on based on what you saw.'],
     coachingPoints:['Film study is the fastest way to improve your basketball IQ.','Watch your own film with an honest eye — don\'t just watch highlights.','If watching a pro, watch the player at YOUR position and copy their movement.','3 takeaways per film session. Then go work on them.'],
     commonMistakes:['Only watching highlights — watch the whole game.','Not taking notes — you\'ll forget what you saw.','Watching but not applying what you learned to practice.'] },
+  { id:'iq-26',name:'Head Up Dribble Drill',category:'Basketball IQ',duration:6,difficulty:'beginner',equipment:['ball','partner or wall'],type:'skill',
+    summary:'Dribble while watching a partner\'s hand signals — forces your eyes off the ball.',
+    steps:['Partner stands 10 feet in front of you with both hands ready.','You start dribbling. Partner randomly holds up 1, 2, 3, 4, or 5 fingers on either hand.','You call out the number out loud — the moment you see it.','30 seconds of dribbling and calling numbers.','Then do the drill while doing crossovers, between-legs, and behind-back.','5 rounds of 30 seconds each.'],
+    coachingPoints:['If you\'re looking at the ball, you\'re not seeing the floor.','In a game, the open man is only open for half a second — your eyes have to find them.','Court vision starts with the ability to dribble without looking.','This is the foundation of all passing and decision making.'],
+    commonMistakes:['Glancing down at the ball — keep your eyes up.','Slow reactions — call the number the instant you see it.','Sloppy dribble when not looking — practice until it\'s clean.'] },
+  { id:'iq-27',name:'Scan and Pass Drill',category:'Basketball IQ',duration:8,difficulty:'intermediate',equipment:['ball','3 partners','court'],type:'skill',
+    summary:'Catch the ball, scan the floor, and pass to whoever raises their hand — builds floor awareness.',
+    steps:['You stand at the top of the key. 3 partners spread around the court (corners, wing).','One partner randomly raises their hand for 1 second.','You catch a pass (toss to yourself), scan the floor, find the raised hand, pass to them.','After the pass, they put their hand down and a different partner raises theirs.','You sprint to a new spot, catch, scan, pass.','10 rounds of continuous scanning and passing.'],
+    coachingPoints:['Before you catch the ball, you should already be scanning.','Your eyes should be moving constantly — see the floor before the ball arrives.','The best passers don\'t need time to think — they already know where everyone is.','Scan, decide, pass. All in under 1 second.'],
+    commonMistakes:['Catching first, then looking — be looking before you catch.','Only finding one teammate and ignoring the others.','Slow scans — you have less than a second in a real game.'] },
+  { id:'iq-28',name:'Peripheral Vision Drill',category:'Basketball IQ',duration:6,difficulty:'intermediate',equipment:['ball','2 partners'],type:'skill',
+    summary:'Focus on a fixed point ahead while reading peripheral movement — true court vision.',
+    steps:['Stand at the top of the key with the ball.','Partner 1 stands directly in front of you 15 feet away. Stare at them.','Partner 2 stands at the wing — in your peripheral vision but NOT where you\'re looking.','Without moving your eyes from partner 1, partner 2 raises a number of fingers.','You call out the number using only peripheral vision.','15 reps. Then switch which side partner 2 stands on.'],
+    coachingPoints:['Real court vision means seeing teammates without looking at them.','Your peripheral vision can detect movement and shapes — train it.','Look at the rim or your defender, but SEE the cutters and shooters with your peripheral.','This is what makes elite passers look like they have eyes in the back of their head.'],
+    commonMistakes:['Cheating by glancing at the side — eyes stay locked forward.','Giving up because it feels impossible — it gets better with practice.','Not training this skill at all — most players ignore it, which is why most players can\'t see the floor.'] },
 ];
 
 // ============================================================
