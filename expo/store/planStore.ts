@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  saveProfileToCloud,
+  savePlanToCloud,
+  saveCompletedDrillToCloud,
+  loadAllUserDataFromCloud,
+} from '@/lib/supabaseSync';
 
 export interface PlanDrill {
   name: string;
@@ -52,6 +58,7 @@ export interface CompletedSession {
 interface PlanStore {
   plan: TrainingPlan | null;
   profile: PlayerProfile | null;
+  description: string;
   completedDrills: Record<string, boolean>;
   completedSessions: CompletedSession[];
   currentStreak: number;
@@ -61,12 +68,14 @@ interface PlanStore {
   skillLevels: Record<string, number>;
   setPlan: (plan: TrainingPlan) => void;
   setProfile: (profile: PlayerProfile) => void;
+  setDescription: (desc: string) => void;
   setSkillLevels: (skills: Record<string, number>) => void;
   setIsGenerating: (val: boolean) => void;
   setCurrentDayIndex: (i: number) => void;
   toggleDrill: (dayIndex: number, drillIndex: number) => void;
   completeSession: (session: CompletedSession) => void;
   loadFromStorage: () => Promise<void>;
+  loadFromCloud: () => Promise<{ hasCloudData: boolean }>;
   clearAll: () => void;
 }
 
@@ -77,6 +86,7 @@ const saveToStorage = async (state: Partial<PlanStore>) => {
     const data = {
       plan: state.plan,
       profile: state.profile,
+      description: state.description,
       completedDrills: state.completedDrills,
       completedSessions: state.completedSessions,
       currentStreak: state.currentStreak,
@@ -93,6 +103,7 @@ const saveToStorage = async (state: Partial<PlanStore>) => {
 export const usePlanStore = create<PlanStore>((set, get) => ({
   plan: null,
   profile: null,
+  description: '',
   completedDrills: {},
   completedSessions: [],
   currentStreak: 0,
@@ -104,29 +115,57 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   setPlan: (plan) => {
     set({ plan });
     saveToStorage(get());
+    // Fire-and-forget cloud sync
+    savePlanToCloud(plan).catch(e => console.error('Plan cloud sync failed:', e));
   },
+
   setProfile: (profile) => {
     set({ profile });
     saveToStorage(get());
+    // Fire-and-forget cloud sync (includes current skillLevels and description)
+    saveProfileToCloud(profile, get().skillLevels, get().description).catch(e => console.error('Profile cloud sync failed:', e));
   },
+
+  setDescription: (desc) => {
+    set({ description: desc });
+    saveToStorage(get());
+    // If a profile exists, re-sync it with the new description
+    const p = get().profile;
+    if (p) {
+      saveProfileToCloud(p, get().skillLevels, desc).catch(e => console.error('Profile cloud sync failed:', e));
+    }
+  },
+
   setSkillLevels: (skills) => {
     set({ skillLevels: skills });
     saveToStorage(get());
+    // If a profile exists, re-sync it with the new skill levels
+    const p = get().profile;
+    if (p) {
+      saveProfileToCloud(p, skills, get().description).catch(e => console.error('Profile cloud sync failed:', e));
+    }
   },
+
   setIsGenerating: (val) => {
     set({ isGenerating: val });
   },
+
   setCurrentDayIndex: (i) => {
     set({ currentDayIndex: i });
     saveToStorage(get());
   },
+
   toggleDrill: (dayIndex, drillIndex) => {
     const key = `${dayIndex}-${drillIndex}`;
     const current = get().completedDrills;
-    const updated = { ...current, [key]: !current[key] };
+    const newValue = !current[key];
+    const updated = { ...current, [key]: newValue };
     set({ completedDrills: updated });
     saveToStorage(get());
+    // Fire-and-forget cloud sync
+    saveCompletedDrillToCloud(dayIndex, drillIndex, newValue).catch(e => console.error('Drill cloud sync failed:', e));
   },
+
   completeSession: (session) => {
     const sessions = [...get().completedSessions, session];
     set({
@@ -136,6 +175,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     });
     saveToStorage(get());
   },
+
   loadFromStorage: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -144,6 +184,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
         set({
           plan: data.plan || null,
           profile: data.profile || null,
+          description: data.description || '',
           completedDrills: data.completedDrills || {},
           completedSessions: data.completedSessions || [],
           currentStreak: data.currentStreak || 0,
@@ -156,10 +197,36 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       console.error('Failed to load from storage:', e);
     }
   },
+
+  loadFromCloud: async () => {
+    try {
+      const result = await loadAllUserDataFromCloud();
+      if (result.hasCloudData) {
+        set({
+          profile: result.profile,
+          plan: result.plan,
+          skillLevels: result.skillLevels,
+          description: result.description || '',
+          completedDrills: result.completedDrills,
+        });
+        // Also save to local storage so app loads instantly next time
+        saveToStorage(get());
+        console.log('loadFromCloud: loaded user data from Supabase');
+        return { hasCloudData: true };
+      }
+      console.log('loadFromCloud: no cloud data for this user');
+      return { hasCloudData: false };
+    } catch (e) {
+      console.error('loadFromCloud error:', e);
+      return { hasCloudData: false };
+    }
+  },
+
   clearAll: () => {
     set({
       plan: null,
       profile: null,
+      description: '',
       completedDrills: {},
       completedSessions: [],
       currentStreak: 0,
