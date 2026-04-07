@@ -64,17 +64,17 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
 ];
 
 const ASSESSMENT_CLIPS = [
-  { id:'one_on_one', clipType:'1on1', title:'One-on-One', instruction:'A possession of you playing 1-on-1', detail:'Half court is fine.' },
-  { id:'threes', clipType:'threes', title:'Open Threes', instruction:'2 open three pointers', detail:'No defender. Show me your form.' },
-  { id:'dribble', clipType:'dribble', title:'Dribble Combo', instruction:'Basic dribble combo moves', detail:'Crossover, between the legs, behind the back.' },
-  { id:'game', clipType:'game', title:'Game Footage', instruction:'Footage from a real game', detail:"No game footage? Film yourself finishing with each hand instead." },
+  { id:'defense', clipType:'defense', title:'Defense', instruction:'A possession of you guarding someone 1-on-1', detail:'Show me your stance and footwork. Full possession.' },
+  { id:'shooting', clipType:'shooting', title:'Shooting', instruction:'3-5 jump shots from your range', detail:'Catch-and-shoot or pull-up. Show me your form.' },
+  { id:'finishing', clipType:'finishing', title:'Finishing', instruction:'Layups with BOTH hands', detail:'Right hand and left hand finishes at the rim. Both required.' },
+  { id:'oneOnOne', clipType:'oneOnOne', title:'1-on-1 Offense', instruction:'A possession of you with the ball attacking', detail:'Show me your moves and how you score.' },
 ];
 
 const LOADING_STEPS = [
-  'Watching your one-on-one',
+  'Watching your defense',
   'Analyzing your shooting form',
-  'Reviewing your handle',
-  'Studying your game',
+  'Reviewing your finishing',
+  'Studying your 1-on-1 game',
   'Scoring your skills',
   'Building your plan',
 ];
@@ -105,7 +105,7 @@ export default function TodayScreen() {
   const [resultsCoachNote, setResultsCoachNote] = useState('');
 
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
-  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady, profile, plan]);
+  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
   const animTrans = (dir: 'forward'|'back', cb: () => void) => {
@@ -267,6 +267,7 @@ export default function TodayScreen() {
       await new Promise(x => setTimeout(x, 800));
 
       if (r.ok && planData.days) {
+        setDescription(answers.description as string || '');
         setPlan(planData);
         setProfile({
           sport: answers.sport as string, position: answers.position as string,
@@ -299,6 +300,7 @@ export default function TodayScreen() {
         });
         const planData = await r.json();
         if (r.ok && planData.days) {
+          setDescription(answers.description as string || '');
           setPlan(planData);
           setProfile({
             sport: answers.sport as string, position: answers.position as string,
