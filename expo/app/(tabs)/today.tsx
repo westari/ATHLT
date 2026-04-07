@@ -64,10 +64,10 @@ const ONBOARDING_STEPS: OnboardingStep[] = [
 ];
 
 const ASSESSMENT_CLIPS = [
-  { id:'defense', clipType:'defense', title:'Defense', instruction:'A possession of you guarding someone 1-on-1', detail:'Show me your stance and footwork. Full possession.' },
-  { id:'shooting', clipType:'shooting', title:'Shooting', instruction:'3-5 jump shots from your range', detail:'Catch-and-shoot or pull-up. Show me your form.' },
-  { id:'finishing', clipType:'finishing', title:'Finishing', instruction:'Layups with BOTH hands', detail:'Right hand and left hand finishes at the rim. Both required.' },
-  { id:'oneOnOne', clipType:'oneOnOne', title:'1-on-1 Offense', instruction:'A possession of you with the ball attacking', detail:'Show me your moves and how you score.' },
+  { id:'one_on_one', clipType:'1on1', title:'One-on-One', instruction:'A possession of you playing 1-on-1', detail:'Half court is fine.' },
+  { id:'threes', clipType:'threes', title:'Open Threes', instruction:'2 open three pointers', detail:'No defender. Show me your form.' },
+  { id:'dribble', clipType:'dribble', title:'Dribble Combo', instruction:'Basic dribble combo moves', detail:'Crossover, between the legs, behind the back.' },
+  { id:'game', clipType:'game', title:'Game Footage', instruction:'Footage from a real game', detail:"No game footage? Film yourself finishing with each hand instead." },
 ];
 
 const LOADING_STEPS = [
@@ -105,7 +105,7 @@ export default function TodayScreen() {
   const [resultsCoachNote, setResultsCoachNote] = useState('');
 
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
-  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
+  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady, profile, plan]);
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
   const animTrans = (dir: 'forward'|'back', cb: () => void) => {
@@ -698,7 +698,7 @@ export default function TodayScreen() {
             const dayDone = dayDrills.filter((_, di) => completedDrills[i + '-' + di]).length;
             const isComplete = dayDrills.length > 0 && dayDone === dayDrills.length;
             return (
-              <View key={i} style={{ alignItems: 'center', gap: 6, flex: 1 }}>
+              <TouchableOpacity key={i} onPress={() => { if (Platform.OS !== 'web') void Haptics.selectionAsync(); usePlanStore.getState().setCurrentDayIndex(i); }} style={{ alignItems: 'center', gap: 6, flex: 1 }} activeOpacity={0.6}>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: isToday ? Colors.primary : Colors.textMuted, letterSpacing: 0.5 }}>{DAYS_SHORT[i]}</Text>
                 <View style={[
                   { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
@@ -708,7 +708,7 @@ export default function TodayScreen() {
                 ]}>
                   {isComplete && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.black }} />}
                 </View>
-              </View>
+              </TouchableOpacity>
             );
           })}
         </View>
@@ -750,7 +750,7 @@ export default function TodayScreen() {
               const Icon = getDrillIcon(drill.type);
               const color = getDrillColor(drill.type);
               return (
-                <View key={i} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 12, paddingVertical: 10 }, done && { opacity: 0.5 }]}>
+                <TouchableOpacity key={i} onPress={() => { if (drill.drillId) { if (Platform.OS !== 'web') void Haptics.selectionAsync(); router.push('/drill/' + drill.drillId); } }} activeOpacity={drill.drillId ? 0.7 : 1} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 12, paddingVertical: 10 }, done && { opacity: 0.5 }]}>
                   <View style={{ width: 32, height: 32, borderRadius: 8, borderWidth: 1, backgroundColor: color + '20', borderColor: color, alignItems: 'center', justifyContent: 'center' }}>
                     <Icon size={14} color={color} />
                   </View>
@@ -759,7 +759,7 @@ export default function TodayScreen() {
                     <Text style={{ fontSize: 11, color: Colors.textMuted }}>{drill.time || ((drill.duration || 5) + 'min')}</Text>
                   </View>
                   {done && <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#8B9A6B', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 12, fontWeight: '900', color: Colors.black }}>✓</Text></View>}
-                </View>
+                </TouchableOpacity>
               );
             })}
           </View>
