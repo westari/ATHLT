@@ -9,6 +9,7 @@ export interface PlanDrill {
   duration?: number;
   sets?: number;
   reps?: number;
+  drillId?: string;
 }
 export interface PlanDay {
   day: string;
