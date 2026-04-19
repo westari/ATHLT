@@ -132,7 +132,7 @@ const STEPS: Step[] = [
     showIf: (a) => a.grade === 'College',
   },
 
-  // ---- UNIFIED starter question (fires for school team OR college team) ----
+  // ---- UNIFIED starter question (fires for school team OR college team, but NOT AAU users who already answered aauStarter) ----
   {
     id: 'starter', section: 'Where You Play', question: 'Are you a starter on the team?',
     type: 'select',
@@ -141,7 +141,10 @@ const STEPS: Step[] = [
       { label: 'Rotation player' }, { label: 'Bench' },
     ],
     showIf: (a) => {
-      // School team user (MS or HS)
+      // Skip if AAU already answered — avoids double-ask
+      if (a.playsAAU === 'Yes') return false;
+
+      // School team user (MS or HS) without AAU
       const isSchoolTeamPlayer = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
       if (isSchoolTeamPlayer) return true;
 
