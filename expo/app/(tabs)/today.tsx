@@ -5,8 +5,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Play, Flame, Clock, Dumbbell, Target, Zap, Wind, Activity, Check, X, ChevronRight } from 'lucide-react-native';
+import { Play, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
+import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import { usePlanStore } from '@/store/planStore';
@@ -14,26 +15,27 @@ import { usePlanStore } from '@/store/planStore';
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 /**
- * Branched onboarding flow.
- * Each step has a showIf predicate. The progress bar is based on visible steps only.
- * When a parent answer changes (like grade), descendant answers are cleared to prevent stale branches.
+ * Branched onboarding with interstitials and scouting report.
+ * Steps: regular questions, interstitials (info screens), and a final scouting-report screen.
  */
 
 interface Step {
   id: string;
   section: string;
-  question: string;
+  type: 'select' | 'multiselect' | 'text' | 'numberGrid' | 'statGrid' | 'interstitial';
+  question?: string;
   subtitle?: string;
-  type: 'select' | 'multiselect' | 'text' | 'numberGrid' | 'statGrid';
   options?: { label: string; value?: string; subtitle?: string; disabled?: boolean }[];
   placeholder?: string;
   numberFields?: { id: string; label: string; max?: number }[];
   statFields?: { id: string; label: string; placeholder?: string }[];
   showIf?: (answers: Record<string, any>) => boolean;
+  // Interstitial-specific
+  interstitialTitle?: string;
+  interstitialBody?: string;
+  interstitialIllustration?: 'profile' | 'stats' | 'shot' | 'plan';
 }
 
-// Map of which answer IDs become invalid when a given answer changes.
-// Used to clear stale branch answers on navigation back and forth.
 const ANSWER_DEPENDENCIES: Record<string, string[]> = {
   grade: ['schoolTeam', 'playsAAU', 'aauCircuit', 'aauStarter', 'starter', 'collegeLevel', 'adultPlay', 'role', 'stats'],
   playsAAU: ['aauCircuit', 'aauStarter'],
@@ -45,9 +47,9 @@ const ANSWER_DEPENDENCIES: Record<string, string[]> = {
 const STEPS: Step[] = [
   // ============ About You ============
   {
-    id: 'sport', section: 'About You', question: 'What sport do you play?',
+    id: 'sport', section: 'About You', type: 'select',
+    question: 'What sport do you play?',
     subtitle: "We'll tailor everything to your game.",
-    type: 'select',
     options: [
       { label: 'Basketball' },
       { label: 'Soccer', subtitle: 'Coming soon', disabled: true },
@@ -56,25 +58,25 @@ const STEPS: Step[] = [
     ],
   },
   {
-    id: 'position', section: 'About You', question: 'What position do you play?',
+    id: 'position', section: 'About You', type: 'select',
+    question: 'What position do you play?',
     subtitle: 'This shapes your skill priorities.',
-    type: 'select',
     options: [
       { label: 'Point Guard' }, { label: 'Shooting Guard' }, { label: 'Small Forward' },
       { label: 'Power Forward' }, { label: 'Center' },
     ],
   },
   {
-    id: 'description', section: 'About You', question: 'Describe yourself.',
+    id: 'description', section: 'About You', type: 'text',
+    question: 'Describe yourself.',
     subtitle: "Height, jersey color, hair, anything so Coach X knows who you are.",
-    type: 'text',
     placeholder: 'e.g. 5\'10", red jersey #5, curly hair',
   },
 
   // ============ Where You Play ============
   {
-    id: 'grade', section: 'Where You Play', question: 'What grade are you in?',
-    type: 'select',
+    id: 'grade', section: 'Where You Play', type: 'select',
+    question: 'What grade are you in?',
     options: [
       { label: 'Middle school (6-8)' },
       { label: 'High school (9-12)' },
@@ -82,11 +84,9 @@ const STEPS: Step[] = [
       { label: 'Out of school / adult' },
     ],
   },
-
-  // ---- Middle school or high school branch ----
   {
-    id: 'schoolTeam', section: 'Where You Play', question: 'Do you play on a school team?',
-    type: 'select',
+    id: 'schoolTeam', section: 'Where You Play', type: 'select',
+    question: 'Do you play on a school team?',
     options: [
       { label: 'Varsity' }, { label: 'JV' }, { label: 'Freshman team' },
       { label: 'Middle school team' }, { label: 'No school team' },
@@ -94,15 +94,15 @@ const STEPS: Step[] = [
     showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)',
   },
   {
-    id: 'playsAAU', section: 'Where You Play', question: 'Do you play AAU or club ball?',
-    type: 'select',
+    id: 'playsAAU', section: 'Where You Play', type: 'select',
+    question: 'Do you play AAU or club ball?',
     options: [{ label: 'Yes' }, { label: 'No' }],
     showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)',
   },
   {
-    id: 'aauCircuit', section: 'Where You Play', question: 'What circuit?',
+    id: 'aauCircuit', section: 'Where You Play', type: 'select',
+    question: 'What circuit?',
     subtitle: 'This helps us know your level of competition.',
-    type: 'select',
     options: [
       { label: 'Top shoe circuit', subtitle: 'Nike EYBL, Under Armour UAA, Adidas 3SSB' },
       { label: 'Mid shoe circuit', subtitle: 'Puma Pro 16, New Balance, other shoe' },
@@ -112,53 +112,41 @@ const STEPS: Step[] = [
     showIf: (a) => a.playsAAU === 'Yes',
   },
   {
-    id: 'aauStarter', section: 'Where You Play', question: 'Are you a starter on your AAU team?',
-    type: 'select',
+    id: 'aauStarter', section: 'Where You Play', type: 'select',
+    question: 'Are you a starter on your AAU team?',
     options: [
       { label: 'Yes, starter' }, { label: '6th man' },
       { label: 'Rotation player' }, { label: 'Bench' },
     ],
     showIf: (a) => a.playsAAU === 'Yes',
   },
-
-  // ---- College branch ----
   {
-    id: 'collegeLevel', section: 'Where You Play', question: 'What level do you play at?',
-    type: 'select',
+    id: 'collegeLevel', section: 'Where You Play', type: 'select',
+    question: 'What level do you play at?',
     options: [
       { label: 'D1' }, { label: 'D2' }, { label: 'D3' }, { label: 'JUCO' },
       { label: 'NAIA' }, { label: 'Club / intramural' }, { label: 'No college team' },
     ],
     showIf: (a) => a.grade === 'College',
   },
-
-  // ---- UNIFIED starter question (fires for school team OR college team, but NOT AAU users who already answered aauStarter) ----
   {
-    id: 'starter', section: 'Where You Play', question: 'Are you a starter on the team?',
-    type: 'select',
+    id: 'starter', section: 'Where You Play', type: 'select',
+    question: 'Are you a starter on the team?',
     options: [
       { label: 'Yes, starter' }, { label: '6th man' },
       { label: 'Rotation player' }, { label: 'Bench' },
     ],
     showIf: (a) => {
-      // Skip if AAU already answered — avoids double-ask
       if (a.playsAAU === 'Yes') return false;
-
-      // School team user (MS or HS) without AAU
       const isSchoolTeamPlayer = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
       if (isSchoolTeamPlayer) return true;
-
-      // College team user (any level except "No college team")
       if (a.grade === 'College' && a.collegeLevel && a.collegeLevel !== 'No college team') return true;
-
       return false;
     },
   },
-
-  // ---- Adult branch ----
   {
-    id: 'adultPlay', section: 'Where You Play', question: 'Where do you play?',
-    type: 'select',
+    id: 'adultPlay', section: 'Where You Play', type: 'select',
+    question: 'Where do you play?',
     options: [
       { label: 'Competitive rec league' }, { label: 'Casual rec league' },
       { label: 'Pickup / open gym' }, { label: 'Mostly alone / driveway' },
@@ -166,11 +154,19 @@ const STEPS: Step[] = [
     showIf: (a) => a.grade === 'Out of school / adult',
   },
 
-  // ============ Role on team (only if on a team) ============
+  // ============ INTERSTITIAL 1: after where-you-play ============
   {
-    id: 'role', section: 'Your Role', question: "What's your role on the team?",
+    id: 'int_where', section: 'Where You Play', type: 'interstitial',
+    interstitialIllustration: 'profile',
+    interstitialTitle: 'We know where you play.',
+    interstitialBody: 'Coach X uses your level and role to match drills to the competition you actually face.',
+  },
+
+  // ============ Role on team ============
+  {
+    id: 'role', section: 'Your Role', type: 'select',
+    question: "What's your role on the team?",
     subtitle: 'So Coach X knows what kind of player you are.',
-    type: 'select',
     options: [
       { label: 'Primary scorer', subtitle: 'Plays are run for you' },
       { label: 'Secondary scorer', subtitle: "You score but aren't the first option" },
@@ -185,11 +181,11 @@ const STEPS: Step[] = [
     showIf: (a) => playsOnTeam(a),
   },
 
-  // ============ Stats (only if on team) ============
+  // ============ Stats ============
   {
-    id: 'stats', section: 'Your Stats', question: 'Estimate your stats per game.',
+    id: 'stats', section: 'Your Stats', type: 'statGrid',
+    question: 'Estimate your stats per game.',
     subtitle: "It's fine if you don't know exactly. Leave blank if you don't track.",
-    type: 'statGrid',
     statFields: [
       { id: 'minutes', label: 'Minutes per game', placeholder: '0' },
       { id: 'ppg', label: 'Points per game', placeholder: '0' },
@@ -199,12 +195,20 @@ const STEPS: Step[] = [
     showIf: (a) => playsOnTeam(a),
   },
 
+  // ============ INTERSTITIAL 2: after stats ============
+  {
+    id: 'int_stats', section: 'Your Stats', type: 'interstitial',
+    interstitialIllustration: 'stats',
+    interstitialTitle: 'Numbers locked.',
+    interstitialBody: "A 2 ppg bench player at EYBL is better than a 20 ppg scorer at rec. We read your stats through the level you're playing at.",
+    showIf: (a) => playsOnTeam(a),
+  },
+
   // ============ Your Game ============
   {
-    id: 'shootingMakes', section: 'Your Game',
+    id: 'shootingMakes', section: 'Your Game', type: 'numberGrid',
     question: 'Out of 10 wide open shots, how many do you make?',
     subtitle: 'Be honest. This shapes your plan.',
-    type: 'numberGrid',
     numberFields: [
       { id: 'layupStrong', label: 'Layups (strong hand)', max: 10 },
       { id: 'layupWeak', label: 'Layups (weak hand)', max: 10 },
@@ -214,8 +218,8 @@ const STEPS: Step[] = [
     ],
   },
   {
-    id: 'dribbling', section: 'Your Game', question: 'How\'s your dribbling?',
-    type: 'select',
+    id: 'dribbling', section: 'Your Game', type: 'select',
+    question: 'How\'s your dribbling?',
     options: [
       { label: 'Strong with both hands' },
       { label: 'Getting there' },
@@ -223,43 +227,59 @@ const STEPS: Step[] = [
       { label: 'Only use my right hand' },
     ],
   },
+
+  // ============ INTERSTITIAL 3: after shot profile ============
   {
-    id: 'goal', section: 'Your Game', question: 'What do you want to improve most?',
+    id: 'int_shot', section: 'Your Game', type: 'interstitial',
+    interstitialIllustration: 'shot',
+    interstitialTitle: 'Your shot profile is set.',
+    interstitialBody: "The drills you'll see are picked to attack your weakest spots and sharpen your strongest ones.",
+  },
+
+  {
+    id: 'goal', section: 'Your Game', type: 'text',
+    question: 'What do you want to improve most?',
     subtitle: 'Keep it short — one sentence.',
-    type: 'text',
     placeholder: 'e.g. be a better shooter off the dribble',
   },
 
   // ============ Schedule ============
   {
-    id: 'frequency', section: 'Your Schedule', question: 'How often can you train?',
-    type: 'select',
+    id: 'frequency', section: 'Your Schedule', type: 'select',
+    question: 'How often can you train?',
     options: [
       { label: 'Once or twice a week' }, { label: '3-4 times a week' },
       { label: '5-6 times a week' }, { label: 'Every day' },
     ],
   },
   {
-    id: 'duration', section: 'Your Schedule', question: 'How long per session?',
-    type: 'select',
+    id: 'duration', section: 'Your Schedule', type: 'select',
+    question: 'How long per session?',
     options: [
       { label: '20-30 minutes' }, { label: '30-45 minutes' },
       { label: '45-60 minutes' }, { label: '60-90 minutes' },
     ],
   },
   {
-    id: 'access', section: 'Your Schedule', question: 'Where do you usually train?',
+    id: 'access', section: 'Your Schedule', type: 'multiselect',
+    question: 'Where do you usually train?',
     subtitle: 'Pick all that apply.',
-    type: 'multiselect',
     options: [
       { label: 'Full court with hoop' }, { label: 'Half court with hoop' },
       { label: 'Driveway with hoop' }, { label: 'Gym with weights' },
       { label: 'Open space (no hoop)' },
     ],
   },
+
+  // ============ INTERSTITIAL 4: before scouting ============
+  {
+    id: 'int_plan', section: 'Scouting Report', type: 'interstitial',
+    interstitialIllustration: 'plan',
+    interstitialTitle: 'Almost done.',
+    interstitialBody: "Next up: your scouting report. Coach X reads everything you told us and turns it into a skill profile.",
+  },
 ];
 
-// Helper: does the user play on an organized team?
 function playsOnTeam(a: Record<string, any>): boolean {
   if (a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)') {
     const hasSchool = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
@@ -278,21 +298,136 @@ function getVisibleSteps(answers: Record<string, any>): Step[] {
   return STEPS.filter(s => !s.showIf || s.showIf(answers));
 }
 
-// Clear dependent answers when a parent answer changes.
-// Returns a new answers object with stale branch data removed.
 function clearDependentAnswers(answers: Record<string, any>, changedKey: string): Record<string, any> {
   const deps = ANSWER_DEPENDENCIES[changedKey];
   if (!deps) return answers;
   const next = { ...answers };
   for (const d of deps) {
     delete next[d];
-    // Recursively clear their dependents too
     const nested = ANSWER_DEPENDENCIES[d];
-    if (nested) {
-      for (const n of nested) delete next[n];
-    }
+    if (nested) for (const n of nested) delete next[n];
   }
   return next;
+}
+
+/**
+ * Compute skill ratings from onboarding answers.
+ * Returns 0-10 for each of our 12 skills.
+ * This mirrors what the backend will do for persistence, but is also shown
+ * directly in the scouting report screen.
+ */
+function computeSkills(a: Record<string, any>): Record<string, { level: number; label: string }> {
+  const skills: Record<string, number> = {
+    shooting: 5, shotForm: 5, finishing: 5, ballHandling: 5, weakHand: 5,
+    defense: 5, iq: 5, athleticism: 5, creativity: 5, touch: 5,
+    courtVision: 5, decisionMaking: 5,
+  };
+
+  // --- Shooting makes ---
+  const m = a.shootingMakes || {};
+  const layupStrong = parseInt(m.layupStrong || '') || 0;
+  const layupWeak = parseInt(m.layupWeak || '') || 0;
+  const ft = parseInt(m.freeThrows || '') || 0;
+  const midRange = parseInt(m.midRange || '') || 0;
+  const threes = parseInt(m.threes || '') || 0;
+
+  // Average shooting spots → shooting rating (weight FT/3pt/midrange equally)
+  if (midRange || threes || ft) {
+    const shootingAvg = (midRange + threes + ft) / 3;
+    skills.shooting = Math.max(1, Math.min(10, shootingAvg));
+    skills.shotForm = Math.max(1, Math.min(10, (midRange + ft) / 2));
+    skills.touch = Math.max(1, Math.min(10, (ft + midRange) / 2));
+  }
+
+  // Finishing = layups average
+  if (layupStrong || layupWeak) {
+    skills.finishing = Math.max(1, Math.min(10, (layupStrong + layupWeak) / 2));
+    skills.weakHand = Math.max(1, Math.min(10, layupWeak));
+  }
+
+  // --- Dribbling / weakHand ---
+  const d = a.dribbling;
+  if (d === 'Strong with both hands') { skills.ballHandling = 8; skills.weakHand = Math.max(skills.weakHand, 7); }
+  else if (d === 'Getting there') { skills.ballHandling = 6; skills.weakHand = Math.max(skills.weakHand, 5); }
+  else if (d === 'Avoid using my weak hand') { skills.ballHandling = 5; skills.weakHand = Math.min(skills.weakHand, 3); }
+  else if (d === 'Only use my right hand') { skills.ballHandling = 4; skills.weakHand = 2; }
+
+  // --- Role tuning ---
+  const role = a.role;
+  if (role === 'Primary scorer') { skills.creativity += 1; skills.decisionMaking += 0.5; }
+  if (role === 'Playmaker') { skills.iq += 2; skills.courtVision += 2; skills.decisionMaking += 1.5; }
+  if (role === 'Defensive stopper') { skills.defense += 2.5; skills.athleticism += 1; skills.iq += 1; }
+  if (role === 'Rebounder / rim protector') { skills.finishing += 1; skills.athleticism += 1.5; skills.defense += 1.5; }
+  if (role === '3-and-D specialist') { skills.shooting += 1; skills.defense += 1.5; }
+  if (role === 'Two-way wing') { skills.defense += 1; skills.shooting += 0.5; skills.athleticism += 0.5; }
+  if (role === 'Energy off the bench') { skills.athleticism += 1.5; skills.defense += 0.5; }
+  if (role === 'Still figuring out my role') { /* no bonus */ }
+
+  // --- Level/tier influence (higher competition = higher baseline iq/decisionMaking/defense) ---
+  let tier = 5;
+  if (a.aauCircuit === 'Top shoe circuit' || a.collegeLevel === 'D1') tier = 9;
+  else if (a.aauCircuit === 'Mid shoe circuit' || a.aauCircuit === 'Independent circuit' || a.schoolTeam === 'Varsity' || a.collegeLevel === 'D2' || a.collegeLevel === 'D3') tier = 7;
+  else if (a.aauCircuit === 'Local circuit' || a.schoolTeam === 'JV' || a.collegeLevel === 'JUCO' || a.collegeLevel === 'NAIA' || a.adultPlay === 'Competitive rec league') tier = 6;
+  else if (a.schoolTeam === 'Freshman team' || a.schoolTeam === 'Middle school team' || a.collegeLevel === 'Club / intramural' || a.adultPlay === 'Casual rec league') tier = 5;
+  else if (a.adultPlay === 'Pickup / open gym') tier = 5;
+  else if (a.adultPlay === 'Mostly alone / driveway') tier = 4;
+
+  // Tier bumps: higher tier = assume slightly better iq/decisionMaking/defense from playing better comp
+  const tierBump = (tier - 5) * 0.4;
+  skills.iq += tierBump;
+  skills.decisionMaking += tierBump;
+  skills.defense += tierBump * 0.5;
+  skills.athleticism += tierBump * 0.5;
+
+  // --- Starter status tuning ---
+  if (a.starter === 'Yes, starter' || a.aauStarter === 'Yes, starter') {
+    skills.iq += 0.5; skills.decisionMaking += 0.5;
+  } else if (a.starter === 'Bench' || a.aauStarter === 'Bench') {
+    skills.iq -= 0.3;
+  }
+
+  // --- Stats (only useful if on a team) ---
+  const s = a.stats || {};
+  const ppg = parseFloat(s.ppg) || 0;
+  const apg = parseFloat(s.apg) || 0;
+  const rpg = parseFloat(s.rpg) || 0;
+  const minutes = parseFloat(s.minutes) || 0;
+
+  // Compute per-30 if minutes provided
+  const per30 = (stat: number) => (minutes > 0 ? (stat / minutes) * 30 : stat);
+  const ppg30 = per30(ppg);
+  const apg30 = per30(apg);
+  const rpg30 = per30(rpg);
+
+  if (ppg30 >= 18) skills.shooting += 1.5;
+  else if (ppg30 >= 12) skills.shooting += 0.8;
+  else if (ppg30 >= 6) skills.shooting += 0.3;
+
+  if (apg30 >= 5) { skills.courtVision += 2; skills.iq += 1; skills.decisionMaking += 1; }
+  else if (apg30 >= 3) { skills.courtVision += 1; skills.iq += 0.5; }
+
+  if (rpg30 >= 7) { skills.athleticism += 1.5; skills.finishing += 0.5; }
+  else if (rpg30 >= 4) { skills.athleticism += 0.8; }
+
+  // --- Position baseline ---
+  if (a.position === 'Point Guard') { skills.courtVision += 0.5; skills.ballHandling += 0.5; }
+  if (a.position === 'Center') { skills.finishing += 0.3; skills.athleticism += 0.3; }
+
+  // Clamp all to 1-10
+  const result: Record<string, { level: number; label: string }> = {};
+  const labels: Record<string, string> = {
+    shooting: 'Shooting', shotForm: 'Shot Form', finishing: 'Finishing',
+    ballHandling: 'Ball Handling', weakHand: 'Weak Hand', defense: 'Defense',
+    iq: 'Basketball IQ', athleticism: 'Athleticism', creativity: 'Creativity',
+    touch: 'Touch', courtVision: 'Court Vision', decisionMaking: 'Decision Making',
+  };
+  for (const k of Object.keys(skills)) {
+    result[k] = {
+      level: Math.round(Math.max(1, Math.min(10, skills[k])) * 10) / 10,
+      label: labels[k] || k,
+    };
+  }
+  return result;
 }
 
 const LOADING_STEPS = [
@@ -303,12 +438,76 @@ const LOADING_STEPS = [
   'Finishing Coach X notes',
 ];
 
+// ============ INTERSTITIAL ILLUSTRATIONS (inline SVG) ============
+
+function Illustration({ kind }: { kind: 'profile' | 'stats' | 'shot' | 'plan' }) {
+  const size = 200;
+  const stroke = Colors.primary;
+  const fill = 'transparent';
+  const bg = Colors.surface;
+
+  if (kind === 'profile') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 200 200">
+        <Circle cx="100" cy="100" r="90" fill={bg} />
+        <Circle cx="100" cy="75" r="25" stroke={stroke} strokeWidth="3" fill={fill} />
+        <Path d="M60 150 Q100 110 140 150" stroke={stroke} strokeWidth="3" fill={fill} />
+        <Line x1="100" y1="135" x2="100" y2="160" stroke={stroke} strokeWidth="2" />
+        <Circle cx="100" cy="160" r="4" fill={stroke} />
+      </Svg>
+    );
+  }
+  if (kind === 'stats') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 200 200">
+        <Circle cx="100" cy="100" r="90" fill={bg} />
+        <Rect x="50" y="120" width="18" height="40" fill={stroke} />
+        <Rect x="80" y="90" width="18" height="70" fill={stroke} opacity="0.8" />
+        <Rect x="110" y="60" width="18" height="100" fill={stroke} />
+        <Rect x="140" y="100" width="18" height="60" fill={stroke} opacity="0.6" />
+        <Line x1="40" y1="160" x2="170" y2="160" stroke={Colors.textMuted} strokeWidth="2" />
+      </Svg>
+    );
+  }
+  if (kind === 'shot') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 200 200">
+        <Circle cx="100" cy="100" r="90" fill={bg} />
+        {/* Hoop */}
+        <Rect x="140" y="50" width="4" height="50" fill={stroke} />
+        <Line x1="120" y1="70" x2="160" y2="70" stroke={stroke} strokeWidth="3" />
+        <Path d="M120 70 L125 85 L155 85 L160 70" stroke={stroke} strokeWidth="2" fill={fill} />
+        {/* Arcing ball */}
+        <Path d="M40 150 Q85 40 145 80" stroke={stroke} strokeWidth="2" strokeDasharray="4 4" fill={fill} />
+        <Circle cx="40" cy="150" r="8" fill={stroke} />
+      </Svg>
+    );
+  }
+  // plan
+  return (
+    <Svg width={size} height={size} viewBox="0 0 200 200">
+      <Circle cx="100" cy="100" r="90" fill={bg} />
+      <Rect x="55" y="50" width="90" height="110" rx="6" stroke={stroke} strokeWidth="3" fill={fill} />
+      <Line x1="70" y1="75" x2="130" y2="75" stroke={stroke} strokeWidth="2" />
+      <Line x1="70" y1="95" x2="120" y2="95" stroke={stroke} strokeWidth="2" />
+      <Line x1="70" y1="115" x2="125" y2="115" stroke={stroke} strokeWidth="2" />
+      <Line x1="70" y1="135" x2="115" y2="135" stroke={stroke} strokeWidth="2" />
+      <Circle cx="62" cy="75" r="3" fill={stroke} />
+      <Circle cx="62" cy="95" r="3" fill={stroke} />
+      <Circle cx="62" cy="115" r="3" fill={stroke} />
+      <Circle cx="62" cy="135" r="3" fill={stroke} />
+    </Svg>
+  );
+}
+
+// ============ MAIN COMPONENT ============
+
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, profile, completedDrills, currentDayIndex, currentStreak, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
+  const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
 
-  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'auth' | 'analyzing' | 'plan'>('loading');
+  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'analyzing' | 'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -348,7 +547,8 @@ export default function TodayScreen() {
       if (next.type === 'text') setTextInput((answers[next.id] as string) || '');
       animTrans('forward', () => setStepIndex(stepIndex + 1));
     } else {
-      setAppState('auth');
+      // Done with onboarding → scouting report
+      setAppState('scouting');
     }
   };
 
@@ -369,12 +569,11 @@ export default function TodayScreen() {
       const c = (answers[st.id] as string[]) || [];
       setAnswers({ ...answers, [st.id]: c.includes(opt) ? c.filter(o => o !== opt) : [...c, opt] });
     } else {
-      // Single-select: update answer AND clear any dependents (in case they came back and changed)
       const oldValue = answers[st.id];
       let nextAnswers = { ...answers, [st.id]: opt };
       if (oldValue !== undefined && oldValue !== opt) {
         nextAnswers = clearDependentAnswers(nextAnswers, st.id);
-        nextAnswers[st.id] = opt; // re-set after clearing
+        nextAnswers[st.id] = opt;
       }
       setAnswers(nextAnswers);
       setTimeout(() => goNext(), 300);
@@ -429,11 +628,8 @@ export default function TodayScreen() {
       makeEntries.sort((x, y) => x[1] - y[1]);
       const worst = makeEntries[0];
       const worstLabels: Record<string, string> = {
-        layupStrong: 'Finishing at the rim',
-        layupWeak: 'Weak hand finishing',
-        freeThrows: 'Free throw shooting',
-        midRange: 'Mid-range shooting',
-        threes: 'Three-point shooting',
+        layupStrong: 'Finishing at the rim', layupWeak: 'Weak hand finishing',
+        freeThrows: 'Free throw shooting', midRange: 'Mid-range shooting', threes: 'Three-point shooting',
       };
       if (worst[1] <= 3) weakness = worstLabels[worst[0]] || weakness;
     }
@@ -441,36 +637,27 @@ export default function TodayScreen() {
       weakness = 'Weak hand ball handling';
     }
 
+    // Compute skill levels to send to backend (so plan gen knows the profile)
+    const computed = computeSkills(a);
+    const skillLevels: Record<string, number> = {};
+    for (const k of Object.keys(computed)) skillLevels[k] = computed[k].level;
+
     return {
-      sport: a.sport,
-      position: a.position,
-      experience,
+      sport: a.sport, position: a.position, experience,
       goal: a.goal || 'Become a more complete player',
       weakness,
       driving: 'not specified',
       leftHand: leftHandMap[a.dribbling] || 'not specified',
-      pressure: 'not specified',
-      goToMove: 'not specified',
-      threeConfidence,
-      freeThrow,
-      frequency: a.frequency,
-      duration: a.duration,
-      access: a.access,
+      pressure: 'not specified', goToMove: 'not specified',
+      threeConfidence, freeThrow,
+      frequency: a.frequency, duration: a.duration, access: a.access,
       description: a.description || '',
-
-      // NEW FIELDS
-      grade: a.grade,
-      schoolTeam: a.schoolTeam,
-      playsAAU: a.playsAAU,
-      aauCircuit: a.aauCircuit,
-      aauStarter: a.aauStarter,
-      starter: a.starter, // unified — could be school or college
-      collegeLevel: a.collegeLevel,
-      adultPlay: a.adultPlay,
-      role: a.role,
-      stats: a.stats,
-      shootingMakes: a.shootingMakes,
-      dribbling: a.dribbling,
+      grade: a.grade, schoolTeam: a.schoolTeam,
+      playsAAU: a.playsAAU, aauCircuit: a.aauCircuit, aauStarter: a.aauStarter,
+      starter: a.starter, collegeLevel: a.collegeLevel, adultPlay: a.adultPlay,
+      role: a.role, stats: a.stats,
+      shootingMakes: a.shootingMakes, dribbling: a.dribbling,
+      skillLevels,
     };
   };
 
@@ -505,22 +692,14 @@ export default function TodayScreen() {
       if (r.ok && planData.days) {
         setPlan(planData);
         setProfile({
-          sport: payload.sport,
-          position: payload.position,
-          experience: payload.experience,
-          goal: payload.goal,
-          weakness: payload.weakness,
-          frequency: payload.frequency,
-          duration: payload.duration,
-          access: payload.access,
-          driving: payload.driving,
-          leftHand: payload.leftHand,
-          pressure: payload.pressure,
-          goToMove: payload.goToMove,
-          threeConfidence: payload.threeConfidence,
-          freeThrow: payload.freeThrow,
+          sport: payload.sport, position: payload.position, experience: payload.experience,
+          goal: payload.goal, weakness: payload.weakness,
+          frequency: payload.frequency, duration: payload.duration, access: payload.access,
+          driving: payload.driving, leftHand: payload.leftHand, pressure: payload.pressure,
+          goToMove: payload.goToMove, threeConfidence: payload.threeConfidence, freeThrow: payload.freeThrow,
         });
         if (payload.description) setDescription(payload.description);
+        setSkillLevels(payload.skillLevels);
         setAppState('plan');
       } else {
         Alert.alert('Plan generation failed', 'Please try again.');
@@ -533,7 +712,7 @@ export default function TodayScreen() {
     }
   };
 
-  // ============ RENDER STATES ============
+  // ============ RENDER ============
 
   if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
@@ -566,6 +745,39 @@ export default function TodayScreen() {
 
   if (appState === 'onboarding' && currentStep) {
     const st = currentStep;
+
+    // INTERSTITIAL rendering
+    if (st.type === 'interstitial') {
+      return (
+        <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <View style={s.qh}>
+            <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+            <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
+            <View style={{ width: 60 }} />
+          </View>
+          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
+            {st.interstitialIllustration && (
+              <View style={{ marginBottom: 40 }}>
+                <Illustration kind={st.interstitialIllustration} />
+              </View>
+            )}
+            <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16, lineHeight: 36 }}>
+              {st.interstitialTitle}
+            </Text>
+            <Text style={{ fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 }}>
+              {st.interstitialBody}
+            </Text>
+          </Animated.View>
+          <View style={s.bn}>
+            <TouchableOpacity style={s.cb} onPress={goNext} activeOpacity={0.85}>
+              <Text style={s.ct}>CONTINUE</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+
+    // QUESTION rendering
     const isSel = (o: string) => {
       const a = answers[st.id];
       return Array.isArray(a) ? a.includes(o) : a === o;
@@ -590,7 +802,6 @@ export default function TodayScreen() {
             <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
             <View style={{ width: 60 }} />
           </View>
-
           <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
               <Text style={s.qs}>{st.section.toUpperCase()}</Text>
@@ -600,11 +811,7 @@ export default function TodayScreen() {
               {(st.type === 'select' || st.type === 'multiselect') && st.options?.map((o, i) => (
                 <TouchableOpacity
                   key={i}
-                  style={[
-                    s.opt,
-                    isSel(o.label) && s.optSel,
-                    o.disabled && s.optDisabled,
-                  ]}
+                  style={[s.opt, isSel(o.label) && s.optSel, o.disabled && s.optDisabled]}
                   onPress={() => !o.disabled && handleSelect(o.label)}
                   activeOpacity={o.disabled ? 1 : 0.7}
                   disabled={o.disabled}
@@ -618,18 +825,14 @@ export default function TodayScreen() {
               ))}
 
               {st.type === 'text' && (
-                <View>
-                  <TextInput
-                    style={s.textIn}
-                    placeholder={st.placeholder}
-                    placeholderTextColor={Colors.textMuted}
-                    value={textInput}
-                    onChangeText={setTextInput}
-                    multiline
-                    maxLength={200}
-                    autoFocus
-                  />
-                </View>
+                <TextInput
+                  style={s.textIn}
+                  placeholder={st.placeholder}
+                  placeholderTextColor={Colors.textMuted}
+                  value={textInput}
+                  onChangeText={setTextInput}
+                  multiline maxLength={200} autoFocus
+                />
               )}
 
               {st.type === 'numberGrid' && st.numberFields?.map((f, i) => {
@@ -668,10 +871,7 @@ export default function TodayScreen() {
                       keyboardType="decimal-pad"
                       maxLength={5}
                       value={grid[f.id] || ''}
-                      onChangeText={(v) => {
-                        const cleaned = v.replace(/[^0-9.]/g, '');
-                        handleNumberChange(f.id, cleaned);
-                      }}
+                      onChangeText={(v) => handleNumberChange(f.id, v.replace(/[^0-9.]/g, ''))}
                       placeholder={f.placeholder || '0'}
                       placeholderTextColor={Colors.textMuted}
                     />
@@ -685,10 +885,7 @@ export default function TodayScreen() {
             <View style={s.bn}>
               <TouchableOpacity
                 style={[s.cb, !canGo() && s.cbDisabled]}
-                onPress={() => {
-                  if (st.type === 'text') handleTextSubmit();
-                  else goNext();
-                }}
+                onPress={() => { if (st.type === 'text') handleTextSubmit(); else goNext(); }}
                 activeOpacity={0.85}
                 disabled={!canGo()}
               >
@@ -703,13 +900,80 @@ export default function TodayScreen() {
     );
   }
 
+  // ============ SCOUTING REPORT ============
+  if (appState === 'scouting') {
+    const skills = computeSkills(answers);
+    const skillEntries = Object.entries(skills).sort((a, b) => b[1].level - a[1].level);
+    const strongest = skillEntries.slice(0, 3);
+    const weakest = [...skillEntries].sort((a, b) => a[1].level - b[1].level).slice(0, 3);
+
+    return (
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={s.qh}>
+          <TouchableOpacity onPress={() => setAppState('onboarding')} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+          <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: '100%' }]} /></View></View>
+          <View style={{ width: 60 }} />
+        </View>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+          <Text style={s.qs}>YOUR SCOUTING REPORT</Text>
+          <Text style={[s.qq, { marginBottom: 8 }]}>Here's your starting profile.</Text>
+          <Text style={s.qsub}>Computed from your answers. These will refine as you train.</Text>
+
+          {/* Strengths */}
+          <Text style={[s.scHeader, { marginTop: 16 }]}>STRENGTHS</Text>
+          {strongest.map(([key, s2]) => (
+            <View key={key} style={s.scRow}>
+              <Text style={s.scLabel}>{s2.label}</Text>
+              <View style={s.scBarWrap}>
+                <View style={[s.scBarFill, { width: (s2.level * 10) + '%', backgroundColor: Colors.primary }]} />
+              </View>
+              <Text style={s.scVal}>{s2.level.toFixed(1)}</Text>
+            </View>
+          ))}
+
+          {/* Needs work */}
+          <Text style={[s.scHeader, { marginTop: 24 }]}>NEEDS WORK</Text>
+          {weakest.map(([key, s2]) => (
+            <View key={key} style={s.scRow}>
+              <Text style={s.scLabel}>{s2.label}</Text>
+              <View style={s.scBarWrap}>
+                <View style={[s.scBarFill, { width: (s2.level * 10) + '%', backgroundColor: '#C47A6C' }]} />
+              </View>
+              <Text style={s.scVal}>{s2.level.toFixed(1)}</Text>
+            </View>
+          ))}
+
+          {/* Full list */}
+          <Text style={[s.scHeader, { marginTop: 24 }]}>FULL PROFILE</Text>
+          {skillEntries.map(([key, s2]) => (
+            <View key={key} style={s.scRowFull}>
+              <Text style={s.scLabelSm}>{s2.label}</Text>
+              <Text style={s.scValSm}>{s2.level.toFixed(1)}/10</Text>
+            </View>
+          ))}
+        </ScrollView>
+
+        <View style={s.bn}>
+          <TouchableOpacity
+            style={s.cb}
+            onPress={() => {
+              if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              setAppState('auth');
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={s.ct}>UNLOCK MY PLAN</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   if (appState === 'auth') {
     return (
       <AuthScreen
-        onComplete={async (isGuest) => {
-          await generatePlanFromOnboarding();
-        }}
-        onBack={() => setAppState('onboarding')}
+        onComplete={async () => { await generatePlanFromOnboarding(); }}
+        onBack={() => setAppState('scouting')}
       />
     );
   }
@@ -780,11 +1044,9 @@ export default function TodayScreen() {
                 <Text style={{ fontSize: 12, color: Colors.textMuted }}>{day?.duration}</Text>
               </View>
               <Text style={{ fontSize: 24, fontWeight: '900', color: Colors.textPrimary, marginBottom: 16 }}>{day?.focus}</Text>
-
               <View style={{ height: 4, backgroundColor: Colors.background, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
                 <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
               </View>
-
               <TouchableOpacity
                 style={{ backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 onPress={() => router.push('/session')}
@@ -793,7 +1055,6 @@ export default function TodayScreen() {
                 <Play size={18} color={Colors.black} />
                 <Text style={{ fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 1.5 }}>START SESSION</Text>
               </TouchableOpacity>
-
               <View style={{ marginTop: 20 }}>
                 {drills.map((d, i) => {
                   const done = completedDrills[currentDayIndex + '-' + i];
@@ -862,4 +1123,14 @@ const s = StyleSheet.create({
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
   ct: { fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
   ctDisabled: { color: Colors.textMuted },
+  // Scouting report
+  scHeader: { fontSize: 11, fontWeight: '800', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
+  scRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
+  scLabel: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary, width: 120 },
+  scBarWrap: { flex: 1, height: 8, backgroundColor: Colors.surface, borderRadius: 4, overflow: 'hidden' },
+  scBarFill: { height: 8, borderRadius: 4 },
+  scVal: { fontSize: 13, fontWeight: '800', color: Colors.textPrimary, width: 36, textAlign: 'right' },
+  scRowFull: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#222' },
+  scLabelSm: { fontSize: 13, color: Colors.textSecondary },
+  scValSm: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary },
 });
