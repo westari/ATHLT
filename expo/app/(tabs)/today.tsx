@@ -14,9 +14,9 @@ import { usePlanStore } from '@/store/planStore';
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 /**
- * New branched onboarding flow.
- * Each step is a question. Some steps are only shown if earlier answers unlock them.
- * Progress is tracked by counting visible steps dynamically so the progress bar is accurate.
+ * Branched onboarding flow.
+ * Each step has a showIf predicate. The progress bar is based on visible steps only.
+ * When a parent answer changes (like grade), descendant answers are cleared to prevent stale branches.
  */
 
 interface Step {
@@ -27,13 +27,20 @@ interface Step {
   type: 'select' | 'multiselect' | 'text' | 'numberGrid' | 'statGrid';
   options?: { label: string; value?: string; subtitle?: string; disabled?: boolean }[];
   placeholder?: string;
-  // Number grid fields (for shooting makes)
   numberFields?: { id: string; label: string; max?: number }[];
-  // Stat grid fields (for team stats)
   statFields?: { id: string; label: string; placeholder?: string }[];
-  // Branching: only show this step if condition is met
   showIf?: (answers: Record<string, any>) => boolean;
 }
+
+// Map of which answer IDs become invalid when a given answer changes.
+// Used to clear stale branch answers on navigation back and forth.
+const ANSWER_DEPENDENCIES: Record<string, string[]> = {
+  grade: ['schoolTeam', 'playsAAU', 'aauCircuit', 'aauStarter', 'starter', 'collegeLevel', 'adultPlay', 'role', 'stats'],
+  playsAAU: ['aauCircuit', 'aauStarter'],
+  schoolTeam: ['starter'],
+  collegeLevel: ['starter'],
+  adultPlay: ['role', 'stats'],
+};
 
 const STEPS: Step[] = [
   // ============ About You ============
@@ -113,18 +120,6 @@ const STEPS: Step[] = [
     ],
     showIf: (a) => a.playsAAU === 'Yes',
   },
-  {
-    id: 'schoolStarter', section: 'Where You Play', question: 'Are you a starter on your school team?',
-    type: 'select',
-    options: [
-      { label: 'Yes, starter' }, { label: '6th man' },
-      { label: 'Rotation player' }, { label: 'Bench' },
-    ],
-    showIf: (a) => {
-      const hasSchoolTeam = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
-      return hasSchoolTeam;
-    },
-  },
 
   // ---- College branch ----
   {
@@ -136,14 +131,25 @@ const STEPS: Step[] = [
     ],
     showIf: (a) => a.grade === 'College',
   },
+
+  // ---- UNIFIED starter question (fires for school team OR college team) ----
   {
-    id: 'collegeStarter', section: 'Where You Play', question: 'Are you a starter?',
+    id: 'starter', section: 'Where You Play', question: 'Are you a starter on the team?',
     type: 'select',
     options: [
       { label: 'Yes, starter' }, { label: '6th man' },
       { label: 'Rotation player' }, { label: 'Bench' },
     ],
-    showIf: (a) => a.grade === 'College' && a.collegeLevel && a.collegeLevel !== 'No college team',
+    showIf: (a) => {
+      // School team user (MS or HS)
+      const isSchoolTeamPlayer = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
+      if (isSchoolTeamPlayer) return true;
+
+      // College team user (any level except "No college team")
+      if (a.grade === 'College' && a.collegeLevel && a.collegeLevel !== 'No college team') return true;
+
+      return false;
+    },
   },
 
   // ---- Adult branch ----
@@ -157,7 +163,7 @@ const STEPS: Step[] = [
     showIf: (a) => a.grade === 'Out of school / adult',
   },
 
-  // ============ Role on team ============
+  // ============ Role on team (only if on a team) ============
   {
     id: 'role', section: 'Your Role', question: "What's your role on the team?",
     subtitle: 'So Coach X knows what kind of player you are.',
@@ -265,9 +271,25 @@ function playsOnTeam(a: Record<string, any>): boolean {
   return false;
 }
 
-// Compute visible steps based on current answers (for branching)
 function getVisibleSteps(answers: Record<string, any>): Step[] {
   return STEPS.filter(s => !s.showIf || s.showIf(answers));
+}
+
+// Clear dependent answers when a parent answer changes.
+// Returns a new answers object with stale branch data removed.
+function clearDependentAnswers(answers: Record<string, any>, changedKey: string): Record<string, any> {
+  const deps = ANSWER_DEPENDENCIES[changedKey];
+  if (!deps) return answers;
+  const next = { ...answers };
+  for (const d of deps) {
+    delete next[d];
+    // Recursively clear their dependents too
+    const nested = ANSWER_DEPENDENCIES[d];
+    if (nested) {
+      for (const n of nested) delete next[n];
+    }
+  }
+  return next;
 }
 
 const LOADING_STEPS = [
@@ -298,7 +320,6 @@ export default function TodayScreen() {
   useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
-  // Get current visible steps based on current answers
   const visibleSteps = getVisibleSteps(answers);
   const currentStep = visibleSteps[stepIndex];
   const progress = visibleSteps.length > 0 ? (stepIndex + 1) / visibleSteps.length : 0;
@@ -324,7 +345,6 @@ export default function TodayScreen() {
       if (next.type === 'text') setTextInput((answers[next.id] as string) || '');
       animTrans('forward', () => setStepIndex(stepIndex + 1));
     } else {
-      // Done with onboarding → auth
       setAppState('auth');
     }
   };
@@ -346,7 +366,14 @@ export default function TodayScreen() {
       const c = (answers[st.id] as string[]) || [];
       setAnswers({ ...answers, [st.id]: c.includes(opt) ? c.filter(o => o !== opt) : [...c, opt] });
     } else {
-      setAnswers({ ...answers, [st.id]: opt });
+      // Single-select: update answer AND clear any dependents (in case they came back and changed)
+      const oldValue = answers[st.id];
+      let nextAnswers = { ...answers, [st.id]: opt };
+      if (oldValue !== undefined && oldValue !== opt) {
+        nextAnswers = clearDependentAnswers(nextAnswers, st.id);
+        nextAnswers[st.id] = opt; // re-set after clearing
+      }
+      setAnswers(nextAnswers);
       setTimeout(() => goNext(), 300);
     }
   };
@@ -365,16 +392,13 @@ export default function TodayScreen() {
     setAnswers({ ...answers, [st.id]: { ...current, [fieldId]: value } });
   };
 
-  // Derive legacy fields (for backend compat)
   const buildPayloadFromAnswers = (a: Record<string, any>) => {
-    // Experience derived from grade
     let experience = '';
     if (a.grade === 'Middle school (6-8)') experience = '1-2 years';
     else if (a.grade === 'High school (9-12)') experience = '3-5 years';
     else if (a.grade === 'College') experience = '6-10 years';
     else if (a.grade === 'Out of school / adult') experience = '10+ years';
 
-    // Translate "dribbling" answer to leftHand legacy
     const leftHandMap: Record<string, string> = {
       'Strong with both hands': 'Strong - I finish with both hands',
       'Getting there': 'Getting there - I use it sometimes',
@@ -382,14 +406,12 @@ export default function TodayScreen() {
       'Only use my right hand': 'I only use my right hand',
     };
 
-    // Derive threeConfidence from shooting makes
     const threes = parseInt(a.shootingMakes?.threes || '0');
     let threeConfidence = "I don't shoot them";
     if (threes >= 5) threeConfidence = "Very - I'm a shooter";
     else if (threes >= 3) threeConfidence = "Somewhat - I'll take open ones";
     else if (threes >= 1) threeConfidence = "Not really - I prefer mid-range";
 
-    // Derive freeThrow from shooting makes
     const ft = parseInt(a.shootingMakes?.freeThrows || '0');
     let freeThrow = 'No idea';
     if (ft >= 8) freeThrow = '80% or higher';
@@ -397,7 +419,6 @@ export default function TodayScreen() {
     else if (ft >= 4) freeThrow = '40-60%';
     else freeThrow = 'Below 40%';
 
-    // Weakness: use lowest shooting make or "dribbling" if weak
     let weakness = a.goal || 'overall game';
     const makes = a.shootingMakes || {};
     const makeEntries = Object.entries(makes).map(([k, v]) => [k, parseInt(v as string) || 0]) as [string, number][];
@@ -423,7 +444,7 @@ export default function TodayScreen() {
       experience,
       goal: a.goal || 'Become a more complete player',
       weakness,
-      driving: 'not specified', // no longer asked
+      driving: 'not specified',
       leftHand: leftHandMap[a.dribbling] || 'not specified',
       pressure: 'not specified',
       goToMove: 'not specified',
@@ -434,15 +455,14 @@ export default function TodayScreen() {
       access: a.access,
       description: a.description || '',
 
-      // NEW FIELDS — backend must handle these
+      // NEW FIELDS
       grade: a.grade,
       schoolTeam: a.schoolTeam,
       playsAAU: a.playsAAU,
       aauCircuit: a.aauCircuit,
       aauStarter: a.aauStarter,
-      schoolStarter: a.schoolStarter,
+      starter: a.starter, // unified — could be school or college
       collegeLevel: a.collegeLevel,
-      collegeStarter: a.collegeStarter,
       adultPlay: a.adultPlay,
       role: a.role,
       stats: a.stats,
@@ -514,7 +534,6 @@ export default function TodayScreen() {
 
   if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
-  // --- Welcome ---
   if (appState === 'welcome') return (
     <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
@@ -542,7 +561,6 @@ export default function TodayScreen() {
     </View>
   );
 
-  // --- Onboarding ---
   if (appState === 'onboarding' && currentStep) {
     const st = currentStep;
     const isSel = (o: string) => {
@@ -553,10 +571,9 @@ export default function TodayScreen() {
       const a = answers[st.id];
       if (st.type === 'text') return textInput.trim().length > 0;
       if (st.type === 'multiselect') return Array.isArray(a) && a.length > 0;
-      if (st.type === 'statGrid') return true; // stats optional
+      if (st.type === 'statGrid') return true;
       if (st.type === 'numberGrid') {
         const grid = (a as Record<string, string>) || {};
-        // Require all fields filled (0 is valid)
         return st.numberFields!.every(f => grid[f.id] !== undefined && grid[f.id] !== '');
       }
       return !!a;
@@ -577,7 +594,6 @@ export default function TodayScreen() {
               <Text style={s.qq}>{st.question}</Text>
               {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
 
-              {/* Select / Multiselect */}
               {(st.type === 'select' || st.type === 'multiselect') && st.options?.map((o, i) => (
                 <TouchableOpacity
                   key={i}
@@ -598,7 +614,6 @@ export default function TodayScreen() {
                 </TouchableOpacity>
               ))}
 
-              {/* Free text */}
               {st.type === 'text' && (
                 <View>
                   <TextInput
@@ -614,7 +629,6 @@ export default function TodayScreen() {
                 </View>
               )}
 
-              {/* Number grid (shooting makes) */}
               {st.type === 'numberGrid' && st.numberFields?.map((f, i) => {
                 const grid = (answers[st.id] as Record<string, string>) || {};
                 return (
@@ -641,7 +655,6 @@ export default function TodayScreen() {
                 );
               })}
 
-              {/* Stat grid (team stats) */}
               {st.type === 'statGrid' && st.statFields?.map((f, i) => {
                 const grid = (answers[st.id] as Record<string, string>) || {};
                 return (
@@ -665,7 +678,6 @@ export default function TodayScreen() {
             </Animated.View>
           </ScrollView>
 
-          {/* Bottom bar with Continue for text / numberGrid / statGrid / multiselect */}
           {(st.type === 'text' || st.type === 'numberGrid' || st.type === 'statGrid' || st.type === 'multiselect') && (
             <View style={s.bn}>
               <TouchableOpacity
@@ -688,7 +700,6 @@ export default function TodayScreen() {
     );
   }
 
-  // --- Auth ---
   if (appState === 'auth') {
     return (
       <AuthScreen
@@ -700,7 +711,6 @@ export default function TodayScreen() {
     );
   }
 
-  // --- Analyzing / generating plan ---
   if (appState === 'analyzing') {
     return (
       <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }]}>
@@ -716,7 +726,6 @@ export default function TodayScreen() {
     );
   }
 
-  // --- Plan view (Home tab) ---
   if (appState === 'plan' && plan) {
     const day = plan.days?.[currentDayIndex];
     const drills = day?.drills || [];
@@ -728,7 +737,6 @@ export default function TodayScreen() {
           <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, marginBottom: 4 }}>Today</Text>
           <Text style={{ fontSize: 14, color: Colors.textMuted, marginBottom: 24 }}>{plan.weekTitle}</Text>
 
-          {/* Day pills */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginBottom: 24 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
             {plan.days.map((d, i) => {
               const isCur = i === currentDayIndex;
@@ -757,7 +765,6 @@ export default function TodayScreen() {
             })}
           </ScrollView>
 
-          {/* Today's card */}
           {day?.isRest ? (
             <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center' }}>
               <Text style={{ fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 }}>Rest day</Text>
@@ -784,7 +791,6 @@ export default function TodayScreen() {
                 <Text style={{ fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 1.5 }}>START SESSION</Text>
               </TouchableOpacity>
 
-              {/* Drill list preview */}
               <View style={{ marginTop: 20 }}>
                 {drills.map((d, i) => {
                   const done = completedDrills[currentDayIndex + '-' + i];
@@ -807,7 +813,6 @@ export default function TodayScreen() {
             </View>
           )}
 
-          {/* Coach X insight */}
           {plan.aiInsight && (
             <View style={{ marginTop: 20, backgroundColor: Colors.surface, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
               <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 8 }}>COACH X INSIGHT</Text>
@@ -824,18 +829,15 @@ export default function TodayScreen() {
 
 const s = StyleSheet.create({
   c: { flex: 1, backgroundColor: Colors.background },
-  // Onboarding header
   qh: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12 },
   bb: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   bt: { fontSize: 22, color: Colors.textSecondary },
   pc: { flex: 1, paddingHorizontal: 12 },
   pt: { height: 4, backgroundColor: Colors.surface, borderRadius: 2, overflow: 'hidden' },
   pf: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
-  // Question text
   qs: { fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: 2, marginBottom: 12 },
   qq: { fontSize: 26, fontWeight: '900', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8 },
   qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20 },
-  // Options
   opt: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 16, marginBottom: 10 },
   optSel: { borderColor: Colors.primary, backgroundColor: '#1A1708' },
   optDisabled: { opacity: 0.4 },
@@ -843,19 +845,15 @@ const s = StyleSheet.create({
   optTxtSel: { color: Colors.primary },
   optTxtDisabled: { color: Colors.textMuted },
   optSub: { fontSize: 12, color: Colors.textMuted, marginTop: 4 },
-  // Text input
   textIn: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, fontSize: 16, color: Colors.textPrimary, minHeight: 100, textAlignVertical: 'top' },
-  // Number grid (makes)
   ngRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
   ngLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
   ngInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   ngInput: { width: 48, textAlign: 'center', fontSize: 18, fontWeight: '800', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
   ngMax: { fontSize: 13, color: Colors.textMuted },
-  // Stat grid
   sgRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
   sgLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
   sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  // Bottom continue button
   bn: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 24, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
   cb: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18, alignItems: 'center' },
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
