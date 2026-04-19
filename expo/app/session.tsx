@@ -1,310 +1,183 @@
-import React, { useState, useRef, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Platform,
-  ScrollView,
-  Animated,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, ChevronRight, ChevronLeft, Play, Pause, Check } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
-import { usePlanStore } from '@/store/planStore';
+import { supabase } from '@/constants/supabase';
 
-export default function SessionScreen() {
-  const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const { plan, completedDrills, toggleDrill, currentDayIndex } = usePlanStore();
+/**
+ * Memory system sync helpers.
+ * These talk to the skill_state, drill_results, and sessions tables
+ * created in Slice 1 of the memory system.
+ */
 
-  const dayIndex = currentDayIndex;
-  const currentDay = plan?.days?.[dayIndex];
-  const drills = currentDay?.drills || [];
+// Freshness recovery rates (days to full 100% from 0%)
+// Physical skills recover faster; mental/tactical recover slower.
+const FRESHNESS_RECOVERY_DAYS: Record<string, number> = {
+  ballHandling: 4,
+  shooting: 4,
+  shotForm: 4,
+  finishing: 4,
+  weakHand: 4,
+  athleticism: 3,
+  defense: 6,
+  touch: 6,
+  iq: 9,
+  decisionMaking: 9,
+  courtVision: 9,
+  creativity: 9,
+};
 
-  const [currentDrillIndex, setCurrentDrillIndex] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
-  const [timeRemaining, setTimeRemaining] = useState(0);
-  const [sessionComplete, setSessionComplete] = useState(false);
-  const [completedInSession, setCompletedInSession] = useState<Record<number, boolean>>({});
-
-  const timerRef = useRef<any>(null);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const currentDrill = drills[currentDrillIndex];
-
-  const parseDrillTime = (timeStr: string): number => {
-    const match = timeStr?.match(/(\d+)/);
-    if (match) return parseInt(match[1]) * 60;
-    return 300;
-  };
-
-  useEffect(() => {
-    if (currentDrill) {
-      setTimeRemaining(parseDrillTime(currentDrill.time));
-      setIsTimerRunning(false);
-    }
-  }, [currentDrillIndex]);
-
-  useEffect(() => {
-    if (isTimerRunning && timeRemaining > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            setIsTimerRunning(false);
-            if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isTimerRunning]);
-
-  useEffect(() => {
-    if (isTimerRunning) {
-      Animated.loop(Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.05, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-      ])).start();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [isTimerRunning]);
-
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return mins + ':' + secs.toString().padStart(2, '0');
-  };
-
-  const handleStartPause = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsTimerRunning(!isTimerRunning);
-  };
-
-  const handleCompleteDrill = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    clearInterval(timerRef.current);
-    setIsTimerRunning(false);
-    setCompletedInSession(prev => ({ ...prev, [currentDrillIndex]: true }));
-    toggleDrill(dayIndex, currentDrillIndex);
-    if (currentDrillIndex < drills.length - 1) {
-      setCurrentDrillIndex(currentDrillIndex + 1);
-    } else {
-      setSessionComplete(true);
-    }
-  };
-
-  const handleSkipDrill = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    clearInterval(timerRef.current);
-    setIsTimerRunning(false);
-    if (currentDrillIndex < drills.length - 1) {
-      setCurrentDrillIndex(currentDrillIndex + 1);
-    } else {
-      setSessionComplete(true);
-    }
-  };
-
-  const handlePrevDrill = () => {
-    if (currentDrillIndex > 0) {
-      if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      clearInterval(timerRef.current);
-      setIsTimerRunning(false);
-      setCurrentDrillIndex(currentDrillIndex - 1);
-    }
-  };
-
-  const handleClose = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    clearInterval(timerRef.current);
-    router.back();
-  };
-
-  const handleResetTimer = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    clearInterval(timerRef.current);
-    setIsTimerRunning(false);
-    if (currentDrill) setTimeRemaining(parseDrillTime(currentDrill.time));
-  };
-
-  const TC: Record<string, string> = { warmup: '#8B9A6B', skill: Colors.primary, shooting: '#B08D57', conditioning: '#C47A6C' };
-  const TL: Record<string, string> = { warmup: 'WARMUP', skill: 'SKILL WORK', shooting: 'SHOOTING', conditioning: 'CONDITIONING' };
-
-  if (sessionComplete) {
-    const cc = Object.keys(completedInSession).length;
-    return (
-      <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={s.doneScreen}>
-          <View style={s.doneCircle}><Check size={48} color={Colors.black} /></View>
-          <Text style={s.doneTitle}>Session Complete!</Text>
-          <Text style={s.doneSub}>You crushed {cc} out of {drills.length} drills.</Text>
-          <View style={s.doneStats}>
-            <View style={s.doneStat}><Text style={s.doneVal}>{cc}/{drills.length}</Text><Text style={s.doneLbl}>Drills</Text></View>
-            <View style={s.doneDiv} />
-            <View style={s.doneStat}><Text style={s.doneVal}>{currentDay?.duration || '—'}</Text><Text style={s.doneLbl}>Duration</Text></View>
-          </View>
-          <Text style={s.doneMot}>Consistency beats intensity. Show up again tomorrow.</Text>
-          <TouchableOpacity style={s.doneBtn} onPress={handleClose} activeOpacity={0.85}>
-            <Text style={s.doneBtnTxt}>DONE</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  if (!currentDrill || drills.length === 0) {
-    return (
-      <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={s.doneScreen}>
-          <Text style={s.doneTitle}>No drills for this day</Text>
-          <Text style={s.doneSub}>This might be a rest day.</Text>
-          <TouchableOpacity style={s.doneBtn} onPress={handleClose} activeOpacity={0.85}>
-            <Text style={s.doneBtnTxt}>GO BACK</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  const tc = TC[currentDrill.type] || Colors.textMuted;
-  const tl = TL[currentDrill.type] || '';
-  const tt = parseDrillTime(currentDrill.time);
-  const dp = tt > 0 ? ((tt - timeRemaining) / tt) : 0;
-
-  return (
-    <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={handleClose} style={s.closeBtn} activeOpacity={0.7}>
-          <X size={22} color={Colors.textSecondary} />
-        </TouchableOpacity>
-        <View style={s.headerMid}>
-          <Text style={s.headerFocus}>{currentDay?.focus || 'Session'}</Text>
-          <Text style={s.headerProg}>Drill {currentDrillIndex + 1} of {drills.length}</Text>
-        </View>
-        <View style={{ width: 44 }} />
-      </View>
-
-      <View style={s.oTrack}><View style={[s.oFill, { width: ((currentDrillIndex + 1) / drills.length * 100) + '%' }]} /></View>
-
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <View style={[s.tag, { backgroundColor: tc + '20' }]}><Text style={[s.tagTxt, { color: tc }]}>{tl}</Text></View>
-        <Text style={s.drillName}>{currentDrill.name}</Text>
-
-        <Animated.View style={[s.timerWrap, { transform: [{ scale: pulseAnim }] }]}>
-          <View style={[s.timerCircle, isTimerRunning && { borderColor: tc }]}>
-            <Text style={[s.timerTxt, isTimerRunning && { color: tc }]}>{formatTime(timeRemaining)}</Text>
-            <Text style={s.timerLbl}>{timeRemaining === 0 ? 'DONE!' : isTimerRunning ? 'RUNNING' : 'READY'}</Text>
-          </View>
-        </Animated.View>
-
-        <View style={s.dpTrack}><View style={[s.dpFill, { width: (dp * 100) + '%', backgroundColor: tc }]} /></View>
-
-        <View style={s.controls}>
-          <TouchableOpacity onPress={handleResetTimer} style={s.ctrlBtn} activeOpacity={0.7}><Text style={s.ctrlTxt}>RESET</Text></TouchableOpacity>
-          <TouchableOpacity onPress={handleStartPause} style={[s.playBtn, { backgroundColor: tc }]} activeOpacity={0.85}>
-            {isTimerRunning ? <Pause size={28} color={Colors.black} /> : <Play size={28} color={Colors.black} />}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleSkipDrill} style={s.ctrlBtn} activeOpacity={0.7}><Text style={s.ctrlTxt}>SKIP</Text></TouchableOpacity>
-        </View>
-
-        {currentDrill.detail && (
-          <View style={s.detailCard}>
-            <Text style={s.detailTitle}>INSTRUCTIONS</Text>
-            <Text style={s.detailBody}>{currentDrill.detail}</Text>
-          </View>
-        )}
-
-        <View style={s.listCard}>
-          <Text style={s.listTitle}>SESSION DRILLS</Text>
-          {drills.map((d, i) => {
-            const done = completedInSession[i] || completedDrills[dayIndex + '-' + i];
-            const curr = i === currentDrillIndex;
-            const dc = TC[d.type] || Colors.textMuted;
-            return (
-              <TouchableOpacity key={i} style={[s.listItem, curr && s.listItemCurr]}
-                onPress={() => { clearInterval(timerRef.current); setIsTimerRunning(false); setCurrentDrillIndex(i); }} activeOpacity={0.7}>
-                <View style={[s.listDot, done && { backgroundColor: dc, borderColor: dc }, curr && { borderColor: dc, borderWidth: 2.5 }]}>
-                  {done && <Text style={{ fontSize: 9, color: Colors.black, fontWeight: '800' }}>✓</Text>}
-                </View>
-                <Text style={[s.listName, done && { textDecorationLine: 'line-through', color: Colors.textMuted }, curr && { color: Colors.textPrimary }]} numberOfLines={1}>{d.name}</Text>
-                <Text style={s.listTime}>{d.time}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </ScrollView>
-
-      <View style={[s.bottom, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
-        <View style={s.navRow}>
-          <TouchableOpacity onPress={handlePrevDrill} style={[s.navBtn, currentDrillIndex === 0 && { opacity: 0.3 }]} disabled={currentDrillIndex === 0} activeOpacity={0.7}>
-            <ChevronLeft size={20} color={Colors.textSecondary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={[s.compBtn, { backgroundColor: tc }]} onPress={handleCompleteDrill} activeOpacity={0.85}>
-            <Check size={18} color={Colors.black} />
-            <Text style={s.compTxt}>{currentDrillIndex === drills.length - 1 ? 'FINISH SESSION' : 'COMPLETE & NEXT'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleSkipDrill} style={s.navBtn} activeOpacity={0.7}>
-            <ChevronRight size={20} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
+// How much freshness drops per session (based on user feedback intensity)
+function freshnessDropFromFeedback(feedback: string | null): number {
+  if (feedback === 'too_hard') return 70;   // intense drill, big drop
+  if (feedback === 'right') return 50;       // moderate drop
+  if (feedback === 'too_easy') return 30;    // light drop
+  return 50; // default moderate
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-  closeBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface, alignItems: 'center', justifyContent: 'center' },
-  headerMid: { flex: 1, alignItems: 'center' },
-  headerFocus: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
-  headerProg: { fontSize: 12, color: Colors.textMuted },
-  oTrack: { height: 3, backgroundColor: Colors.surface, marginHorizontal: 20 },
-  oFill: { height: 3, backgroundColor: Colors.primary },
-  content: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 },
-  tag: { alignSelf: 'center', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 12 },
-  tagTxt: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
-  drillName: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', lineHeight: 32, marginBottom: 28 },
-  timerWrap: { alignItems: 'center', marginBottom: 24 },
-  timerCircle: { width: 180, height: 180, borderRadius: 90, borderWidth: 4, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
-  timerTxt: { fontSize: 42, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  timerLbl: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
-  dpTrack: { height: 4, backgroundColor: Colors.surface, borderRadius: 2, marginBottom: 24, overflow: 'hidden' },
-  dpFill: { height: 4, borderRadius: 2 },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24, marginBottom: 32 },
-  ctrlBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  ctrlTxt: { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, letterSpacing: 1 },
-  playBtn: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
-  detailCard: { backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 20 },
-  detailTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 10 },
-  detailBody: { fontSize: 15, color: Colors.textSecondary, lineHeight: 23 },
-  listCard: { backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20 },
-  listTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 14 },
-  listItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#222' },
-  listItemCurr: { backgroundColor: '#1A1708', marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 8 },
-  listDot: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
-  listName: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary, flex: 1 },
-  listTime: { fontSize: 11, color: Colors.textMuted },
-  bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
-  navRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  navBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
-  compBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 18 },
-  compTxt: { fontSize: 13, fontWeight: '900', color: Colors.black, letterSpacing: 1.5 },
-  doneScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
-  doneCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.accent, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-  doneTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, marginBottom: 12, textAlign: 'center' },
-  doneSub: { fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24, marginBottom: 32 },
-  doneStats: { flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 24, alignItems: 'center', width: '100%' },
-  doneStat: { flex: 1, alignItems: 'center' },
-  doneVal: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  doneLbl: { fontSize: 11, color: Colors.textMuted },
-  doneDiv: { width: 1, height: 30, backgroundColor: Colors.surfaceBorder },
-  doneMot: { fontSize: 15, fontWeight: '600', color: Colors.primary, textAlign: 'center', fontStyle: 'italic', lineHeight: 22, marginBottom: 32 },
-  doneBtn: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 20, paddingHorizontal: 48, alignItems: 'center' },
-  doneBtnTxt: { fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
-});
+// How much a session's feedback nudges current_level
+// (Option C safeguards from our design: max +/- 1.0 per session)
+function levelDeltaFromFeedback(feedback: string | null): number {
+  if (feedback === 'too_easy') return 0.3;   // bump up (drill was easy)
+  if (feedback === 'right') return 0.1;      // small positive (handled it)
+  if (feedback === 'too_hard') return -0.2;  // small negative (struggled)
+  return 0;
+}
+
+/**
+ * Save a drill_result row and update the relevant skill_state row.
+ * Called every time a user completes a drill in the session screen.
+ */
+export async function logDrillResult(params: {
+  drillId: string;
+  primarySkill: string;
+  sessionId?: string | null;
+  outcomeType?: string | null;
+  outcomeValue?: number | null;
+  outcomeTarget?: number | null;
+  userFeedback?: 'too_easy' | 'right' | 'too_hard' | null;
+}) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    // Guest users don't sync — that's fine, they're not logged in
+    return { success: false, reason: 'no_user' };
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+
+  // 1. Insert the raw drill_result row
+  const { error: drillErr } = await supabase.from('drill_results').insert({
+    user_id: user.id,
+    session_id: params.sessionId || null,
+    drill_id: params.drillId,
+    primary_skill: params.primarySkill,
+    date: today,
+    outcome_type: params.outcomeType || 'subjective_rating',
+    outcome_value: params.outcomeValue || null,
+    outcome_target: params.outcomeTarget || null,
+    user_feedback: params.userFeedback || null,
+  });
+
+  if (drillErr) {
+    console.error('logDrillResult: insert failed:', drillErr);
+    return { success: false, reason: 'insert_failed', error: drillErr };
+  }
+
+  // 2. Update the skill_state row for this skill
+  const { data: existing, error: readErr } = await supabase
+    .from('skill_state')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('skill_category', params.primarySkill)
+    .maybeSingle();
+
+  if (readErr) {
+    console.error('logDrillResult: read skill_state failed:', readErr);
+    return { success: true, reason: 'drill_saved_but_state_read_failed' };
+  }
+
+  // If no skill_state row exists for this skill yet, create it
+  if (!existing) {
+    const initialLevel = 5.0 + levelDeltaFromFeedback(params.userFeedback || null);
+    const initialFreshness = Math.max(0, 100 - freshnessDropFromFeedback(params.userFeedback || null));
+    const { error: insertErr } = await supabase.from('skill_state').insert({
+      user_id: user.id,
+      skill_category: params.primarySkill,
+      current_level: Math.max(1, Math.min(10, initialLevel)),
+      freshness_pct: initialFreshness,
+      last_trained_date: today,
+      recent_trend: 'flat',
+      confidence: 'low',
+      total_sessions_worked: 1,
+    });
+    if (insertErr) {
+      console.error('logDrillResult: insert skill_state failed:', insertErr);
+    }
+    return { success: true, reason: 'created_new_skill_state' };
+  }
+
+  // Otherwise, update the existing row with weighted average and drops
+  const currentLevel = Number(existing.current_level);
+  const delta = levelDeltaFromFeedback(params.userFeedback || null);
+  // Cap change per session to +/- 1.0 (Option C safeguard)
+  const newLevel = Math.max(1, Math.min(10, currentLevel + delta));
+
+  const drop = freshnessDropFromFeedback(params.userFeedback || null);
+  const newFreshness = Math.max(0, (existing.freshness_pct ?? 100) - drop);
+
+  const newTotal = (existing.total_sessions_worked ?? 0) + 1;
+  // Confidence increases with more data points
+  let newConfidence = existing.confidence || 'low';
+  if (newTotal >= 10) newConfidence = 'high';
+  else if (newTotal >= 4) newConfidence = 'medium';
+
+  const { error: updateErr } = await supabase
+    .from('skill_state')
+    .update({
+      current_level: newLevel,
+      freshness_pct: newFreshness,
+      last_trained_date: today,
+      total_sessions_worked: newTotal,
+      confidence: newConfidence,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', user.id)
+    .eq('skill_category', params.primarySkill);
+
+  if (updateErr) {
+    console.error('logDrillResult: update skill_state failed:', updateErr);
+    return { success: true, reason: 'drill_saved_but_state_update_failed' };
+  }
+
+  return { success: true, reason: 'updated' };
+}
+
+/**
+ * Called when a user finishes a whole session (ends or quits).
+ * Creates a sessions row summarizing the whole workout.
+ */
+export async function logSession(params: {
+  dayIndex: number;
+  completedDrillsCount: number;
+  durationMinutes?: number;
+  overallFeedback?: 'too_easy' | 'right' | 'too_hard' | null;
+  skillsWorked: string[];
+}) {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { success: false, reason: 'no_user' };
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const { error } = await supabase.from('sessions').insert({
+    user_id: user.id,
+    date: today,
+    day_index: params.dayIndex,
+    completed_drills_count: params.completedDrillsCount,
+    duration_minutes: params.durationMinutes || null,
+    overall_feedback: params.overallFeedback || null,
+    skills_worked: params.skillsWorked,
+  });
+
+  if (error) {
+    console.error('logSession failed:', error);
+    return { success: false, error };
+  }
+
+  return { success: true };
+}
