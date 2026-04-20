@@ -1,41 +1,28 @@
 const Colors = {
   // Backgrounds
-  background: '#0A0A0A',
-  surface: '#1A1A1A',
-  surfaceLight: '#222222',
-  surfaceBorder: '#2A2A2A',
-  cardBorder: '#2A2A2A',
-
-  // Primary accent — warm tan/gold
-  primary: '#C4A46C',
-  primaryLight: '#D4B88A',
-  primaryDark: '#A68B55',
-
-  // Secondary accent — muted olive
-  accent: '#8B9A6B',
-  accentLight: '#A3B085',
-  accentDark: '#6F7D53',
+  background: '#FAFAF7',        // off-white main bg
+  surface: '#FFFFFF',            // card bg (pure white on off-white)
+  surfaceBorder: '#E5E5E0',      // light gray line
 
   // Text
-  textPrimary: '#F5F0E8',
-  textSecondary: '#9B9488',
-  textMuted: '#5C574F',
+  textPrimary: '#000000',        // pure black
+  textSecondary: '#444444',      // dark gray for body
+  textMuted: '#8A8A8A',          // medium gray for captions
 
-  // Semantic
-  success: '#8B9A6B',
-  warning: '#C4A46C',
-  danger: '#C47A6C',
-  dangerLight: '#D4978B',
-  info: '#8A9BB0',
+  // Accents
+  primary: '#D4A017',            // bold true gold — pops on white
+  accent: '#D4A017',             // same as primary for now
+  black: '#000000',               // pure black (used for button text on gold)
+  white: '#FFFFFF',
 
-  // Utility
-  white: '#F5F0E8',
-  black: '#0A0A0A',
+  // Semantic / status
+  success: '#3D9A5C',            // green for positive feedback
+  warning: '#D48F2E',            // amber warning
+  danger: '#C44545',             // red for destructive/errors
 
-  // Gradients (kept minimal — no neon)
-  gradientGold: '#C4A46C',
-  gradientOlive: '#8B9A6B',
-  gradientWarm: '#D4B88A',
+  // Legacy aliases (some older code may still reference these)
+  card: '#FFFFFF',
+  border: '#E5E5E0',
 };
 
 export default Colors;
