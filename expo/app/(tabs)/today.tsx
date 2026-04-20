@@ -14,11 +14,6 @@ import { usePlanStore } from '@/store/planStore';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-/**
- * Branched onboarding with interstitials and scouting report.
- * Steps: regular questions, interstitials (info screens), and a final scouting-report screen.
- */
-
 interface Step {
   id: string;
   section: string;
@@ -30,7 +25,8 @@ interface Step {
   numberFields?: { id: string; label: string; max?: number }[];
   statFields?: { id: string; label: string; placeholder?: string }[];
   showIf?: (answers: Record<string, any>) => boolean;
-  // Interstitial-specific
+  // For steps where the options themselves depend on earlier answers
+  dynamicOptions?: (answers: Record<string, any>) => { label: string; subtitle?: string; disabled?: boolean }[];
   interstitialTitle?: string;
   interstitialBody?: string;
   interstitialIllustration?: 'profile' | 'stats' | 'shot' | 'plan';
@@ -45,7 +41,6 @@ const ANSWER_DEPENDENCIES: Record<string, string[]> = {
 };
 
 const STEPS: Step[] = [
-  // ============ About You ============
   {
     id: 'sport', section: 'About You', type: 'select',
     question: 'What sport do you play?',
@@ -72,8 +67,6 @@ const STEPS: Step[] = [
     subtitle: "Height, jersey color, hair, anything so Coach X knows who you are.",
     placeholder: 'e.g. 5\'10", red jersey #5, curly hair',
   },
-
-  // ============ Where You Play ============
   {
     id: 'grade', section: 'Where You Play', type: 'select',
     question: 'What grade are you in?',
@@ -85,12 +78,24 @@ const STEPS: Step[] = [
     ],
   },
   {
+    // School team — options change based on grade
     id: 'schoolTeam', section: 'Where You Play', type: 'select',
     question: 'Do you play on a school team?',
-    options: [
-      { label: 'Varsity' }, { label: 'JV' }, { label: 'Freshman team' },
-      { label: 'Middle school team' }, { label: 'No school team' },
-    ],
+    dynamicOptions: (a) => {
+      if (a.grade === 'Middle school (6-8)') {
+        return [
+          { label: 'Middle school team' },
+          { label: 'No school team' },
+        ];
+      }
+      // High school
+      return [
+        { label: 'Varsity' },
+        { label: 'JV' },
+        { label: 'Freshman team' },
+        { label: 'No school team' },
+      ];
+    },
     showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)',
   },
   {
@@ -153,16 +158,12 @@ const STEPS: Step[] = [
     ],
     showIf: (a) => a.grade === 'Out of school / adult',
   },
-
-  // ============ INTERSTITIAL 1: after where-you-play ============
   {
     id: 'int_where', section: 'Where You Play', type: 'interstitial',
     interstitialIllustration: 'profile',
-    interstitialTitle: 'We know where you play.',
-    interstitialBody: 'Coach X uses your level and role to match drills to the competition you actually face.',
+    interstitialTitle: 'Level locked in.',
+    interstitialBody: "What looks like 'just okay' at one level is elite at another. We get it.",
   },
-
-  // ============ Role on team ============
   {
     id: 'role', section: 'Your Role', type: 'select',
     question: "What's your role on the team?",
@@ -180,8 +181,6 @@ const STEPS: Step[] = [
     ],
     showIf: (a) => playsOnTeam(a),
   },
-
-  // ============ Stats ============
   {
     id: 'stats', section: 'Your Stats', type: 'statGrid',
     question: 'Estimate your stats per game.',
@@ -194,17 +193,13 @@ const STEPS: Step[] = [
     ],
     showIf: (a) => playsOnTeam(a),
   },
-
-  // ============ INTERSTITIAL 2: after stats ============
   {
     id: 'int_stats', section: 'Your Stats', type: 'interstitial',
     interstitialIllustration: 'stats',
-    interstitialTitle: 'Numbers locked.',
-    interstitialBody: "A 2 ppg bench player at EYBL is better than a 20 ppg scorer at rec. We read your stats through the level you're playing at.",
+    interstitialTitle: 'Stats logged.',
+    interstitialBody: "Raw numbers lie. Stats plus your level plus your role = a real read.",
     showIf: (a) => playsOnTeam(a),
   },
-
-  // ============ Your Game ============
   {
     id: 'shootingMakes', section: 'Your Game', type: 'numberGrid',
     question: 'Out of 10 wide open shots, how many do you make?',
@@ -227,23 +222,18 @@ const STEPS: Step[] = [
       { label: 'Only use my right hand' },
     ],
   },
-
-  // ============ INTERSTITIAL 3: after shot profile ============
   {
     id: 'int_shot', section: 'Your Game', type: 'interstitial',
     interstitialIllustration: 'shot',
-    interstitialTitle: 'Your shot profile is set.',
-    interstitialBody: "The drills you'll see are picked to attack your weakest spots and sharpen your strongest ones.",
+    interstitialTitle: 'Your shot is mapped.',
+    interstitialBody: "We know what falls for you and what doesn't. Drills get assigned accordingly.",
   },
-
   {
     id: 'goal', section: 'Your Game', type: 'text',
     question: 'What do you want to improve most?',
     subtitle: 'Keep it short — one sentence.',
     placeholder: 'e.g. be a better shooter off the dribble',
   },
-
-  // ============ Schedule ============
   {
     id: 'frequency', section: 'Your Schedule', type: 'select',
     question: 'How often can you train?',
@@ -270,13 +260,11 @@ const STEPS: Step[] = [
       { label: 'Open space (no hoop)' },
     ],
   },
-
-  // ============ INTERSTITIAL 4: before scouting ============
   {
     id: 'int_plan', section: 'Scouting Report', type: 'interstitial',
     interstitialIllustration: 'plan',
-    interstitialTitle: 'Almost done.',
-    interstitialBody: "Next up: your scouting report. Coach X reads everything you told us and turns it into a skill profile.",
+    interstitialTitle: 'Ready for your scouting report.',
+    interstitialBody: "What you just told us becomes a 12-skill profile. Next screen.",
   },
 ];
 
@@ -310,12 +298,6 @@ function clearDependentAnswers(answers: Record<string, any>, changedKey: string)
   return next;
 }
 
-/**
- * Compute skill ratings from onboarding answers.
- * Returns 0-10 for each of our 12 skills.
- * This mirrors what the backend will do for persistence, but is also shown
- * directly in the scouting report screen.
- */
 function computeSkills(a: Record<string, any>): Record<string, { level: number; label: string }> {
   const skills: Record<string, number> = {
     shooting: 5, shotForm: 5, finishing: 5, ballHandling: 5, weakHand: 5,
@@ -323,7 +305,6 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
     courtVision: 5, decisionMaking: 5,
   };
 
-  // --- Shooting makes ---
   const m = a.shootingMakes || {};
   const layupStrong = parseInt(m.layupStrong || '') || 0;
   const layupWeak = parseInt(m.layupWeak || '') || 0;
@@ -331,7 +312,6 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   const midRange = parseInt(m.midRange || '') || 0;
   const threes = parseInt(m.threes || '') || 0;
 
-  // Average shooting spots → shooting rating (weight FT/3pt/midrange equally)
   if (midRange || threes || ft) {
     const shootingAvg = (midRange + threes + ft) / 3;
     skills.shooting = Math.max(1, Math.min(10, shootingAvg));
@@ -339,20 +319,17 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
     skills.touch = Math.max(1, Math.min(10, (ft + midRange) / 2));
   }
 
-  // Finishing = layups average
   if (layupStrong || layupWeak) {
     skills.finishing = Math.max(1, Math.min(10, (layupStrong + layupWeak) / 2));
     skills.weakHand = Math.max(1, Math.min(10, layupWeak));
   }
 
-  // --- Dribbling / weakHand ---
   const d = a.dribbling;
   if (d === 'Strong with both hands') { skills.ballHandling = 8; skills.weakHand = Math.max(skills.weakHand, 7); }
   else if (d === 'Getting there') { skills.ballHandling = 6; skills.weakHand = Math.max(skills.weakHand, 5); }
   else if (d === 'Avoid using my weak hand') { skills.ballHandling = 5; skills.weakHand = Math.min(skills.weakHand, 3); }
   else if (d === 'Only use my right hand') { skills.ballHandling = 4; skills.weakHand = 2; }
 
-  // --- Role tuning ---
   const role = a.role;
   if (role === 'Primary scorer') { skills.creativity += 1; skills.decisionMaking += 0.5; }
   if (role === 'Playmaker') { skills.iq += 2; skills.courtVision += 2; skills.decisionMaking += 1.5; }
@@ -361,9 +338,7 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   if (role === '3-and-D specialist') { skills.shooting += 1; skills.defense += 1.5; }
   if (role === 'Two-way wing') { skills.defense += 1; skills.shooting += 0.5; skills.athleticism += 0.5; }
   if (role === 'Energy off the bench') { skills.athleticism += 1.5; skills.defense += 0.5; }
-  if (role === 'Still figuring out my role') { /* no bonus */ }
 
-  // --- Level/tier influence (higher competition = higher baseline iq/decisionMaking/defense) ---
   let tier = 5;
   if (a.aauCircuit === 'Top shoe circuit' || a.collegeLevel === 'D1') tier = 9;
   else if (a.aauCircuit === 'Mid shoe circuit' || a.aauCircuit === 'Independent circuit' || a.schoolTeam === 'Varsity' || a.collegeLevel === 'D2' || a.collegeLevel === 'D3') tier = 7;
@@ -372,28 +347,24 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   else if (a.adultPlay === 'Pickup / open gym') tier = 5;
   else if (a.adultPlay === 'Mostly alone / driveway') tier = 4;
 
-  // Tier bumps: higher tier = assume slightly better iq/decisionMaking/defense from playing better comp
   const tierBump = (tier - 5) * 0.4;
   skills.iq += tierBump;
   skills.decisionMaking += tierBump;
   skills.defense += tierBump * 0.5;
   skills.athleticism += tierBump * 0.5;
 
-  // --- Starter status tuning ---
   if (a.starter === 'Yes, starter' || a.aauStarter === 'Yes, starter') {
     skills.iq += 0.5; skills.decisionMaking += 0.5;
   } else if (a.starter === 'Bench' || a.aauStarter === 'Bench') {
     skills.iq -= 0.3;
   }
 
-  // --- Stats (only useful if on a team) ---
   const s = a.stats || {};
   const ppg = parseFloat(s.ppg) || 0;
   const apg = parseFloat(s.apg) || 0;
   const rpg = parseFloat(s.rpg) || 0;
   const minutes = parseFloat(s.minutes) || 0;
 
-  // Compute per-30 if minutes provided
   const per30 = (stat: number) => (minutes > 0 ? (stat / minutes) * 30 : stat);
   const ppg30 = per30(ppg);
   const apg30 = per30(apg);
@@ -409,11 +380,9 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   if (rpg30 >= 7) { skills.athleticism += 1.5; skills.finishing += 0.5; }
   else if (rpg30 >= 4) { skills.athleticism += 0.8; }
 
-  // --- Position baseline ---
   if (a.position === 'Point Guard') { skills.courtVision += 0.5; skills.ballHandling += 0.5; }
   if (a.position === 'Center') { skills.finishing += 0.3; skills.athleticism += 0.3; }
 
-  // Clamp all to 1-10
   const result: Record<string, { level: number; label: string }> = {};
   const labels: Record<string, string> = {
     shooting: 'Shooting', shotForm: 'Shot Form', finishing: 'Finishing',
@@ -438,22 +407,19 @@ const LOADING_STEPS = [
   'Finishing Coach X notes',
 ];
 
-// ============ INTERSTITIAL ILLUSTRATIONS (inline SVG) ============
-
+// Placeholder illustrations while we wait for user to add Storyset SVGs.
+// After user drops in /assets/images/where-you-play.svg etc, swap these Image imports.
 function Illustration({ kind }: { kind: 'profile' | 'stats' | 'shot' | 'plan' }) {
-  const size = 200;
+  const size = 220;
   const stroke = Colors.primary;
-  const fill = 'transparent';
-  const bg = Colors.surface;
+  const bg = '#F2F2EC';
 
   if (kind === 'profile') {
     return (
       <Svg width={size} height={size} viewBox="0 0 200 200">
         <Circle cx="100" cy="100" r="90" fill={bg} />
-        <Circle cx="100" cy="75" r="25" stroke={stroke} strokeWidth="3" fill={fill} />
-        <Path d="M60 150 Q100 110 140 150" stroke={stroke} strokeWidth="3" fill={fill} />
-        <Line x1="100" y1="135" x2="100" y2="160" stroke={stroke} strokeWidth="2" />
-        <Circle cx="100" cy="160" r="4" fill={stroke} />
+        <Circle cx="100" cy="75" r="25" stroke={stroke} strokeWidth="3" fill="transparent" />
+        <Path d="M60 150 Q100 110 140 150" stroke={stroke} strokeWidth="3" fill="transparent" />
       </Svg>
     );
   }
@@ -462,10 +428,9 @@ function Illustration({ kind }: { kind: 'profile' | 'stats' | 'shot' | 'plan' })
       <Svg width={size} height={size} viewBox="0 0 200 200">
         <Circle cx="100" cy="100" r="90" fill={bg} />
         <Rect x="50" y="120" width="18" height="40" fill={stroke} />
-        <Rect x="80" y="90" width="18" height="70" fill={stroke} opacity="0.8" />
+        <Rect x="80" y="90" width="18" height="70" fill={stroke} opacity="0.7" />
         <Rect x="110" y="60" width="18" height="100" fill={stroke} />
-        <Rect x="140" y="100" width="18" height="60" fill={stroke} opacity="0.6" />
-        <Line x1="40" y1="160" x2="170" y2="160" stroke={Colors.textMuted} strokeWidth="2" />
+        <Rect x="140" y="100" width="18" height="60" fill={stroke} opacity="0.5" />
       </Svg>
     );
   }
@@ -473,34 +438,25 @@ function Illustration({ kind }: { kind: 'profile' | 'stats' | 'shot' | 'plan' })
     return (
       <Svg width={size} height={size} viewBox="0 0 200 200">
         <Circle cx="100" cy="100" r="90" fill={bg} />
-        {/* Hoop */}
         <Rect x="140" y="50" width="4" height="50" fill={stroke} />
         <Line x1="120" y1="70" x2="160" y2="70" stroke={stroke} strokeWidth="3" />
-        <Path d="M120 70 L125 85 L155 85 L160 70" stroke={stroke} strokeWidth="2" fill={fill} />
-        {/* Arcing ball */}
-        <Path d="M40 150 Q85 40 145 80" stroke={stroke} strokeWidth="2" strokeDasharray="4 4" fill={fill} />
-        <Circle cx="40" cy="150" r="8" fill={stroke} />
+        <Path d="M120 70 L125 85 L155 85 L160 70" stroke={stroke} strokeWidth="2" fill="transparent" />
+        <Path d="M40 150 Q85 40 145 80" stroke={stroke} strokeWidth="2" strokeDasharray="4 4" fill="transparent" />
+        <Circle cx="40" cy="150" r="10" fill={stroke} />
       </Svg>
     );
   }
-  // plan
   return (
     <Svg width={size} height={size} viewBox="0 0 200 200">
       <Circle cx="100" cy="100" r="90" fill={bg} />
-      <Rect x="55" y="50" width="90" height="110" rx="6" stroke={stroke} strokeWidth="3" fill={fill} />
+      <Rect x="55" y="50" width="90" height="110" rx="6" stroke={stroke} strokeWidth="3" fill="transparent" />
       <Line x1="70" y1="75" x2="130" y2="75" stroke={stroke} strokeWidth="2" />
       <Line x1="70" y1="95" x2="120" y2="95" stroke={stroke} strokeWidth="2" />
       <Line x1="70" y1="115" x2="125" y2="115" stroke={stroke} strokeWidth="2" />
       <Line x1="70" y1="135" x2="115" y2="135" stroke={stroke} strokeWidth="2" />
-      <Circle cx="62" cy="75" r="3" fill={stroke} />
-      <Circle cx="62" cy="95" r="3" fill={stroke} />
-      <Circle cx="62" cy="115" r="3" fill={stroke} />
-      <Circle cx="62" cy="135" r="3" fill={stroke} />
     </Svg>
   );
 }
-
-// ============ MAIN COMPONENT ============
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
@@ -547,7 +503,6 @@ export default function TodayScreen() {
       if (next.type === 'text') setTextInput((answers[next.id] as string) || '');
       animTrans('forward', () => setStepIndex(stepIndex + 1));
     } else {
-      // Done with onboarding → scouting report
       setAppState('scouting');
     }
   };
@@ -637,7 +592,6 @@ export default function TodayScreen() {
       weakness = 'Weak hand ball handling';
     }
 
-    // Compute skill levels to send to backend (so plan gen knows the profile)
     const computed = computeSkills(a);
     const skillLevels: Record<string, number> = {};
     for (const k of Object.keys(computed)) skillLevels[k] = computed[k].level;
@@ -712,8 +666,6 @@ export default function TodayScreen() {
     }
   };
 
-  // ============ RENDER ============
-
   if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
   if (appState === 'welcome') return (
@@ -746,7 +698,9 @@ export default function TodayScreen() {
   if (appState === 'onboarding' && currentStep) {
     const st = currentStep;
 
-    // INTERSTITIAL rendering
+    // Build options (supports dynamic per-answer options)
+    const opts = st.dynamicOptions ? st.dynamicOptions(answers) : (st.options || []);
+
     if (st.type === 'interstitial') {
       return (
         <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -777,7 +731,6 @@ export default function TodayScreen() {
       );
     }
 
-    // QUESTION rendering
     const isSel = (o: string) => {
       const a = answers[st.id];
       return Array.isArray(a) ? a.includes(o) : a === o;
@@ -808,7 +761,7 @@ export default function TodayScreen() {
               <Text style={s.qq}>{st.question}</Text>
               {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
 
-              {(st.type === 'select' || st.type === 'multiselect') && st.options?.map((o, i) => (
+              {(st.type === 'select' || st.type === 'multiselect') && opts.map((o, i) => (
                 <TouchableOpacity
                   key={i}
                   style={[s.opt, isSel(o.label) && s.optSel, o.disabled && s.optDisabled]}
@@ -900,7 +853,6 @@ export default function TodayScreen() {
     );
   }
 
-  // ============ SCOUTING REPORT ============
   if (appState === 'scouting') {
     const skills = computeSkills(answers);
     const skillEntries = Object.entries(skills).sort((a, b) => b[1].level - a[1].level);
@@ -919,7 +871,6 @@ export default function TodayScreen() {
           <Text style={[s.qq, { marginBottom: 8 }]}>Here's your starting profile.</Text>
           <Text style={s.qsub}>Computed from your answers. These will refine as you train.</Text>
 
-          {/* Strengths */}
           <Text style={[s.scHeader, { marginTop: 16 }]}>STRENGTHS</Text>
           {strongest.map(([key, s2]) => (
             <View key={key} style={s.scRow}>
@@ -931,19 +882,17 @@ export default function TodayScreen() {
             </View>
           ))}
 
-          {/* Needs work */}
           <Text style={[s.scHeader, { marginTop: 24 }]}>NEEDS WORK</Text>
           {weakest.map(([key, s2]) => (
             <View key={key} style={s.scRow}>
               <Text style={s.scLabel}>{s2.label}</Text>
               <View style={s.scBarWrap}>
-                <View style={[s.scBarFill, { width: (s2.level * 10) + '%', backgroundColor: '#C47A6C' }]} />
+                <View style={[s.scBarFill, { width: (s2.level * 10) + '%', backgroundColor: Colors.danger }]} />
               </View>
               <Text style={s.scVal}>{s2.level.toFixed(1)}</Text>
             </View>
           ))}
 
-          {/* Full list */}
           <Text style={[s.scHeader, { marginTop: 24 }]}>FULL PROFILE</Text>
           {skillEntries.map(([key, s2]) => (
             <View key={key} style={s.scRowFull}>
@@ -985,7 +934,7 @@ export default function TodayScreen() {
         <Text style={{ fontSize: 22, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16 }}>
           {LOADING_STEPS[currentLoadingStep] || 'Building your plan'}
         </Text>
-        <View style={{ width: '100%', height: 4, backgroundColor: Colors.surface, borderRadius: 2, overflow: 'hidden', marginTop: 20 }}>
+        <View style={{ width: '100%', height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginTop: 20 }}>
           <Animated.View style={{ height: 4, backgroundColor: Colors.primary, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
         </View>
         <Text style={{ fontSize: 13, color: Colors.textMuted, marginTop: 16 }}>{loadingProgress}%</Text>
@@ -1044,7 +993,7 @@ export default function TodayScreen() {
                 <Text style={{ fontSize: 12, color: Colors.textMuted }}>{day?.duration}</Text>
               </View>
               <Text style={{ fontSize: 24, fontWeight: '900', color: Colors.textPrimary, marginBottom: 16 }}>{day?.focus}</Text>
-              <View style={{ height: 4, backgroundColor: Colors.background, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
+              <View style={{ height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
                 <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
               </View>
               <TouchableOpacity
@@ -1061,7 +1010,7 @@ export default function TodayScreen() {
                   return (
                     <TouchableOpacity
                       key={i}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#222' }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder }}
                       onPress={() => router.push('/drill/' + i)}
                       activeOpacity={0.7}
                     >
@@ -1097,13 +1046,13 @@ const s = StyleSheet.create({
   bb: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
   bt: { fontSize: 22, color: Colors.textSecondary },
   pc: { flex: 1, paddingHorizontal: 12 },
-  pt: { height: 4, backgroundColor: Colors.surface, borderRadius: 2, overflow: 'hidden' },
+  pt: { height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden' },
   pf: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
   qs: { fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: 2, marginBottom: 12 },
   qq: { fontSize: 26, fontWeight: '900', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8 },
   qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20 },
   opt: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 16, marginBottom: 10 },
-  optSel: { borderColor: Colors.primary, backgroundColor: '#1A1708' },
+  optSel: { borderColor: Colors.primary, backgroundColor: '#FBF5E2' },
   optDisabled: { opacity: 0.4 },
   optTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
   optTxtSel: { color: Colors.primary },
@@ -1123,14 +1072,13 @@ const s = StyleSheet.create({
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
   ct: { fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
   ctDisabled: { color: Colors.textMuted },
-  // Scouting report
   scHeader: { fontSize: 11, fontWeight: '800', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
   scRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
   scLabel: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary, width: 120 },
-  scBarWrap: { flex: 1, height: 8, backgroundColor: Colors.surface, borderRadius: 4, overflow: 'hidden' },
+  scBarWrap: { flex: 1, height: 8, backgroundColor: Colors.surfaceBorder, borderRadius: 4, overflow: 'hidden' },
   scBarFill: { height: 8, borderRadius: 4 },
   scVal: { fontSize: 13, fontWeight: '800', color: Colors.textPrimary, width: 36, textAlign: 'right' },
-  scRowFull: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#222' },
+  scRowFull: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
   scLabelSm: { fontSize: 13, color: Colors.textSecondary },
   scValSm: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary },
 });
