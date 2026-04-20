@@ -5,14 +5,34 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Play, Check } from 'lucide-react-native';
+import {
+  Play, Check, GraduationCap, Users, Award, Trophy, Target, BarChart3,
+  MapPin, Calendar, Clock, Dumbbell, User as UserIcon, Zap, Brain,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import Svg, { Circle, Path, Rect, Line, G } from 'react-native-svg';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import { usePlanStore } from '@/store/planStore';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+// Section icon mapping — shown in a circle on every question
+const SECTION_ICONS: Record<string, any> = {
+  'About You': UserIcon,
+  'Where You Play': MapPin,
+  'Your Role': Users,
+  'Your Stats': BarChart3,
+  'Your Game': Target,
+  'Your Schedule': Calendar,
+  'Scouting Report': Award,
+};
+
+interface OptionDef {
+  label: string;
+  subtitle?: string;
+  disabled?: boolean;
+  icon?: any; // optional per-option icon
+}
 
 interface Step {
   id: string;
@@ -20,16 +40,15 @@ interface Step {
   type: 'select' | 'multiselect' | 'text' | 'numberGrid' | 'statGrid' | 'interstitial';
   question?: string;
   subtitle?: string;
-  options?: { label: string; value?: string; subtitle?: string; disabled?: boolean }[];
+  options?: OptionDef[];
   placeholder?: string;
   numberFields?: { id: string; label: string; max?: number }[];
   statFields?: { id: string; label: string; placeholder?: string }[];
   showIf?: (answers: Record<string, any>) => boolean;
-  // For steps where the options themselves depend on earlier answers
-  dynamicOptions?: (answers: Record<string, any>) => { label: string; subtitle?: string; disabled?: boolean }[];
+  dynamicOptions?: (answers: Record<string, any>) => OptionDef[];
   interstitialTitle?: string;
   interstitialBody?: string;
-  interstitialIllustration?: 'profile' | 'stats' | 'shot' | 'plan';
+  interstitialImage?: any;
 }
 
 const ANSWER_DEPENDENCIES: Record<string, string[]> = {
@@ -78,7 +97,6 @@ const STEPS: Step[] = [
     ],
   },
   {
-    // School team — options change based on grade
     id: 'schoolTeam', section: 'Where You Play', type: 'select',
     question: 'Do you play on a school team?',
     dynamicOptions: (a) => {
@@ -88,7 +106,6 @@ const STEPS: Step[] = [
           { label: 'No school team' },
         ];
       }
-      // High school
       return [
         { label: 'Varsity' },
         { label: 'JV' },
@@ -160,7 +177,7 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_where', section: 'Where You Play', type: 'interstitial',
-    interstitialIllustration: 'profile',
+    interstitialImage: require('@/assets/images/where-you-play.svg'),
     interstitialTitle: 'Level locked in.',
     interstitialBody: "What looks like 'just okay' at one level is elite at another. We get it.",
   },
@@ -195,7 +212,7 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_stats', section: 'Your Stats', type: 'interstitial',
-    interstitialIllustration: 'stats',
+    interstitialImage: require('@/assets/images/stats-locked.svg'),
     interstitialTitle: 'Stats logged.',
     interstitialBody: "Raw numbers lie. Stats plus your level plus your role = a real read.",
     showIf: (a) => playsOnTeam(a),
@@ -224,7 +241,7 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_shot', section: 'Your Game', type: 'interstitial',
-    interstitialIllustration: 'shot',
+    interstitialImage: require('@/assets/images/shot-mapped.svg'),
     interstitialTitle: 'Your shot is mapped.',
     interstitialBody: "We know what falls for you and what doesn't. Drills get assigned accordingly.",
   },
@@ -262,7 +279,7 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_plan', section: 'Scouting Report', type: 'interstitial',
-    interstitialIllustration: 'plan',
+    interstitialImage: require('@/assets/images/scouting-ready.svg'),
     interstitialTitle: 'Ready for your scouting report.',
     interstitialBody: "What you just told us becomes a 12-skill profile. Next screen.",
   },
@@ -407,54 +424,43 @@ const LOADING_STEPS = [
   'Finishing Coach X notes',
 ];
 
-// Placeholder illustrations while we wait for user to add Storyset SVGs.
-// After user drops in /assets/images/where-you-play.svg etc, swap these Image imports.
-function Illustration({ kind }: { kind: 'profile' | 'stats' | 'shot' | 'plan' }) {
-  const size = 220;
-  const stroke = Colors.primary;
-  const bg = '#F2F2EC';
+// Staggered fade-in animation for options
+function AnimatedOption({
+  index, children, style, onPress, activeOpacity, disabled,
+}: {
+  index: number;
+  children: React.ReactNode;
+  style: any;
+  onPress: () => void;
+  activeOpacity?: number;
+  disabled?: boolean;
+}) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(10)).current;
 
-  if (kind === 'profile') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 200 200">
-        <Circle cx="100" cy="100" r="90" fill={bg} />
-        <Circle cx="100" cy="75" r="25" stroke={stroke} strokeWidth="3" fill="transparent" />
-        <Path d="M60 150 Q100 110 140 150" stroke={stroke} strokeWidth="3" fill="transparent" />
-      </Svg>
-    );
-  }
-  if (kind === 'stats') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 200 200">
-        <Circle cx="100" cy="100" r="90" fill={bg} />
-        <Rect x="50" y="120" width="18" height="40" fill={stroke} />
-        <Rect x="80" y="90" width="18" height="70" fill={stroke} opacity="0.7" />
-        <Rect x="110" y="60" width="18" height="100" fill={stroke} />
-        <Rect x="140" y="100" width="18" height="60" fill={stroke} opacity="0.5" />
-      </Svg>
-    );
-  }
-  if (kind === 'shot') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 200 200">
-        <Circle cx="100" cy="100" r="90" fill={bg} />
-        <Rect x="140" y="50" width="4" height="50" fill={stroke} />
-        <Line x1="120" y1="70" x2="160" y2="70" stroke={stroke} strokeWidth="3" />
-        <Path d="M120 70 L125 85 L155 85 L160 70" stroke={stroke} strokeWidth="2" fill="transparent" />
-        <Path d="M40 150 Q85 40 145 80" stroke={stroke} strokeWidth="2" strokeDasharray="4 4" fill="transparent" />
-        <Circle cx="40" cy="150" r="10" fill={stroke} />
-      </Svg>
-    );
-  }
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 300,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 300,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
   return (
-    <Svg width={size} height={size} viewBox="0 0 200 200">
-      <Circle cx="100" cy="100" r="90" fill={bg} />
-      <Rect x="55" y="50" width="90" height="110" rx="6" stroke={stroke} strokeWidth="3" fill="transparent" />
-      <Line x1="70" y1="75" x2="130" y2="75" stroke={stroke} strokeWidth="2" />
-      <Line x1="70" y1="95" x2="120" y2="95" stroke={stroke} strokeWidth="2" />
-      <Line x1="70" y1="115" x2="125" y2="115" stroke={stroke} strokeWidth="2" />
-      <Line x1="70" y1="135" x2="115" y2="135" stroke={stroke} strokeWidth="2" />
-    </Svg>
+    <Animated.View style={{ opacity, transform: [{ translateY }] }}>
+      <TouchableOpacity style={style} onPress={onPress} activeOpacity={activeOpacity} disabled={disabled}>
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
@@ -697,8 +703,7 @@ export default function TodayScreen() {
 
   if (appState === 'onboarding' && currentStep) {
     const st = currentStep;
-
-    // Build options (supports dynamic per-answer options)
+    const SectionIcon = SECTION_ICONS[st.section] || UserIcon;
     const opts = st.dynamicOptions ? st.dynamicOptions(answers) : (st.options || []);
 
     if (st.type === 'interstitial') {
@@ -710,10 +715,8 @@ export default function TodayScreen() {
             <View style={{ width: 60 }} />
           </View>
           <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
-            {st.interstitialIllustration && (
-              <View style={{ marginBottom: 40 }}>
-                <Illustration kind={st.interstitialIllustration} />
-              </View>
+            {st.interstitialImage && (
+              <Image source={st.interstitialImage} style={{ width: 240, height: 240, marginBottom: 24 }} resizeMode="contain" />
             )}
             <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16, lineHeight: 36 }}>
               {st.interstitialTitle}
@@ -757,13 +760,20 @@ export default function TodayScreen() {
           </View>
           <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
-              <Text style={s.qs}>{st.section.toUpperCase()}</Text>
+              {/* Section label with icon */}
+              <View style={s.sectionRow}>
+                <View style={s.sectionIconWrap}>
+                  <SectionIcon size={14} color={Colors.primary} />
+                </View>
+                <Text style={s.qs}>{st.section.toUpperCase()}</Text>
+              </View>
               <Text style={s.qq}>{st.question}</Text>
               {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
 
               {(st.type === 'select' || st.type === 'multiselect') && opts.map((o, i) => (
-                <TouchableOpacity
-                  key={i}
+                <AnimatedOption
+                  key={`${st.id}-${i}-${o.label}`}
+                  index={i}
                   style={[s.opt, isSel(o.label) && s.optSel, o.disabled && s.optDisabled]}
                   onPress={() => !o.disabled && handleSelect(o.label)}
                   activeOpacity={o.disabled ? 1 : 0.7}
@@ -774,7 +784,7 @@ export default function TodayScreen() {
                     {o.subtitle ? <Text style={[s.optSub, o.disabled && s.optTxtDisabled]}>{o.subtitle}</Text> : null}
                   </View>
                   {isSel(o.label) && <Check size={18} color={Colors.primary} />}
-                </TouchableOpacity>
+                </AnimatedOption>
               ))}
 
               {st.type === 'text' && (
@@ -867,7 +877,12 @@ export default function TodayScreen() {
           <View style={{ width: 60 }} />
         </View>
         <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
-          <Text style={s.qs}>YOUR SCOUTING REPORT</Text>
+          <View style={s.sectionRow}>
+            <View style={s.sectionIconWrap}>
+              <Award size={14} color={Colors.primary} />
+            </View>
+            <Text style={s.qs}>YOUR SCOUTING REPORT</Text>
+          </View>
           <Text style={[s.qq, { marginBottom: 8 }]}>Here's your starting profile.</Text>
           <Text style={s.qsub}>Computed from your answers. These will refine as you train.</Text>
 
@@ -1048,7 +1063,14 @@ const s = StyleSheet.create({
   pc: { flex: 1, paddingHorizontal: 12 },
   pt: { height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden' },
   pf: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
-  qs: { fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: 2, marginBottom: 12 },
+  // Section row with icon
+  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  sectionIconWrap: {
+    width: 26, height: 26, borderRadius: 13, backgroundColor: '#FBF5E2',
+    borderWidth: 1, borderColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  qs: { fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: 2 },
   qq: { fontSize: 26, fontWeight: '900', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8 },
   qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20 },
   opt: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 16, marginBottom: 10 },
