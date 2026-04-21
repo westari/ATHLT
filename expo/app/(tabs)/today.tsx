@@ -736,13 +736,13 @@ export default function TodayScreen() {
                 fadeDuration={0}
               />
             )}
-            <Text style={{ fontSize: 22, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.5 }}>
+            <Text style={{ fontSize: 24, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.8 }}>
               {st.interstitialTitle}
             </Text>
           </Animated.View>
           <View style={s.bn}>
             <TouchableOpacity style={s.cb} onPress={goNext} activeOpacity={0.85}>
-              <Text style={s.ct}>CONTINUE</Text>
+              <Text style={s.ct}>Continue</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1037,7 +1037,7 @@ const s = StyleSheet.create({
   bn: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 24, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
   cb: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18, alignItems: 'center' },
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  ct: { fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
+  ct: { fontSize: 16, fontWeight: '700', color: Colors.black, letterSpacing: 0.5 },
   ctDisabled: { color: Colors.textMuted },
   scHeader: { fontSize: 11, fontWeight: '800', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
   scRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
