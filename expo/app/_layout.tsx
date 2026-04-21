@@ -15,8 +15,6 @@ import Colors from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// Preload interstitial images at boot so they're cached by the time
-// user hits the onboarding interstitials.
 const INTERSTITIAL_IMAGES = [
   require('@/assets/images/where-you-play.png'),
   require('@/assets/images/stats-locked.png'),
@@ -24,8 +22,6 @@ const INTERSTITIAL_IMAGES = [
   require('@/assets/images/scouting-ready.png'),
 ];
 
-// Apply Inter as the default font for all Text elements
-// so we don't have to touch every component.
 function applyDefaultFont() {
   // @ts-ignore
   const textRender = Text.render;
@@ -72,7 +68,6 @@ export default function RootLayout() {
       {Platform.OS === 'ios' && <StatusBar barStyle="dark-content" />}
       {Platform.OS === 'android' && <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />}
 
-      {/* Invisible preload — keeps interstitial images in memory */}
       <View style={s.preload} pointerEvents="none">
         {INTERSTITIAL_IMAGES.map((src, i) => (
           <Image key={i} source={src} style={s.preloadImg} />
