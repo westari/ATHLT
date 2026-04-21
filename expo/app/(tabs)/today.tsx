@@ -10,21 +10,16 @@ import {
   MapPin, Calendar, Clock, Dumbbell, User as UserIcon, Zap, Brain,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import {
-  useFonts,
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-  Inter_800ExtraBold,
-  Inter_900Black,
-} from '@expo-google-fonts/inter';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import { usePlanStore } from '@/store/planStore';
 
+// System font for Cal AI-like look. iOS uses SF Pro (default), Android uses Roboto.
+// The tight letter-spacing on headings is what gives that modern premium feel.
+const FONT_HEAVY = Platform.OS === 'ios' ? 'System' : 'sans-serif';
+
 // Pre-load interstitial images as constants so Metro resolves them at build time
-const IMG_WHERE_YOU_PLAY = require('@/assets/images/coach-x-pointing.png');
+const IMG_WHERE_YOU_PLAY = require('@/assets/images/where-you-play.png');
 const IMG_STATS_LOCKED = require('@/assets/images/stats-locked.png');
 const IMG_SHOT_MAPPED = require('@/assets/images/shot-mapped.png');
 const IMG_SCOUTING_READY = require('@/assets/images/scouting-ready.png');
@@ -480,15 +475,6 @@ export default function TodayScreen() {
   const router = useRouter();
   const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
 
-  const [fontsLoaded] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
-    Inter_800ExtraBold,
-    Inter_900Black,
-  });
-
   const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'analyzing' | 'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
@@ -692,22 +678,22 @@ export default function TodayScreen() {
     }
   };
 
-  if (appState === 'loading' || !fontsLoaded) return <View style={[s.c, { paddingTop: insets.top }]} />;
+  if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
   if (appState === 'welcome') return (
     <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      {/* Invisible preload — caches interstitial images so they render instantly */}
-      <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, top: -100 }}>
-        <Image source={IMG_WHERE_YOU_PLAY} style={{ width: 1, height: 1 }} />
-        <Image source={IMG_STATS_LOCKED} style={{ width: 1, height: 1 }} />
-        <Image source={IMG_SHOT_MAPPED} style={{ width: 1, height: 1 }} />
-        <Image source={IMG_SCOUTING_READY} style={{ width: 1, height: 1 }} />
+      {/* Preload — renders images full-size offscreen so they're decoded and cached */}
+      <View style={{ position: 'absolute', width: 300, height: 300, opacity: 0, top: -500, left: -500 }} pointerEvents="none">
+        <Image source={IMG_WHERE_YOU_PLAY} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
+        <Image source={IMG_STATS_LOCKED} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
+        <Image source={IMG_SHOT_MAPPED} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
+        <Image source={IMG_SCOUTING_READY} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
       </View>
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
         <View style={{ paddingTop: 16, paddingBottom: 24, alignItems: 'center' }}>
           <Image source={require('@/assets/images/logo.png')} style={{ width: 180, height: 50 }} resizeMode="contain" />
         </View>
-        <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 36, marginBottom: 12, marginTop: 40 }}>
+        <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 36, marginBottom: 12, marginTop: 40, letterSpacing: -0.5 }}>
           Training plans that know how you play.
         </Text>
         <Text style={{ fontSize: 15, color: Colors.textSecondary, textAlign: 'center', marginBottom: 40, lineHeight: 22 }}>
@@ -743,17 +729,14 @@ export default function TodayScreen() {
           </View>
           <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
             {st.interstitialImage && (
-              <View style={{ width: 260, height: 260, marginBottom: 36, alignItems: 'center', justifyContent: 'center' }}>
-                <View style={{ position: 'absolute', width: 180, height: 180, borderRadius: 90, backgroundColor: '#FBF5E2' }} />
-                <Image
-                  source={st.interstitialImage}
-                  style={{ width: 260, height: 260 }}
-                  resizeMode="contain"
-                  fadeDuration={0}
-                />
-              </View>
+              <Image
+                source={st.interstitialImage}
+                style={{ width: 260, height: 260, marginBottom: 36 }}
+                resizeMode="contain"
+                fadeDuration={0}
+              />
             )}
-            <Text style={{ fontSize: 22, fontFamily: 'Inter_800ExtraBold', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.3 }}>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.5 }}>
               {st.interstitialTitle}
             </Text>
           </Animated.View>
@@ -927,7 +910,7 @@ export default function TodayScreen() {
     return (
       <ScrollView style={[s.c, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
-          <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, marginBottom: 4 }}>Today</Text>
+          <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, marginBottom: 4, letterSpacing: -0.5 }}>Today</Text>
           <Text style={{ fontSize: 14, color: Colors.textMuted, marginBottom: 24 }}>{plan.weekTitle}</Text>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginBottom: 24 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
@@ -969,7 +952,7 @@ export default function TodayScreen() {
                 <Text style={{ fontSize: 12, color: Colors.textMuted, letterSpacing: 1.5, fontWeight: '700' }}>TODAY'S FOCUS</Text>
                 <Text style={{ fontSize: 12, color: Colors.textMuted }}>{day?.duration}</Text>
               </View>
-              <Text style={{ fontSize: 24, fontWeight: '900', color: Colors.textPrimary, marginBottom: 16 }}>{day?.focus}</Text>
+              <Text style={{ fontSize: 24, fontWeight: '900', color: Colors.textPrimary, marginBottom: 16, letterSpacing: -0.3 }}>{day?.focus}</Text>
               <View style={{ height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
                 <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
               </View>
@@ -1032,29 +1015,29 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
-  qs: { fontSize: 11, fontWeight: '800', fontFamily: 'Inter_800ExtraBold', color: Colors.primary, letterSpacing: 2 },
-  qq: { fontSize: 26, fontWeight: '900', fontFamily: 'Inter_900Black', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8, letterSpacing: -0.5 },
-  qsub: { fontSize: 14, fontFamily: 'Inter_400Regular', color: Colors.textMuted, lineHeight: 20, marginBottom: 20 },
+  qs: { fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: 2 },
+  qq: { fontSize: 26, fontWeight: '900', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8, letterSpacing: -0.5 },
+  qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20 },
   opt: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 16, marginBottom: 10 },
   optSel: { borderColor: Colors.primary, backgroundColor: '#FBF5E2' },
   optDisabled: { opacity: 0.4 },
-  optTxt: { fontSize: 15, fontWeight: '600', fontFamily: 'Inter_600SemiBold', color: Colors.textPrimary },
+  optTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
   optTxtSel: { color: Colors.primary },
   optTxtDisabled: { color: Colors.textMuted },
-  optSub: { fontSize: 12, fontFamily: 'Inter_400Regular', color: Colors.textMuted, marginTop: 4 },
-  textIn: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, fontSize: 16, fontFamily: 'Inter_500Medium', color: Colors.textPrimary, minHeight: 100, textAlignVertical: 'top' },
+  optSub: { fontSize: 12, color: Colors.textMuted, marginTop: 4 },
+  textIn: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, fontSize: 16, color: Colors.textPrimary, minHeight: 100, textAlignVertical: 'top' },
   ngRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
-  ngLabel: { fontSize: 15, fontWeight: '600', fontFamily: 'Inter_600SemiBold', color: Colors.textPrimary, flex: 1 },
+  ngLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
   ngInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ngInput: { width: 48, textAlign: 'center', fontSize: 18, fontWeight: '800', fontFamily: 'Inter_800ExtraBold', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  ngMax: { fontSize: 13, fontFamily: 'Inter_400Regular', color: Colors.textMuted },
+  ngInput: { width: 48, textAlign: 'center', fontSize: 18, fontWeight: '800', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  ngMax: { fontSize: 13, color: Colors.textMuted },
   sgRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
-  sgLabel: { fontSize: 15, fontWeight: '600', fontFamily: 'Inter_600SemiBold', color: Colors.textPrimary, flex: 1 },
-  sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', fontFamily: 'Inter_700Bold', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  sgLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
+  sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
   bn: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 24, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
   cb: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18, alignItems: 'center' },
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  ct: { fontSize: 14, fontWeight: '900', fontFamily: 'Inter_900Black', color: Colors.black, letterSpacing: 2 },
+  ct: { fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
   ctDisabled: { color: Colors.textMuted },
   scHeader: { fontSize: 11, fontWeight: '800', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
   scRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
