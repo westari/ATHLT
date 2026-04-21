@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 import React, { useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, Image, StatusBar, Platform } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import {
   useFonts,
   Inter_400Regular,
@@ -14,13 +14,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import Colors from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-const INTERSTITIAL_IMAGES = [
-  require('@/assets/images/where-you-play.png'),
-  require('@/assets/images/stats-locked.png'),
-  require('@/assets/images/shot-mapped.png'),
-  require('@/assets/images/scouting-ready.png'),
-];
 
 function applyDefaultFont() {
   // @ts-ignore
@@ -65,16 +58,7 @@ export default function RootLayout() {
 
   return (
     <View style={s.container} onLayout={onLayoutRootView}>
-      {Platform.OS === 'ios' && <StatusBar barStyle="dark-content" />}
-      {Platform.OS === 'android' && <StatusBar barStyle="dark-content" backgroundColor={Colors.background} />}
-
-      <View style={s.preload} pointerEvents="none">
-        {INTERSTITIAL_IMAGES.map((src, i) => (
-          <Image key={i} source={src} style={s.preloadImg} />
-        ))}
-      </View>
-
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.background } }}>
+      <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="session" />
         <Stack.Screen name="drill/[id]" />
@@ -85,11 +69,4 @@ export default function RootLayout() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  preload: {
-    position: 'absolute',
-    top: -100, left: -100,
-    width: 1, height: 1,
-    opacity: 0,
-  },
-  preloadImg: { width: 1, height: 1 },
 });
