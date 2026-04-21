@@ -486,17 +486,6 @@ export default function TodayScreen() {
   useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
-  // Preload interstitial images at mount so they render instantly
-  useEffect(() => {
-    const sources = [IMG_WHERE_YOU_PLAY, IMG_STATS_LOCKED, IMG_SHOT_MAPPED, IMG_SCOUTING_READY];
-    sources.forEach(src => {
-      const resolved = Image.resolveAssetSource(src);
-      if (resolved?.uri) {
-        Image.prefetch(resolved.uri).catch(() => {});
-      }
-    });
-  }, []);
-
   const visibleSteps = getVisibleSteps(answers);
   const currentStep = visibleSteps[stepIndex];
   const progress = visibleSteps.length > 0 ? (stepIndex + 1) / visibleSteps.length : 0;
@@ -689,6 +678,13 @@ export default function TodayScreen() {
 
   if (appState === 'welcome') return (
     <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      {/* Invisible preload — caches interstitial images so they render instantly */}
+      <View style={{ position: 'absolute', width: 1, height: 1, opacity: 0, top: -100 }}>
+        <Image source={IMG_WHERE_YOU_PLAY} style={{ width: 1, height: 1 }} />
+        <Image source={IMG_STATS_LOCKED} style={{ width: 1, height: 1 }} />
+        <Image source={IMG_SHOT_MAPPED} style={{ width: 1, height: 1 }} />
+        <Image source={IMG_SCOUTING_READY} style={{ width: 1, height: 1 }} />
+      </View>
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
         <View style={{ paddingTop: 16, paddingBottom: 24, alignItems: 'center' }}>
           <Image source={require('@/assets/images/logo.png')} style={{ width: 180, height: 50 }} resizeMode="contain" />
