@@ -283,7 +283,7 @@ const STEPS: Step[] = [
   {
     id: 'int_plan', section: 'Scouting Report', type: 'interstitial',
     interstitialImage: IMG_SCOUTING_READY,
-    interstitialTitle: "Your answers turn into a 12-skill profile that sharpens every week as you train.",
+    interstitialTitle: "Coach X is ready to build the plan that actually fits how you play.",
   },
 ];
 
@@ -486,6 +486,17 @@ export default function TodayScreen() {
   useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
+  // Preload interstitial images at mount so they render instantly
+  useEffect(() => {
+    const sources = [IMG_WHERE_YOU_PLAY, IMG_STATS_LOCKED, IMG_SHOT_MAPPED, IMG_SCOUTING_READY];
+    sources.forEach(src => {
+      const resolved = Image.resolveAssetSource(src);
+      if (resolved?.uri) {
+        Image.prefetch(resolved.uri).catch(() => {});
+      }
+    });
+  }, []);
+
   const visibleSteps = getVisibleSteps(answers);
   const currentStep = visibleSteps[stepIndex];
   const progress = visibleSteps.length > 0 ? (stepIndex + 1) / visibleSteps.length : 0;
@@ -511,7 +522,7 @@ export default function TodayScreen() {
       if (next.type === 'text') setTextInput((answers[next.id] as string) || '');
       animTrans('forward', () => setStepIndex(stepIndex + 1));
     } else {
-      setAppState('scouting');
+      setAppState('auth');
     }
   };
 
@@ -718,9 +729,9 @@ export default function TodayScreen() {
           </View>
           <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
             {st.interstitialImage && (
-              <Image source={st.interstitialImage} style={{ width: 280, height: 280, marginBottom: 32 }} resizeMode="contain" />
+              <Image source={st.interstitialImage} style={{ width: 260, height: 260, marginBottom: 36 }} resizeMode="contain" />
             )}
-            <Text style={{ fontSize: 22, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30 }}>
+            <Text style={{ fontSize: 22, fontFamily: 'Inter_800ExtraBold', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.3 }}>
               {st.interstitialTitle}
             </Text>
           </Animated.View>
@@ -862,81 +873,11 @@ export default function TodayScreen() {
     );
   }
 
-  if (appState === 'scouting') {
-    const skills = computeSkills(answers);
-    const skillEntries = Object.entries(skills).sort((a, b) => b[1].level - a[1].level);
-    const strongest = skillEntries.slice(0, 3);
-    const weakest = [...skillEntries].sort((a, b) => a[1].level - b[1].level).slice(0, 3);
-
-    return (
-      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={s.qh}>
-          <TouchableOpacity onPress={() => setAppState('onboarding')} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
-          <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: '100%' }]} /></View></View>
-          <View style={{ width: 60 }} />
-        </View>
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
-          <View style={s.sectionRow}>
-            <View style={s.sectionIconWrap}>
-              <Award size={14} color={Colors.primary} />
-            </View>
-            <Text style={s.qs}>YOUR SCOUTING REPORT</Text>
-          </View>
-          <Text style={[s.qq, { marginBottom: 8 }]}>Here's your starting profile.</Text>
-          <Text style={s.qsub}>Computed from your answers. These will refine as you train.</Text>
-
-          <Text style={[s.scHeader, { marginTop: 16 }]}>STRENGTHS</Text>
-          {strongest.map(([key, s2]) => (
-            <View key={key} style={s.scRow}>
-              <Text style={s.scLabel}>{s2.label}</Text>
-              <View style={s.scBarWrap}>
-                <View style={[s.scBarFill, { width: (s2.level * 10) + '%', backgroundColor: Colors.primary }]} />
-              </View>
-              <Text style={s.scVal}>{s2.level.toFixed(1)}</Text>
-            </View>
-          ))}
-
-          <Text style={[s.scHeader, { marginTop: 24 }]}>NEEDS WORK</Text>
-          {weakest.map(([key, s2]) => (
-            <View key={key} style={s.scRow}>
-              <Text style={s.scLabel}>{s2.label}</Text>
-              <View style={s.scBarWrap}>
-                <View style={[s.scBarFill, { width: (s2.level * 10) + '%', backgroundColor: Colors.danger }]} />
-              </View>
-              <Text style={s.scVal}>{s2.level.toFixed(1)}</Text>
-            </View>
-          ))}
-
-          <Text style={[s.scHeader, { marginTop: 24 }]}>FULL PROFILE</Text>
-          {skillEntries.map(([key, s2]) => (
-            <View key={key} style={s.scRowFull}>
-              <Text style={s.scLabelSm}>{s2.label}</Text>
-              <Text style={s.scValSm}>{s2.level.toFixed(1)}/10</Text>
-            </View>
-          ))}
-        </ScrollView>
-
-        <View style={s.bn}>
-          <TouchableOpacity
-            style={s.cb}
-            onPress={() => {
-              if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setAppState('auth');
-            }}
-            activeOpacity={0.85}
-          >
-            <Text style={s.ct}>UNLOCK MY PLAN</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
   if (appState === 'auth') {
     return (
       <AuthScreen
         onComplete={async () => { await generatePlanFromOnboarding(); }}
-        onBack={() => setAppState('scouting')}
+        onBack={() => setAppState('onboarding')}
       />
     );
   }
