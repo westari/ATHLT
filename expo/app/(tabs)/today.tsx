@@ -177,9 +177,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_where', section: 'Where You Play', type: 'interstitial',
-    interstitialImage: require('@/assets/images/where-you-play.svg'),
-    interstitialTitle: 'Level locked in.',
-    interstitialBody: "What looks like 'just okay' at one level is elite at another. We get it.",
+    interstitialImage: require('@/assets/images/where-you-play.png'),
+    interstitialTitle: "We read your stats through the level you're actually playing at.",
   },
   {
     id: 'role', section: 'Your Role', type: 'select',
@@ -212,9 +211,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_stats', section: 'Your Stats', type: 'interstitial',
-    interstitialImage: require('@/assets/images/stats-locked.svg'),
-    interstitialTitle: 'Stats logged.',
-    interstitialBody: "Raw numbers lie. Stats plus your level plus your role = a real read.",
+    interstitialImage: require('@/assets/images/stats-locked.png'),
+    interstitialTitle: "Stats plus your level plus your role = a real read.",
     showIf: (a) => playsOnTeam(a),
   },
   {
@@ -241,9 +239,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_shot', section: 'Your Game', type: 'interstitial',
-    interstitialImage: require('@/assets/images/shot-mapped.svg'),
-    interstitialTitle: 'Your shot is mapped.',
-    interstitialBody: "We know what falls for you and what doesn't. Drills get assigned accordingly.",
+    interstitialImage: require('@/assets/images/shot-mapped.png'),
+    interstitialTitle: "Drills will attack your weakest spots and sharpen your strongest ones.",
   },
   {
     id: 'goal', section: 'Your Game', type: 'text',
@@ -279,9 +276,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_plan', section: 'Scouting Report', type: 'interstitial',
-    interstitialImage: require('@/assets/images/scouting-ready.svg'),
-    interstitialTitle: 'Ready for your scouting report.',
-    interstitialBody: "What you just told us becomes a 12-skill profile. Next screen.",
+    interstitialImage: require('@/assets/images/scouting-ready.png'),
+    interstitialTitle: "Your answers become a 12-skill profile. Up next: your scouting report.",
   },
 ];
 
@@ -714,15 +710,12 @@ export default function TodayScreen() {
             <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
             <View style={{ width: 60 }} />
           </View>
-          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
+          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
             {st.interstitialImage && (
-              <Image source={st.interstitialImage} style={{ width: 240, height: 240, marginBottom: 24 }} resizeMode="contain" />
+              <Image source={st.interstitialImage} style={{ width: 280, height: 280, marginBottom: 32 }} resizeMode="contain" />
             )}
-            <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16, lineHeight: 36 }}>
+            <Text style={{ fontSize: 26, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 34 }}>
               {st.interstitialTitle}
-            </Text>
-            <Text style={{ fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 }}>
-              {st.interstitialBody}
             </Text>
           </Animated.View>
           <View style={s.bn}>
