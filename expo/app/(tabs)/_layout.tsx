@@ -16,7 +16,7 @@ export default function TabsLayout() {
           const d = JSON.parse(raw);
           if (d.profile) setHideTabBar(false);
         }
-      } catch(e) {}
+      } catch (e) {}
     };
     check();
     const interval = setInterval(check, 2000);
@@ -29,9 +29,9 @@ export default function TabsLayout() {
         screenOptions={{
           headerShown: false,
           tabBarStyle: hideTabBar ? { display: 'none' } : {
-            backgroundColor: '#0F0F0F',
+            backgroundColor: Colors.surface,
             borderTopColor: Colors.surfaceBorder,
-            borderTopWidth: 0.5,
+            borderTopWidth: 1,
             height: 85,
             paddingTop: 10,
             paddingBottom: 28,
@@ -42,6 +42,7 @@ export default function TabsLayout() {
             fontWeight: '600',
             letterSpacing: 0.3,
             marginTop: 4,
+            fontFamily: 'Inter_600SemiBold',
           },
           tabBarActiveTintColor: Colors.primary,
           tabBarInactiveTintColor: Colors.textMuted,
