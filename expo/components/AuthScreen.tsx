@@ -87,11 +87,11 @@ export default function AuthScreen({ onComplete, onBack }: AuthScreenProps) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <Image
-          source={require('@/assets/images/coach-x.png')}
-          style={s.avatar}
-          resizeMode="cover"
-        />
+       <Image
+  source={require('@/assets/images/coach-x-small.png')}
+  style={s.avatar}
+  resizeMode="cover"
+/>
         <Text style={s.title}>
           {mode === 'signup' ? 'Create your account' : 'Welcome back'}
         </Text>
