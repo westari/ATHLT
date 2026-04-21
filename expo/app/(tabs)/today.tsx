@@ -14,6 +14,12 @@ import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import { usePlanStore } from '@/store/planStore';
 
+// Pre-load interstitial images as constants so Metro resolves them at build time
+const IMG_WHERE_YOU_PLAY = require('@/assets/images/where-you-play.png');
+const IMG_STATS_LOCKED = require('@/assets/images/stats-locked.png');
+const IMG_SHOT_MAPPED = require('@/assets/images/shot-mapped.png');
+const IMG_SCOUTING_READY = require('@/assets/images/scouting-ready.png');
+
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 // Section icon mapping — shown in a circle on every question
@@ -177,8 +183,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_where', section: 'Where You Play', type: 'interstitial',
-    interstitialImage: require('@/assets/images/where-you-play.png'),
-    interstitialTitle: "We read your stats through the level you're actually playing at.",
+    interstitialImage: IMG_WHERE_YOU_PLAY,
+    interstitialTitle: "Every level reads stats differently. We'll weigh yours against the competition you actually face.",
   },
   {
     id: 'role', section: 'Your Role', type: 'select',
@@ -211,8 +217,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_stats', section: 'Your Stats', type: 'interstitial',
-    interstitialImage: require('@/assets/images/stats-locked.png'),
-    interstitialTitle: "Stats plus your level plus your role = a real read.",
+    interstitialImage: IMG_STATS_LOCKED,
+    interstitialTitle: "Raw numbers don't tell the whole story. Your role and level change what good looks like.",
     showIf: (a) => playsOnTeam(a),
   },
   {
@@ -239,8 +245,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_shot', section: 'Your Game', type: 'interstitial',
-    interstitialImage: require('@/assets/images/shot-mapped.png'),
-    interstitialTitle: "Drills will attack your weakest spots and sharpen your strongest ones.",
+    interstitialImage: IMG_SHOT_MAPPED,
+    interstitialTitle: "We know exactly what falls for you and what doesn't. Every drill gets chosen with that in mind.",
   },
   {
     id: 'goal', section: 'Your Game', type: 'text',
@@ -276,8 +282,8 @@ const STEPS: Step[] = [
   },
   {
     id: 'int_plan', section: 'Scouting Report', type: 'interstitial',
-    interstitialImage: require('@/assets/images/scouting-ready.png'),
-    interstitialTitle: "Your answers become a 12-skill profile. Up next: your scouting report.",
+    interstitialImage: IMG_SCOUTING_READY,
+    interstitialTitle: "Your answers turn into a 12-skill profile that sharpens every week as you train.",
   },
 ];
 
@@ -714,7 +720,7 @@ export default function TodayScreen() {
             {st.interstitialImage && (
               <Image source={st.interstitialImage} style={{ width: 280, height: 280, marginBottom: 32 }} resizeMode="contain" />
             )}
-            <Text style={{ fontSize: 26, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 34 }}>
+            <Text style={{ fontSize: 22, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30 }}>
               {st.interstitialTitle}
             </Text>
           </Animated.View>
