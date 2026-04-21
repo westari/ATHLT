@@ -1,13 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TrendingUp, Flame, Target, Calendar, ChevronRight } from 'lucide-react-native';
+import { TrendingUp, Flame, Target } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 
@@ -15,16 +14,14 @@ export default function ProgressScreen() {
   const insets = useSafeAreaInsets();
   const { plan, profile, completedDrills, totalSessions, currentStreak } = usePlanStore();
 
-  // Calculate stats
   const totalDrillsCompleted = Object.keys(completedDrills).length;
   const days = plan?.days || [];
   const totalDrillsInPlan = days.reduce((sum, day) => sum + (day.drills?.length || 0), 0);
   const completionRate = totalDrillsInPlan > 0 ? Math.round((totalDrillsCompleted / totalDrillsInPlan) * 100) : 0;
 
-  // Per-day completion
   const dayStats = days.map((day, dayIndex) => {
     const drillCount = day.drills?.length || 0;
-    const doneCount = day.drills?.filter((_, di) => completedDrills[`${dayIndex}-${di}`]).length || 0;
+    const doneCount = day.drills?.filter((_, di) => completedDrills[dayIndex + '-' + di]).length || 0;
     return {
       day: day.day,
       focus: day.focus,
@@ -35,22 +32,26 @@ export default function ProgressScreen() {
     };
   });
 
-  // Drill type breakdown
   const typeCount: Record<string, { total: number; done: number }> = {};
   days.forEach((day, dayIndex) => {
     (day.drills || []).forEach((drill, drillIndex) => {
-      var t = drill.type || 'other';
+      const t = drill.type || 'other';
       if (!typeCount[t]) typeCount[t] = { total: 0, done: 0 };
       typeCount[t].total++;
-      if (completedDrills[`${dayIndex}-${drillIndex}`]) typeCount[t].done++;
+      if (completedDrills[dayIndex + '-' + drillIndex]) typeCount[t].done++;
     });
   });
 
   const TYPE_LABELS: Record<string, string> = {
-    warmup: 'Warmup', skill: 'Skill Work', shooting: 'Shooting', conditioning: 'Conditioning', other: 'Other',
+    warmup: 'Warmup', skill: 'Skill Work', shooting: 'Shooting',
+    conditioning: 'Conditioning', other: 'Other',
   };
   const TYPE_COLORS: Record<string, string> = {
-    warmup: '#8B9A6B', skill: Colors.primary, shooting: '#B08D57', conditioning: '#C47A6C', other: Colors.textMuted,
+    warmup: '#6F8A4B',
+    skill: Colors.primary,
+    shooting: '#A8733A',
+    conditioning: '#B8503C',
+    other: Colors.textMuted,
   };
 
   return (
@@ -58,32 +59,30 @@ export default function ProgressScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
         <Text style={s.headerTitle}>Progress</Text>
 
-        {/* Big stats row */}
         <View style={s.statsRow}>
           <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: '#1A1708' }]}>
+            <View style={[s.statIcon, { backgroundColor: '#FBF5E2' }]}>
               <Target size={20} color={Colors.primary} />
             </View>
             <Text style={s.statValue}>{totalSessions}</Text>
             <Text style={s.statLabel}>Sessions</Text>
           </View>
           <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: '#1A1210' }]}>
-              <Flame size={20} color="#C47A6C" />
+            <View style={[s.statIcon, { backgroundColor: '#FBE9E9' }]}>
+              <Flame size={20} color={Colors.danger} />
             </View>
             <Text style={s.statValue}>{currentStreak}</Text>
             <Text style={s.statLabel}>Day Streak</Text>
           </View>
           <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: '#121A12' }]}>
-              <TrendingUp size={20} color="#8B9A6B" />
+            <View style={[s.statIcon, { backgroundColor: '#E8F2EB' }]}>
+              <TrendingUp size={20} color={Colors.success} />
             </View>
             <Text style={s.statValue}>{completionRate}%</Text>
             <Text style={s.statLabel}>Complete</Text>
           </View>
         </View>
 
-        {/* Weekly overview */}
         {plan && (
           <View style={s.section}>
             <Text style={s.sectionTitle}>THIS WEEK</Text>
@@ -94,23 +93,22 @@ export default function ProgressScreen() {
                   <View style={s.weekBarOuter}>
                     <View style={[s.weekBarInner, {
                       height: d.isRest ? '0%' : (d.pct + '%'),
-                      backgroundColor: d.pct === 100 ? '#8B9A6B' : d.pct > 0 ? Colors.primary : 'transparent',
+                      backgroundColor: d.pct === 100 ? Colors.success : d.pct > 0 ? Colors.primary : 'transparent',
                     }]} />
                   </View>
-                  <Text style={[s.weekDayLabel, d.pct === 100 && { color: '#8B9A6B' }]}>{d.day}</Text>
+                  <Text style={[s.weekDayLabel, d.pct === 100 && { color: Colors.success }]}>{d.day}</Text>
                 </View>
               ))}
             </View>
           </View>
         )}
 
-        {/* Drill type breakdown */}
         {Object.keys(typeCount).length > 0 && (
           <View style={s.section}>
             <Text style={s.sectionTitle}>DRILL BREAKDOWN</Text>
             {Object.entries(typeCount).map(([type, counts], i) => {
-              var pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
-              var color = TYPE_COLORS[type] || Colors.textMuted;
+              const pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
+              const color = TYPE_COLORS[type] || Colors.textMuted;
               return (
                 <View key={i} style={s.breakdownRow}>
                   <View style={s.breakdownInfo}>
@@ -127,7 +125,6 @@ export default function ProgressScreen() {
           </View>
         )}
 
-        {/* Day by day */}
         {plan && (
           <View style={s.section}>
             <Text style={s.sectionTitle}>DAY BY DAY</Text>
@@ -144,10 +141,12 @@ export default function ProgressScreen() {
                     <View style={s.dayBarOuter}>
                       <View style={[s.dayBarInner, {
                         width: d.pct + '%',
-                        backgroundColor: d.pct === 100 ? '#8B9A6B' : Colors.primary,
+                        backgroundColor: d.pct === 100 ? Colors.success : Colors.primary,
                       }]} />
                     </View>
-                    <Text style={[s.dayPct, d.pct === 100 && { color: '#8B9A6B' }]}>{d.done}/{d.total}</Text>
+                    <Text style={[s.dayPct, d.pct === 100 && { color: Colors.success }]}>
+                      {d.done}/{d.total}
+                    </Text>
                   </View>
                 )}
               </View>
@@ -155,7 +154,6 @@ export default function ProgressScreen() {
           </View>
         )}
 
-        {/* Player info */}
         {profile && (
           <View style={s.section}>
             <Text style={s.sectionTitle}>TRAINING FOCUS</Text>
@@ -165,7 +163,7 @@ export default function ProgressScreen() {
             </View>
             <View style={s.focusRow}>
               <Text style={s.focusLabel}>Main Weakness</Text>
-              <Text style={[s.focusValue, { color: '#C47A6C' }]}>{profile.weakness}</Text>
+              <Text style={[s.focusValue, { color: Colors.danger }]}>{profile.weakness}</Text>
             </View>
             <View style={s.focusRow}>
               <Text style={s.focusLabel}>Frequency</Text>
@@ -178,7 +176,6 @@ export default function ProgressScreen() {
           </View>
         )}
 
-        {/* Empty state */}
         {!plan && (
           <View style={s.emptyState}>
             <Text style={s.emptyTitle}>No training data yet</Text>
@@ -195,62 +192,91 @@ export default function ProgressScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: 20 },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, paddingTop: 16, marginBottom: 20 },
-  // Stats row
+  headerTitle: {
+    fontSize: 28, fontWeight: '800', color: Colors.textPrimary,
+    paddingTop: 16, marginBottom: 20,
+  },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   statCard: {
-    flex: 1, backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    flex: 1, backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
     padding: 16, alignItems: 'center',
   },
-  statIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
+  statIcon: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
+  },
   statValue: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
   statLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500' },
-  // Section
   section: {
-    backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
     padding: 20, marginBottom: 14,
   },
-  sectionTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 14 },
+  sectionTitle: {
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
+    letterSpacing: 1.5, marginBottom: 14,
+  },
   weekTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary, marginBottom: 18 },
-  // Weekly bar chart
-  weekBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', height: 120 },
+  weekBar: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-end', height: 120,
+  },
   weekDay: { alignItems: 'center', flex: 1 },
   weekBarOuter: {
-    width: 24, height: 100, backgroundColor: '#1A1A1A', borderRadius: 12, overflow: 'hidden',
-    justifyContent: 'flex-end', marginBottom: 8,
+    width: 24, height: 100, backgroundColor: Colors.surfaceBorder, borderRadius: 12,
+    overflow: 'hidden', justifyContent: 'flex-end', marginBottom: 8,
   },
   weekBarInner: { width: '100%', borderRadius: 12, minHeight: 4 },
   weekDayLabel: { fontSize: 11, fontWeight: '600', color: Colors.textMuted },
-  // Breakdown
-  breakdownRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#222' },
+  breakdownRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10,
+    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
+  },
   breakdownInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, width: 100 },
   breakdownDot: { width: 8, height: 8, borderRadius: 4 },
   breakdownLabel: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
-  breakdownBarOuter: { flex: 1, height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
+  breakdownBarOuter: {
+    flex: 1, height: 6, backgroundColor: Colors.surfaceBorder,
+    borderRadius: 3, overflow: 'hidden',
+  },
   breakdownBarInner: { height: 6, borderRadius: 3 },
-  breakdownCount: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', width: 36, textAlign: 'right' },
-  // Day by day
+  breakdownCount: {
+    fontSize: 12, color: Colors.textMuted, fontWeight: '600',
+    width: 36, textAlign: 'right',
+  },
   dayRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 12, borderTopWidth: 1, borderTopColor: '#222',
+    paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
   },
   dayInfo: { flex: 1 },
   dayName: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
   dayFocus: { fontSize: 12, color: Colors.textMuted },
-  dayRest: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1 },
+  dayRest: {
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1,
+  },
   dayProgress: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dayBarOuter: { width: 80, height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' },
+  dayBarOuter: {
+    width: 80, height: 6, backgroundColor: Colors.surfaceBorder,
+    borderRadius: 3, overflow: 'hidden',
+  },
   dayBarInner: { height: 6, borderRadius: 3 },
-  dayPct: { fontSize: 12, color: Colors.textMuted, fontWeight: '600', width: 30, textAlign: 'right' },
-  // Focus
+  dayPct: {
+    fontSize: 12, color: Colors.textMuted, fontWeight: '600',
+    width: 30, textAlign: 'right',
+  },
   focusRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 10, borderTopWidth: 1, borderTopColor: '#222',
+    paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
   },
   focusLabel: { fontSize: 13, color: Colors.textMuted },
-  focusValue: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary, textAlign: 'right', flex: 1, marginLeft: 16 },
-  // Empty
+  focusValue: {
+    fontSize: 13, fontWeight: '600', color: Colors.textPrimary,
+    textAlign: 'right', flex: 1, marginLeft: 16,
+  },
   emptyState: { alignItems: 'center', paddingVertical: 60 },
-  emptyTitle: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8 },
+  emptyTitle: {
+    fontSize: 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8,
+  },
   emptyBody: { fontSize: 14, color: Colors.textMuted, textAlign: 'center' },
 });
