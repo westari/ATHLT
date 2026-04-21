@@ -727,18 +727,23 @@ export default function TodayScreen() {
             <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
             <View style={{ width: 60 }} />
           </View>
-          <Animated.View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
-            {st.interstitialImage && (
-              <Image
-                source={st.interstitialImage}
-                style={{ width: 260, height: 260, marginBottom: 36 }}
-                resizeMode="contain"
-                fadeDuration={0}
-              />
-            )}
-            <Text style={{ fontSize: 24, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.8 }}>
-              {st.interstitialTitle}
-            </Text>
+          <Animated.View style={{ flex: 1, paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              {st.interstitialImage && (
+                <View style={{ width: 280, height: 280, alignItems: 'center', justifyContent: 'center', marginBottom: 40 }}>
+                  <View style={{ position: 'absolute', width: 240, height: 240, borderRadius: 120, backgroundColor: '#F5F2EC' }} />
+                  <Image
+                    source={st.interstitialImage}
+                    style={{ width: 260, height: 260 }}
+                    resizeMode="contain"
+                    fadeDuration={0}
+                  />
+                </View>
+              )}
+              <Text style={{ fontSize: 22, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.5 }}>
+                {st.interstitialTitle}
+              </Text>
+            </View>
           </Animated.View>
           <View style={s.bn}>
             <TouchableOpacity style={s.cb} onPress={goNext} activeOpacity={0.85}>
@@ -1035,9 +1040,9 @@ const s = StyleSheet.create({
   sgLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
   sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
   bn: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 24, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
-  cb: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18, alignItems: 'center' },
+  cb: { backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center' },
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  ct: { fontSize: 16, fontWeight: '700', color: Colors.black, letterSpacing: 0.5 },
+  ct: { fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 },
   ctDisabled: { color: Colors.textMuted },
   scHeader: { fontSize: 11, fontWeight: '800', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
   scRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
