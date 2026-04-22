@@ -423,11 +423,11 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
 }
 
 const LOADING_STEPS = [
-  'Reading your profile',
-  'Scoring your skills',
-  'Matching drills to your game',
-  'Building your weekly plan',
-  'Finishing Coach X notes',
+  'Reading your answers',
+  'Analyzing your shot profile',
+  'Finding drills for your weaknesses',
+  'Building your 7-day plan',
+  "Writing Coach X's notes",
 ];
 
 // Staggered fade-in animation for options
@@ -694,13 +694,13 @@ export default function TodayScreen() {
           <Image source={require('@/assets/images/logo.png')} style={{ width: 180, height: 50 }} resizeMode="contain" />
         </View>
         <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', lineHeight: 34, marginBottom: 12, marginTop: 40, letterSpacing: -0.8 }}>
-          Training plans that know how you play.
+          Training built for your game.
         </Text>
         <Text style={{ fontSize: 15, color: Colors.textSecondary, textAlign: 'center', marginBottom: 40, lineHeight: 22 }}>
-          Tell us about your game. We'll build a plan around it.
+          Answer a few questions. Get a plan that matches your level, role, and goals — not generic drills.
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: Colors.primary, borderRadius: 16, paddingVertical: 20, alignItems: 'center' }}
+          style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center' }}
           onPress={() => {
             if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setStepIndex(0);
@@ -708,7 +708,7 @@ export default function TodayScreen() {
           }}
           activeOpacity={0.85}
         >
-          <Text style={{ fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 }}>GET STARTED</Text>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Build my plan</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -730,12 +730,25 @@ export default function TodayScreen() {
           <Animated.View style={{ flex: 1, paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               {st.interstitialImage && (
-                <Image
-                  source={st.interstitialImage}
-                  style={{ width: 300, height: 300, marginBottom: 40 }}
-                  resizeMode="contain"
-                  fadeDuration={0}
-                />
+                <View style={{
+                  width: 300,
+                  height: 300,
+                  marginBottom: 40,
+                  backgroundColor: 'transparent',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <Image
+                    source={st.interstitialImage}
+                    style={{
+                      width: 300,
+                      height: 300,
+                      backgroundColor: 'transparent',
+                    }}
+                    resizeMode="contain"
+                    fadeDuration={0}
+                  />
+                </View>
               )}
               <Text style={{ fontSize: 22, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.5 }}>
                 {st.interstitialTitle}
@@ -924,19 +937,19 @@ export default function TodayScreen() {
                   key={i}
                   style={{
                     minWidth: 60, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12,
-                    backgroundColor: isCur ? Colors.primary : Colors.surface,
-                    borderWidth: 1, borderColor: isCur ? Colors.primary : Colors.surfaceBorder,
+                    backgroundColor: isCur ? '#1A1A1A' : Colors.surface,
+                    borderWidth: 1, borderColor: isCur ? '#1A1A1A' : Colors.surfaceBorder,
                     alignItems: 'center',
                   }}
                   onPress={() => usePlanStore.getState().setCurrentDayIndex(i)}
                   activeOpacity={0.7}
                 >
-                  <Text style={{ fontSize: 11, fontWeight: '800', color: isCur ? Colors.black : Colors.textMuted, letterSpacing: 1, marginBottom: 3 }}>{DAYS_SHORT[i]}</Text>
-                  <Text style={{ fontSize: 15, fontWeight: '800', color: isCur ? Colors.black : Colors.textPrimary }}>{d.day}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: isCur ? Colors.white : Colors.textMuted, letterSpacing: 1, marginBottom: 3 }}>{DAYS_SHORT[i]}</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '700', color: isCur ? Colors.white : Colors.textPrimary, letterSpacing: -0.2 }}>{d.day}</Text>
                   {d.isRest ? (
-                    <Text style={{ fontSize: 9, color: isCur ? Colors.black : Colors.textMuted, marginTop: 2 }}>REST</Text>
+                    <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>REST</Text>
                   ) : (
-                    <Text style={{ fontSize: 9, color: isCur ? Colors.black : Colors.textMuted, marginTop: 2 }}>{dayPct}%</Text>
+                    <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>{dayPct}%</Text>
                   )}
                 </TouchableOpacity>
               );
@@ -944,9 +957,9 @@ export default function TodayScreen() {
           </ScrollView>
 
           {day?.isRest ? (
-            <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 24, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center' }}>
-              <Text style={{ fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 8 }}>Rest day</Text>
-              <Text style={{ fontSize: 14, color: Colors.textSecondary, textAlign: 'center' }}>Recovery is part of the plan. See you tomorrow.</Text>
+            <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 28, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center' }}>
+              <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.5 }}>Rest day</Text>
+              <Text style={{ fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 }}>Recovery matters as much as the work. See you tomorrow.</Text>
             </View>
           ) : (
             <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
@@ -959,12 +972,12 @@ export default function TodayScreen() {
                 <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
               </View>
               <TouchableOpacity
-                style={{ backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
                 onPress={() => router.push('/session')}
                 activeOpacity={0.85}
               >
-                <Play size={18} color={Colors.black} />
-                <Text style={{ fontSize: 14, fontWeight: '900', color: Colors.black, letterSpacing: 1.5 }}>START SESSION</Text>
+                <Play size={18} color={Colors.white} fill={Colors.white} />
+                <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Start session</Text>
               </TouchableOpacity>
               <View style={{ marginTop: 20 }}>
                 {drills.map((d, i) => {
