@@ -693,7 +693,7 @@ export default function TodayScreen() {
         <View style={{ paddingTop: 16, paddingBottom: 24, alignItems: 'center' }}>
           <Image source={require('@/assets/images/logo.png')} style={{ width: 180, height: 50 }} resizeMode="contain" />
         </View>
-        <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 36, marginBottom: 12, marginTop: 40, letterSpacing: -0.5 }}>
+        <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', lineHeight: 34, marginBottom: 12, marginTop: 40, letterSpacing: -0.8 }}>
           Training plans that know how you play.
         </Text>
         <Text style={{ fontSize: 15, color: Colors.textSecondary, textAlign: 'center', marginBottom: 40, lineHeight: 22 }}>
@@ -730,11 +730,19 @@ export default function TodayScreen() {
           <Animated.View style={{ flex: 1, paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               {st.interstitialImage && (
-                <View style={{ width: 280, height: 280, alignItems: 'center', justifyContent: 'center', marginBottom: 40 }}>
-                  <View style={{ position: 'absolute', width: 240, height: 240, borderRadius: 120, backgroundColor: '#F5F2EC' }} />
+                <View style={{
+                  width: 280,
+                  height: 280,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: 40,
+                  backgroundColor: Colors.background,
+                  borderRadius: 140,
+                  overflow: 'hidden',
+                }}>
                   <Image
                     source={st.interstitialImage}
-                    style={{ width: 260, height: 260 }}
+                    style={{ width: 300, height: 300 }}
                     resizeMode="contain"
                     fadeDuration={0}
                   />
@@ -915,7 +923,7 @@ export default function TodayScreen() {
     return (
       <ScrollView style={[s.c, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
-          <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, marginBottom: 4, letterSpacing: -0.5 }}>Today</Text>
+          <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4, letterSpacing: -0.8 }}>Today</Text>
           <Text style={{ fontSize: 14, color: Colors.textMuted, marginBottom: 24 }}>{plan.weekTitle}</Text>
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginBottom: 24 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
@@ -957,7 +965,7 @@ export default function TodayScreen() {
                 <Text style={{ fontSize: 12, color: Colors.textMuted, letterSpacing: 1.5, fontWeight: '700' }}>TODAY'S FOCUS</Text>
                 <Text style={{ fontSize: 12, color: Colors.textMuted }}>{day?.duration}</Text>
               </View>
-              <Text style={{ fontSize: 24, fontWeight: '900', color: Colors.textPrimary, marginBottom: 16, letterSpacing: -0.3 }}>{day?.focus}</Text>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: Colors.textPrimary, marginBottom: 16, letterSpacing: -0.6 }}>{day?.focus}</Text>
               <View style={{ height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
                 <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
               </View>
@@ -1020,25 +1028,25 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
-  qs: { fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: 2 },
-  qq: { fontSize: 26, fontWeight: '900', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8, letterSpacing: -0.5 },
-  qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20 },
+  qs: { fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5 },
+  qq: { fontSize: 26, fontWeight: '700', color: Colors.textPrimary, lineHeight: 32, marginBottom: 8, letterSpacing: -0.8 },
+  qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20, letterSpacing: -0.1 },
   opt: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 16, marginBottom: 10 },
   optSel: { borderColor: Colors.primary, backgroundColor: '#FBF5E2' },
   optDisabled: { opacity: 0.4 },
-  optTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
+  optTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2 },
   optTxtSel: { color: Colors.primary },
   optTxtDisabled: { color: Colors.textMuted },
-  optSub: { fontSize: 12, color: Colors.textMuted, marginTop: 4 },
-  textIn: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, fontSize: 16, color: Colors.textPrimary, minHeight: 100, textAlignVertical: 'top' },
+  optSub: { fontSize: 12, color: Colors.textMuted, marginTop: 4, letterSpacing: -0.1 },
+  textIn: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, fontSize: 16, color: Colors.textPrimary, minHeight: 100, textAlignVertical: 'top', letterSpacing: -0.2 },
   ngRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
-  ngLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
+  ngLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1, letterSpacing: -0.2 },
   ngInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ngInput: { width: 48, textAlign: 'center', fontSize: 18, fontWeight: '800', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  ngInput: { width: 48, textAlign: 'center', fontSize: 18, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder, letterSpacing: -0.3 },
   ngMax: { fontSize: 13, color: Colors.textMuted },
   sgRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
-  sgLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1 },
-  sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  sgLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1, letterSpacing: -0.2 },
+  sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder, letterSpacing: -0.3 },
   bn: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 24, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
   cb: { backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center' },
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
