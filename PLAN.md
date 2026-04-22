@@ -7,7 +7,7 @@
 - "Analyze a Pick" flow where you can enter a specific pick and get AI analysis on it
 - Sample parlay card on the homepage showing tonight's slate with legs, confidence percentages, and combined odds
 - Payment/subscription tiers section with different plan levels (Free, Pro, VIP)
-- Smooth animations and micro-interactions on buttons and cards
+- Smooth animations and micro-interactions on buttons and cards 
 
 **Design**
 
