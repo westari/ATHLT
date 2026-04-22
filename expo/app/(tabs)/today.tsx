@@ -730,23 +730,12 @@ export default function TodayScreen() {
           <Animated.View style={{ flex: 1, paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               {st.interstitialImage && (
-                <View style={{
-                  width: 280,
-                  height: 280,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginBottom: 40,
-                  backgroundColor: Colors.background,
-                  borderRadius: 140,
-                  overflow: 'hidden',
-                }}>
-                  <Image
-                    source={st.interstitialImage}
-                    style={{ width: 300, height: 300 }}
-                    resizeMode="contain"
-                    fadeDuration={0}
-                  />
-                </View>
+                <Image
+                  source={st.interstitialImage}
+                  style={{ width: 300, height: 300, marginBottom: 40 }}
+                  resizeMode="contain"
+                  fadeDuration={0}
+                />
               )}
               <Text style={{ fontSize: 22, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.5 }}>
                 {st.interstitialTitle}
