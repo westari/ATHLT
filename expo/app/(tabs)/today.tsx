@@ -13,6 +13,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import { usePlanStore } from '@/store/planStore';
+import { supabase } from '@/constants/supabase';
 
 // System font for Cal AI-like look. iOS uses SF Pro (default), Android uses Roboto.
 // The tight letter-spacing on headings is what gives that modern premium feel.
@@ -475,7 +476,7 @@ export default function TodayScreen() {
   const router = useRouter();
   const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
 
-  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'analyzing' | 'plan'>('loading');
+  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -710,6 +711,18 @@ export default function TodayScreen() {
         >
           <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Build my plan</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={{ paddingVertical: 16, alignItems: 'center', marginTop: 8 }}
+          onPress={() => {
+            if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setAppState('signin');
+          }}
+          activeOpacity={0.7}
+        >
+          <Text style={{ fontSize: 15, color: Colors.textSecondary, letterSpacing: -0.2 }}>
+            Already have an account? <Text style={{ color: Colors.textPrimary, fontWeight: '600' }}>Sign in</Text>
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -899,6 +912,71 @@ export default function TodayScreen() {
       <AuthScreen
         onComplete={async () => { await generatePlanFromOnboarding(); }}
         onBack={() => setAppState('onboarding')}
+      />
+    );
+  }
+
+  if (appState === 'signin') {
+    return (
+      <AuthScreen
+        mode="signin"
+        onComplete={async () => {
+          // Pull plan + profile from Supabase
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) {
+              setAppState('welcome');
+              return;
+            }
+
+            // Fetch latest current plan
+            const { data: planRow } = await supabase
+              .from('weekly_plans')
+              .select('plan_data, week_title')
+              .eq('user_id', user.id)
+              .eq('is_current', true)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            // Fetch onboarding answers
+            const { data: onboardingRow } = await supabase
+              .from('user_onboarding')
+              .select('answers')
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+            if (planRow?.plan_data) {
+              usePlanStore.getState().setPlan(planRow.plan_data);
+            }
+
+            if (onboardingRow?.answers) {
+              const a = onboardingRow.answers;
+              const prof = {
+                sport: a.sport || 'Basketball',
+                position: a.position || 'Player',
+                experience: a.experience || '',
+                goal: a.goal || '',
+                weakness: a.weakness || '',
+                frequency: a.frequency || '',
+                duration: a.duration || '',
+                access: a.access || '',
+              };
+              usePlanStore.getState().setProfile(prof as any);
+            }
+
+            if (planRow?.plan_data) {
+              setAppState('plan');
+            } else {
+              // Signed in but no plan yet — start onboarding
+              setAppState('welcome');
+            }
+          } catch (e) {
+            console.error('Sign-in load failed:', e);
+            setAppState('welcome');
+          }
+        }}
+        onBack={() => setAppState('welcome')}
       />
     );
   }
