@@ -1020,15 +1020,16 @@ export default function TodayScreen() {
                     <ActivityIndicator size="small" color="#1A1A1A" />
                   )}
                 </View>
-                <Text style={{
-                  fontSize: 16,
-                  fontWeight: isCurrent ? '600' : '500',
-                  color: isDone || isCurrent ? Colors.textPrimary : Colors.textMuted,
-                  letterSpacing: -0.2,
-                  flex: 1,
-                }}>
-                  {step}
-                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: isCurrent ? '600' : '500',
+                    color: isDone || isCurrent ? Colors.textPrimary : Colors.textMuted,
+                    letterSpacing: -0.2,
+                  }}>
+                    {step}
+                  </Text>
+                </View>
               </View>
             );
           })}
