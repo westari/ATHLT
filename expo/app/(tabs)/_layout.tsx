@@ -44,7 +44,7 @@ export default function TabsLayout() {
             marginTop: 4,
             fontFamily: 'Inter_600SemiBold',
           },
-          tabBarActiveTintColor: Colors.primary,
+          tabBarActiveTintColor: Colors.textPrimary,
           tabBarInactiveTintColor: Colors.textMuted,
         }}
       >
