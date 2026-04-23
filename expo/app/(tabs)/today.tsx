@@ -1116,8 +1116,8 @@ export default function TodayScreen() {
                       onPress={() => router.push('/drill/' + i)}
                       activeOpacity={0.7}
                     >
-                      <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: done ? '#1A1A1A' : Colors.surfaceBorder, backgroundColor: done ? '#1A1A1A' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        {done && <Text style={{ fontSize: 9, color: Colors.white, fontWeight: '800' }}>✓</Text>}
+                      <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: done ? Colors.primary : Colors.surfaceBorder, backgroundColor: done ? Colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {done && <Text style={{ fontSize: 9, color: Colors.black, fontWeight: '800' }}>✓</Text>}
                       </View>
                       <Text style={{ flex: 1, fontSize: 13, color: done ? Colors.textMuted : Colors.textPrimary, textDecorationLine: done ? 'line-through' : 'none' }} numberOfLines={1}>{d.name}</Text>
                       <Text style={{ fontSize: 11, color: Colors.textMuted }}>{d.time}</Text>
