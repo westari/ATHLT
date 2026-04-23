@@ -670,30 +670,50 @@ export default function TodayScreen() {
 
         // Save to Supabase so sign-in can reload it later
         try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            // Mark any old plans as not current, then insert new one
-            await supabase
+          const { data: userData, error: userErr } = await supabase.auth.getUser();
+          if (userErr) {
+            Alert.alert('Save debug', 'getUser failed: ' + userErr.message);
+          } else if (!userData.user) {
+            Alert.alert('Save debug', 'No user found when saving plan');
+          } else {
+            const user = userData.user;
+
+            // Mark any old plans as not current
+            const { error: updateErr } = await supabase
               .from('weekly_plans')
               .update({ is_current: false })
               .eq('user_id', user.id);
+            if (updateErr) {
+              Alert.alert('Save debug', 'update old plans error: ' + updateErr.message);
+            }
 
-            await supabase.from('weekly_plans').insert({
+            // Insert new plan
+            const { error: insertErr } = await supabase.from('weekly_plans').insert({
               user_id: user.id,
               plan_data: planData,
               week_title: planData.weekTitle || 'Week 1',
               is_current: true,
             });
+            if (insertErr) {
+              Alert.alert('Save debug', 'insert plan error: ' + insertErr.message);
+            }
 
-            // Save onboarding answers (upsert since they might already exist)
-            await supabase.from('user_onboarding').upsert({
+            // Save onboarding answers
+            const { error: onbErr } = await supabase.from('user_onboarding').upsert({
               user_id: user.id,
               answers: { ...payload, description: payload.description || '' },
               completed_at: new Date().toISOString(),
             }, { onConflict: 'user_id' });
+            if (onbErr) {
+              Alert.alert('Save debug', 'onboarding save error: ' + onbErr.message);
+            }
+
+            if (!updateErr && !insertErr && !onbErr) {
+              Alert.alert('Save debug', 'Saved to Supabase successfully!');
+            }
           }
-        } catch (saveErr) {
-          console.error('Supabase save failed (non-blocking):', saveErr);
+        } catch (saveErr: any) {
+          Alert.alert('Save debug', 'Caught error: ' + (saveErr.message || String(saveErr)));
         }
 
         setAppState('plan');
