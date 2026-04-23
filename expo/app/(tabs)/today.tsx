@@ -506,6 +506,19 @@ export default function TodayScreen() {
 
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
   useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
+
+  // LOGOUT DETECTION: If the user logs out from the More tab (which calls clearAll()),
+  // plan and profile become null. Any time we're in 'plan' state with no plan/profile,
+  // it means they just logged out and we should route back to welcome automatically.
+  useEffect(() => {
+    if (isReady && appState === 'plan' && (!plan || !profile)) {
+      setAppState('welcome');
+      setStepIndex(0);
+      setAnswers({});
+      setTextInput('');
+    }
+  }, [plan, profile, appState, isReady]);
+
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
   const visibleSteps = getVisibleSteps(answers);
@@ -685,52 +698,36 @@ export default function TodayScreen() {
         if (payload.description) setDescription(payload.description);
         setSkillLevels(payload.skillLevels);
 
-        // Save to Supabase so sign-in can reload it later
+        // Save to Supabase silently (fire-and-forget, no debug popups)
         try {
-          const { data: userData, error: userErr } = await supabase.auth.getUser();
-          if (userErr) {
-            Alert.alert('Save debug', 'getUser failed: ' + userErr.message);
-          } else if (!userData.user) {
-            Alert.alert('Save debug', 'No user found when saving plan');
-          } else {
+          const { data: userData } = await supabase.auth.getUser();
+          if (userData.user) {
             const user = userData.user;
 
             // Mark any old plans as not current
-            const { error: updateErr } = await supabase
+            await supabase
               .from('weekly_plans')
               .update({ is_current: false })
               .eq('user_id', user.id);
-            if (updateErr) {
-              Alert.alert('Save debug', 'update old plans error: ' + updateErr.message);
-            }
 
             // Insert new plan
-            const { error: insertErr } = await supabase.from('weekly_plans').insert({
+            await supabase.from('weekly_plans').insert({
               user_id: user.id,
               plan_data: planData,
               week_title: planData.weekTitle || 'Week 1',
               is_current: true,
             });
-            if (insertErr) {
-              Alert.alert('Save debug', 'insert plan error: ' + insertErr.message);
-            }
 
             // Save onboarding answers
-            const { error: onbErr } = await supabase.from('user_onboarding').upsert({
+            await supabase.from('user_onboarding').upsert({
               user_id: user.id,
               answers: { ...payload, description: payload.description || '' },
               completed_at: new Date().toISOString(),
             }, { onConflict: 'user_id' });
-            if (onbErr) {
-              Alert.alert('Save debug', 'onboarding save error: ' + onbErr.message);
-            }
-
-            if (!updateErr && !insertErr && !onbErr) {
-              Alert.alert('Save debug', 'Saved to Supabase successfully!');
-            }
           }
-        } catch (saveErr: any) {
-          Alert.alert('Save debug', 'Caught error: ' + (saveErr.message || String(saveErr)));
+        } catch (saveErr) {
+          // Silent fail — local storage still has the plan, user can keep using the app
+          console.error('Supabase sync failed:', saveErr);
         }
 
         setAppState('plan');
