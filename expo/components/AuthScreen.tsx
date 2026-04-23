@@ -18,15 +18,16 @@ import { supabase } from '@/constants/supabase';
 interface AuthScreenProps {
   onComplete: (isGuest: boolean) => void;
   onBack: () => void;
+  mode?: 'signup' | 'signin';
 }
 
 /**
  * Sign up / sign in screen.
  * Guest mode removed — we need a real account for plan sync and memory system.
  */
-export default function AuthScreen({ onComplete, onBack }: AuthScreenProps) {
+export default function AuthScreen({ onComplete, onBack, mode: initialMode }: AuthScreenProps) {
   const insets = useSafeAreaInsets();
-  const [mode, setMode] = useState<'signup' | 'signin'>('signup');
+  const [mode, setMode] = useState<'signup' | 'signin'>(initialMode || 'signup');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -87,18 +88,18 @@ export default function AuthScreen({ onComplete, onBack }: AuthScreenProps) {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-       <Image
-  source={require('@/assets/images/coach-x-small.png')}
-  style={s.avatar}
-  resizeMode="cover"
-/>
+        <Image
+          source={require('@/assets/images/coach-x-small.png')}
+          style={s.avatar}
+          resizeMode="cover"
+        />
         <Text style={s.title}>
-          {mode === 'signup' ? 'Create your account' : 'Welcome back'}
+          {mode === 'signup' ? 'Save your plan.' : 'Welcome back.'}
         </Text>
         <Text style={s.subtitle}>
           {mode === 'signup'
-            ? 'Save your progress and unlock your plan.'
-            : 'Sign in to continue training.'}
+            ? 'Create an account so Coach X remembers your progress and your plan syncs across devices.'
+            : 'Sign in to pick up where you left off.'}
         </Text>
 
         {error ? <Text style={s.error}>{error}</Text> : null}
@@ -141,10 +142,10 @@ export default function AuthScreen({ onComplete, onBack }: AuthScreenProps) {
           disabled={loading}
         >
           {loading ? (
-            <ActivityIndicator color={Colors.black} />
+            <ActivityIndicator color={Colors.white} />
           ) : (
             <Text style={s.primaryBtnTxt}>
-              {mode === 'signup' ? 'CREATE ACCOUNT' : 'SIGN IN'}
+              {mode === 'signup' ? 'Create account' : 'Sign in'}
             </Text>
           )}
         </TouchableOpacity>
@@ -201,12 +202,12 @@ const s = StyleSheet.create({
   },
   avatar: { width: 80, height: 80, borderRadius: 40, marginBottom: 20 },
   title: {
-    fontSize: 26, fontWeight: '800', color: Colors.textPrimary,
-    textAlign: 'center', marginBottom: 8,
+    fontSize: 28, fontWeight: '700', color: Colors.textPrimary,
+    textAlign: 'center', marginBottom: 8, letterSpacing: -0.8,
   },
   subtitle: {
     fontSize: 15, color: Colors.textSecondary,
-    textAlign: 'center', marginBottom: 24,
+    textAlign: 'center', marginBottom: 24, letterSpacing: -0.2,
   },
   error: {
     fontSize: 13, color: Colors.danger, textAlign: 'center', marginBottom: 16,
@@ -218,13 +219,14 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     paddingHorizontal: 18, paddingVertical: 16,
     fontSize: 15, color: Colors.textPrimary, width: '100%',
+    letterSpacing: -0.2,
   },
   primaryBtn: {
-    backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18,
+    backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18,
     alignItems: 'center', width: '100%', marginBottom: 16,
   },
   primaryBtnTxt: {
-    fontSize: 15, fontWeight: '800', color: Colors.black, letterSpacing: 2,
+    fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2,
   },
   switchBtn: { marginBottom: 24 },
   switchTxt: { fontSize: 14, color: Colors.textMuted, textAlign: 'center' },
