@@ -121,7 +121,7 @@ export default function MoreScreen() {
         {/* Account card */}
         <View style={s.accountCard}>
           <View style={s.accountIcon}>
-            <User size={24} color={Colors.textPrimary} />
+            <User size={24} color={Colors.primary} />
           </View>
           <View style={s.accountInfo}>
             {isLoadingAuth ? (
@@ -243,13 +243,11 @@ export default function MoreScreen() {
           <Text style={s.resetTxt}>Reset Training Profile</Text>
         </TouchableOpacity>
 
-        {/* Log out — always shows when someone is signed in */}
-        {userEmail && (
-          <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
-            <LogOut size={18} color={Colors.danger} />
-            <Text style={s.logoutTxt}>Log out</Text>
-          </TouchableOpacity>
-        )}
+        {/* Log out — always show */}
+        <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+          <LogOut size={18} color={Colors.danger} />
+          <Text style={s.logoutTxt}>Log out</Text>
+        </TouchableOpacity>
 
         <Text style={s.version}>ATHLT v1.0.0 — Scaled Studios</Text>
         <View style={{ height: 30 }} />
@@ -273,8 +271,8 @@ const s = StyleSheet.create({
   },
   accountIcon: {
     width: 48, height: 48, borderRadius: 24,
-    backgroundColor: Colors.background,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: '#FBF5E2',
+    borderWidth: 2, borderColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
   accountInfo: { flex: 1 },
