@@ -712,16 +712,15 @@ export default function TodayScreen() {
           <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Build my plan</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={{ paddingVertical: 16, alignItems: 'center', marginTop: 8 }}
+          style={{ paddingVertical: 16, alignItems: 'center', marginTop: 8, flexDirection: 'row', justifyContent: 'center' }}
           onPress={() => {
             if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
             setAppState('signin');
           }}
           activeOpacity={0.7}
         >
-          <Text style={{ fontSize: 15, color: Colors.textSecondary, letterSpacing: -0.2 }}>
-            Already have an account? <Text style={{ color: Colors.textPrimary, fontWeight: '600' }}>Sign in</Text>
-          </Text>
+          <Text style={{ fontSize: 15, color: Colors.textSecondary, letterSpacing: -0.2 }}>Already have an account? </Text>
+          <Text style={{ fontSize: 15, color: Colors.textPrimary, fontWeight: '600', letterSpacing: -0.2 }}>Sign in</Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
