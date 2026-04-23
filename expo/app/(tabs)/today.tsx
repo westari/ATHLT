@@ -667,6 +667,35 @@ export default function TodayScreen() {
         });
         if (payload.description) setDescription(payload.description);
         setSkillLevels(payload.skillLevels);
+
+        // Save to Supabase so sign-in can reload it later
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            // Mark any old plans as not current, then insert new one
+            await supabase
+              .from('weekly_plans')
+              .update({ is_current: false })
+              .eq('user_id', user.id);
+
+            await supabase.from('weekly_plans').insert({
+              user_id: user.id,
+              plan_data: planData,
+              week_title: planData.weekTitle || 'Week 1',
+              is_current: true,
+            });
+
+            // Save onboarding answers (upsert since they might already exist)
+            await supabase.from('user_onboarding').upsert({
+              user_id: user.id,
+              answers: { ...payload, description: payload.description || '' },
+              completed_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' });
+          }
+        } catch (saveErr) {
+          console.error('Supabase save failed (non-blocking):', saveErr);
+        }
+
         setAppState('plan');
       } else {
         Alert.alert('Plan generation failed', 'Please try again.');
