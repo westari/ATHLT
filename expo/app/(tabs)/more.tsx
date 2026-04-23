@@ -121,7 +121,7 @@ export default function MoreScreen() {
         {/* Account card */}
         <View style={s.accountCard}>
           <View style={s.accountIcon}>
-            <User size={24} color={Colors.primary} />
+            <User size={24} color={Colors.textPrimary} />
           </View>
           <View style={s.accountInfo}>
             {isLoadingAuth ? (
@@ -221,7 +221,7 @@ export default function MoreScreen() {
         {/* Menu */}
         <View style={s.menu}>
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7}>
-            <Star size={20} color={Colors.primary} />
+            <Star size={20} color={Colors.textSecondary} />
             <Text style={s.menuItemText}>Rate ATHLT</Text>
             <ChevronRight size={16} color={Colors.textMuted} />
           </TouchableOpacity>
@@ -262,8 +262,8 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: 20 },
   headerTitle: {
-    fontSize: 28, fontWeight: '800', color: Colors.textPrimary,
-    paddingTop: 16, marginBottom: 20,
+    fontSize: 28, fontWeight: '700', color: Colors.textPrimary,
+    paddingTop: 16, marginBottom: 20, letterSpacing: -0.8,
   },
   accountCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
@@ -273,13 +273,13 @@ const s = StyleSheet.create({
   },
   accountIcon: {
     width: 48, height: 48, borderRadius: 24,
-    backgroundColor: '#FBF5E2',
-    borderWidth: 2, borderColor: Colors.primary,
+    backgroundColor: Colors.background,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
     alignItems: 'center', justifyContent: 'center',
   },
   accountInfo: { flex: 1 },
   accountEmail: {
-    fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2,
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2, letterSpacing: -0.3,
   },
   accountType: { fontSize: 12, color: Colors.textMuted },
   section: {
