@@ -336,33 +336,7 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   const midRange = parseInt(m.midRange || '') || 0;
   const threes = parseInt(m.threes || '') || 0;
 
-  if (midRange || threes || ft) {
-    const shootingAvg = (midRange + threes + ft) / 3;
-    skills.shooting = Math.max(1, Math.min(10, shootingAvg));
-    skills.shotForm = Math.max(1, Math.min(10, (midRange + ft) / 2));
-    skills.touch = Math.max(1, Math.min(10, (ft + midRange) / 2));
-  }
-
-  if (layupStrong || layupWeak) {
-    skills.finishing = Math.max(1, Math.min(10, (layupStrong + layupWeak) / 2));
-    skills.weakHand = Math.max(1, Math.min(10, layupWeak));
-  }
-
-  const d = a.dribbling;
-  if (d === 'Strong with both hands') { skills.ballHandling = 8; skills.weakHand = Math.max(skills.weakHand, 7); }
-  else if (d === 'Getting there') { skills.ballHandling = 6; skills.weakHand = Math.max(skills.weakHand, 5); }
-  else if (d === 'Avoid using my weak hand') { skills.ballHandling = 5; skills.weakHand = Math.min(skills.weakHand, 3); }
-  else if (d === 'Only use my right hand') { skills.ballHandling = 4; skills.weakHand = 2; }
-
-  const role = a.role;
-  if (role === 'Primary scorer') { skills.creativity += 1; skills.decisionMaking += 0.5; }
-  if (role === 'Playmaker') { skills.iq += 2; skills.courtVision += 2; skills.decisionMaking += 1.5; }
-  if (role === 'Defensive stopper') { skills.defense += 2.5; skills.athleticism += 1; skills.iq += 1; }
-  if (role === 'Rebounder / rim protector') { skills.finishing += 1; skills.athleticism += 1.5; skills.defense += 1.5; }
-  if (role === '3-and-D specialist') { skills.shooting += 1; skills.defense += 1.5; }
-  if (role === 'Two-way wing') { skills.defense += 1; skills.shooting += 0.5; skills.athleticism += 0.5; }
-  if (role === 'Energy off the bench') { skills.athleticism += 1.5; skills.defense += 0.5; }
-
+  // Compute tier FIRST so we can use it for skill caps
   let tier = 5;
   if (a.aauCircuit === 'Top shoe circuit' || a.collegeLevel === 'D1') tier = 9;
   else if (a.aauCircuit === 'Mid shoe circuit' || a.aauCircuit === 'Independent circuit' || a.schoolTeam === 'Varsity' || a.collegeLevel === 'D2' || a.collegeLevel === 'D3') tier = 7;
@@ -370,6 +344,45 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   else if (a.schoolTeam === 'Freshman team' || a.schoolTeam === 'Middle school team' || a.collegeLevel === 'Club / intramural' || a.adultPlay === 'Casual rec league') tier = 5;
   else if (a.adultPlay === 'Pickup / open gym') tier = 5;
   else if (a.adultPlay === 'Mostly alone / driveway') tier = 4;
+
+  // Shooting caps scale with tier — good makes at a lower level don't mean elite shooter
+  // tier 9 (top circuit) = shooting scores can reach 10, tier 5 = capped at 7, tier 4 = capped at 6
+  const tierCap = Math.min(10, 5 + (tier - 4) * 0.8);
+
+  if (midRange || threes || ft) {
+    const shootingAvg = (midRange + threes + ft) / 3;
+    // Open shots don't saturate — max out at 90% of the score, capped by tier
+    skills.shooting = Math.max(1, Math.min(tierCap, shootingAvg * 0.9 + 1));
+    skills.shotForm = Math.max(1, Math.min(tierCap, (midRange + ft) / 2 * 0.9 + 1));
+    skills.touch = Math.max(1, Math.min(tierCap, (ft + midRange) / 2 * 0.9 + 1));
+  }
+
+  // Finishing is NOT the same as making open layups. Open layup makes are a floor, not ceiling.
+  // Someone who makes 10/10 open layups in middle school is NOT an elite finisher.
+  // Base finishing on layups but weight it down significantly and cap by tier.
+  if (layupStrong || layupWeak) {
+    const layupAvg = (layupStrong + layupWeak) / 2;
+    // Open layup 10 = ~6 finishing at top tier, ~5 at mid tier, ~4 at low tier
+    // Because real finishing requires contested reads, body control under pressure
+    const finishingBase = 3 + (layupAvg * 0.3) + (tier - 4) * 0.3;
+    skills.finishing = Math.max(1, Math.min(tierCap, finishingBase));
+    skills.weakHand = Math.max(1, Math.min(tierCap, layupWeak * 0.8 + 1));
+  }
+
+  const d = a.dribbling;
+  if (d === 'Strong with both hands') { skills.ballHandling = Math.min(tierCap, 7); skills.weakHand = Math.max(skills.weakHand, Math.min(tierCap, 6)); }
+  else if (d === 'Getting there') { skills.ballHandling = 5; skills.weakHand = Math.max(skills.weakHand, 4); }
+  else if (d === 'Avoid using my weak hand') { skills.ballHandling = 4; skills.weakHand = Math.min(skills.weakHand, 3); }
+  else if (d === 'Only use my right hand') { skills.ballHandling = 3; skills.weakHand = 2; }
+
+  const role = a.role;
+  if (role === 'Primary scorer') { skills.creativity += 1; skills.decisionMaking += 0.5; }
+  if (role === 'Playmaker') { skills.iq += 2; skills.courtVision += 2; skills.decisionMaking += 1.5; }
+  if (role === 'Defensive stopper') { skills.defense += 2.5; skills.athleticism += 1; skills.iq += 1; }
+  if (role === 'Rebounder / rim protector') { skills.finishing += 0.5; skills.athleticism += 1.5; skills.defense += 1.5; }
+  if (role === '3-and-D specialist') { skills.shooting += 0.5; skills.defense += 1.5; }
+  if (role === 'Two-way wing') { skills.defense += 1; skills.shooting += 0.3; skills.athleticism += 0.5; }
+  if (role === 'Energy off the bench') { skills.athleticism += 1.5; skills.defense += 0.5; }
 
   const tierBump = (tier - 5) * 0.4;
   skills.iq += tierBump;
@@ -414,9 +427,13 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
     iq: 'Basketball IQ', athleticism: 'Athleticism', creativity: 'Creativity',
     touch: 'Touch', courtVision: 'Court Vision', decisionMaking: 'Decision Making',
   };
+  // Apply global tier cap to EVERY skill.
+  // A "strong" rating at middle school level isn't the same as "strong" at top circuit.
+  // tierCap was computed earlier as Math.min(10, 5 + (tier - 4) * 0.8)
+  // tier 9 = cap 10, tier 7 = cap 8.4, tier 5 = cap 5.8, tier 4 = cap 5
   for (const k of Object.keys(skills)) {
     result[k] = {
-      level: Math.round(Math.max(1, Math.min(10, skills[k])) * 10) / 10,
+      level: Math.round(Math.max(1, Math.min(tierCap, skills[k])) * 10) / 10,
       label: labels[k] || k,
     };
   }
