@@ -1011,15 +1011,71 @@ export default function TodayScreen() {
 
   if (appState === 'analyzing') {
     return (
-      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }]}>
-        <ActivityIndicator size="large" color={Colors.primary} style={{ marginBottom: 32 }} />
-        <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16, letterSpacing: -0.5 }}>
-          {LOADING_STEPS[currentLoadingStep] || 'Building your plan'}
-        </Text>
-        <View style={{ width: '100%', height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginTop: 20 }}>
-          <Animated.View style={{ height: 4, backgroundColor: Colors.primary, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
+      <View style={[s.c, { paddingTop: insets.top + 40, paddingBottom: insets.bottom, paddingHorizontal: 28 }]}>
+        {/* Top section — progress bar + percentage */}
+        <View style={{ marginBottom: 48 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.textMuted, letterSpacing: 1.2 }}>BUILDING PLAN</Text>
+            <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.5 }}>{loadingProgress}%</Text>
+          </View>
+          <View style={{ width: '100%', height: 6, backgroundColor: Colors.surfaceBorder, borderRadius: 3, overflow: 'hidden' }}>
+            <Animated.View style={{ height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
+          </View>
         </View>
-        <Text style={{ fontSize: 13, color: Colors.textMuted, marginTop: 16 }}>{loadingProgress}%</Text>
+
+        {/* Title */}
+        <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.8 }}>
+          Coach X is working
+        </Text>
+        <Text style={{ fontSize: 15, color: Colors.textSecondary, marginBottom: 36, letterSpacing: -0.2, lineHeight: 22 }}>
+          Analyzing your answers and building a plan around your game.
+        </Text>
+
+        {/* Checklist */}
+        <View>
+          {LOADING_STEPS.map((step, i) => {
+            const isDone = i < currentLoadingStep;
+            const isCurrent = i === currentLoadingStep;
+            const isPending = i > currentLoadingStep;
+            return (
+              <View
+                key={i}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 14,
+                  opacity: isPending ? 0.35 : 1,
+                }}
+              >
+                <View style={{
+                  width: 24, height: 24, borderRadius: 12,
+                  backgroundColor: isDone ? '#1A1A1A' : 'transparent',
+                  borderWidth: isDone ? 0 : 1.5,
+                  borderColor: isCurrent ? '#1A1A1A' : Colors.surfaceBorder,
+                  alignItems: 'center', justifyContent: 'center',
+                  marginRight: 14,
+                }}>
+                  {isDone && (
+                    <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '700' }}>✓</Text>
+                  )}
+                  {isCurrent && (
+                    <ActivityIndicator size="small" color="#1A1A1A" />
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{
+                    fontSize: 16,
+                    fontWeight: isCurrent ? '600' : '500',
+                    color: isDone ? Colors.textPrimary : isCurrent ? Colors.textPrimary : Colors.textMuted,
+                    letterSpacing: -0.2,
+                  }}>
+                    {step}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
       </View>
     );
   }
