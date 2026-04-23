@@ -734,16 +734,17 @@ export default function TodayScreen() {
                   width: 300,
                   height: 300,
                   marginBottom: 40,
-                  backgroundColor: 'transparent',
+                  backgroundColor: Colors.background,
                   alignItems: 'center',
                   justifyContent: 'center',
+                  borderRadius: 150,
+                  overflow: 'hidden',
                 }}>
                   <Image
                     source={st.interstitialImage}
                     style={{
                       width: 300,
                       height: 300,
-                      backgroundColor: 'transparent',
                     }}
                     resizeMode="contain"
                     fadeDuration={0}
@@ -904,15 +905,63 @@ export default function TodayScreen() {
 
   if (appState === 'analyzing') {
     return (
-      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }]}>
-        <ActivityIndicator size="large" color={Colors.primary} style={{ marginBottom: 32 }} />
-        <Text style={{ fontSize: 22, fontWeight: '800', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16 }}>
-          {LOADING_STEPS[currentLoadingStep] || 'Building your plan'}
-        </Text>
-        <View style={{ width: '100%', height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginTop: 20 }}>
-          <Animated.View style={{ height: 4, backgroundColor: Colors.primary, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, paddingHorizontal: 28 }]}>
+        <View style={{ flex: 1, justifyContent: 'center' }}>
+          <Text style={{ fontSize: 32, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.8 }}>
+            Building your plan
+          </Text>
+          <Text style={{ fontSize: 15, color: Colors.textSecondary, marginBottom: 40, letterSpacing: -0.2 }}>
+            Coach X is putting it together. Takes about 30 seconds.
+          </Text>
+
+          {LOADING_STEPS.map((step, i) => {
+            const isDone = i < currentLoadingStep;
+            const isCurrent = i === currentLoadingStep;
+            return (
+              <View
+                key={i}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingVertical: 12,
+                  opacity: i > currentLoadingStep ? 0.3 : 1,
+                }}
+              >
+                <View style={{
+                  width: 22, height: 22, borderRadius: 11,
+                  backgroundColor: isDone ? '#1A1A1A' : 'transparent',
+                  borderWidth: isDone ? 0 : 1.5,
+                  borderColor: isCurrent ? '#1A1A1A' : Colors.surfaceBorder,
+                  alignItems: 'center', justifyContent: 'center',
+                  marginRight: 14,
+                }}>
+                  {isDone && (
+                    <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '700' }}>✓</Text>
+                  )}
+                  {isCurrent && (
+                    <ActivityIndicator size="small" color="#1A1A1A" />
+                  )}
+                </View>
+                <Text style={{
+                  fontSize: 16,
+                  fontWeight: isCurrent ? '600' : '500',
+                  color: isDone || isCurrent ? Colors.textPrimary : Colors.textMuted,
+                  letterSpacing: -0.2,
+                  flex: 1,
+                }}>
+                  {step}
+                </Text>
+              </View>
+            );
+          })}
         </View>
-        <Text style={{ fontSize: 13, color: Colors.textMuted, marginTop: 16 }}>{loadingProgress}%</Text>
+
+        <View style={{ paddingBottom: 24 }}>
+          <View style={{ height: 3, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginBottom: 10 }}>
+            <Animated.View style={{ height: 3, backgroundColor: '#1A1A1A', width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
+          </View>
+          <Text style={{ fontSize: 13, color: Colors.textMuted, textAlign: 'center', letterSpacing: -0.1 }}>{loadingProgress}%</Text>
+        </View>
       </View>
     );
   }
@@ -989,8 +1038,8 @@ export default function TodayScreen() {
                       onPress={() => router.push('/drill/' + i)}
                       activeOpacity={0.7}
                     >
-                      <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: done ? Colors.primary : Colors.surfaceBorder, backgroundColor: done ? Colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        {done && <Text style={{ fontSize: 9, color: Colors.black, fontWeight: '800' }}>✓</Text>}
+                      <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: done ? '#1A1A1A' : Colors.surfaceBorder, backgroundColor: done ? '#1A1A1A' : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                        {done && <Text style={{ fontSize: 9, color: Colors.white, fontWeight: '800' }}>✓</Text>}
                       </View>
                       <Text style={{ flex: 1, fontSize: 13, color: done ? Colors.textMuted : Colors.textPrimary, textDecorationLine: done ? 'line-through' : 'none' }} numberOfLines={1}>{d.name}</Text>
                       <Text style={{ fontSize: 11, color: Colors.textMuted }}>{d.time}</Text>
