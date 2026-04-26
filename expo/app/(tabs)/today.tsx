@@ -12,14 +12,12 @@ import {
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
+import CoachXPill from '@/components/CoachXPill';
 import { usePlanStore } from '@/store/planStore';
 import { supabase } from '@/constants/supabase';
 
-// System font for Cal AI-like look. iOS uses SF Pro (default), Android uses Roboto.
-// The tight letter-spacing on headings is what gives that modern premium feel.
 const FONT_HEAVY = Platform.OS === 'ios' ? 'System' : 'sans-serif';
 
-// Pre-load interstitial images as constants so Metro resolves them at build time
 const IMG_WHERE_YOU_PLAY = require('@/assets/images/where-you-play.png');
 const IMG_STATS_LOCKED = require('@/assets/images/stats-locked.png');
 const IMG_SHOT_MAPPED = require('@/assets/images/shot-mapped.png');
@@ -27,7 +25,6 @@ const IMG_SCOUTING_READY = require('@/assets/images/scouting-ready.png');
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-// Section icon mapping — shown in a circle on every question
 const SECTION_ICONS: Record<string, any> = {
   'About You': UserIcon,
   'Where You Play': MapPin,
@@ -42,7 +39,7 @@ interface OptionDef {
   label: string;
   subtitle?: string;
   disabled?: boolean;
-  icon?: any; // optional per-option icon
+  icon?: any;
 }
 
 interface Step {
@@ -71,225 +68,29 @@ const ANSWER_DEPENDENCIES: Record<string, string[]> = {
 };
 
 const STEPS: Step[] = [
-  {
-    id: 'sport', section: 'About You', type: 'select',
-    question: 'What sport do you play?',
-    subtitle: "We'll tailor everything to your game.",
-    options: [
-      { label: 'Basketball' },
-      { label: 'Soccer', subtitle: 'Coming soon', disabled: true },
-      { label: 'Baseball', subtitle: 'Coming soon', disabled: true },
-      { label: 'Football', subtitle: 'Coming soon', disabled: true },
-    ],
-  },
-  {
-    id: 'position', section: 'About You', type: 'select',
-    question: 'What position do you play?',
-    subtitle: 'This shapes your skill priorities.',
-    options: [
-      { label: 'Point Guard' }, { label: 'Shooting Guard' }, { label: 'Small Forward' },
-      { label: 'Power Forward' }, { label: 'Center' },
-    ],
-  },
-  {
-    id: 'description', section: 'About You', type: 'text',
-    question: 'Describe yourself.',
-    subtitle: "Height, jersey color, hair, anything so Coach X knows who you are.",
-    placeholder: 'e.g. 5\'10", red jersey #5, curly hair',
-  },
-  {
-    id: 'grade', section: 'Where You Play', type: 'select',
-    question: 'What grade are you in?',
-    options: [
-      { label: 'Middle school (6-8)' },
-      { label: 'High school (9-12)' },
-      { label: 'College' },
-      { label: 'Out of school / adult' },
-    ],
-  },
-  {
-    id: 'schoolTeam', section: 'Where You Play', type: 'select',
-    question: 'Do you play on a school team?',
-    dynamicOptions: (a) => {
-      if (a.grade === 'Middle school (6-8)') {
-        return [
-          { label: 'Middle school team' },
-          { label: 'No school team' },
-        ];
-      }
-      return [
-        { label: 'Varsity' },
-        { label: 'JV' },
-        { label: 'Freshman team' },
-        { label: 'No school team' },
-      ];
-    },
-    showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)',
-  },
-  {
-    id: 'playsAAU', section: 'Where You Play', type: 'select',
-    question: 'Do you play AAU or club ball?',
-    options: [{ label: 'Yes' }, { label: 'No' }],
-    showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)',
-  },
-  {
-    id: 'aauCircuit', section: 'Where You Play', type: 'select',
-    question: 'What circuit?',
-    subtitle: 'This helps us know your level of competition.',
-    options: [
-      { label: 'Top shoe circuit', subtitle: 'Nike EYBL, Under Armour UAA, Adidas 3SSB' },
-      { label: 'Mid shoe circuit', subtitle: 'Puma Pro 16, New Balance, other shoe' },
-      { label: 'Independent circuit', subtitle: 'Made Hoops, AGame Hoops, other national' },
-      { label: 'Local circuit', subtitle: 'Regional/state tournaments only' },
-    ],
-    showIf: (a) => a.playsAAU === 'Yes',
-  },
-  {
-    id: 'aauStarter', section: 'Where You Play', type: 'select',
-    question: 'Are you a starter on your AAU team?',
-    options: [
-      { label: 'Yes, starter' }, { label: '6th man' },
-      { label: 'Rotation player' }, { label: 'Bench' },
-    ],
-    showIf: (a) => a.playsAAU === 'Yes',
-  },
-  {
-    id: 'collegeLevel', section: 'Where You Play', type: 'select',
-    question: 'What level do you play at?',
-    options: [
-      { label: 'D1' }, { label: 'D2' }, { label: 'D3' }, { label: 'JUCO' },
-      { label: 'NAIA' }, { label: 'Club / intramural' }, { label: 'No college team' },
-    ],
-    showIf: (a) => a.grade === 'College',
-  },
-  {
-    id: 'starter', section: 'Where You Play', type: 'select',
-    question: 'Are you a starter on the team?',
-    options: [
-      { label: 'Yes, starter' }, { label: '6th man' },
-      { label: 'Rotation player' }, { label: 'Bench' },
-    ],
-    showIf: (a) => {
-      if (a.playsAAU === 'Yes') return false;
-      const isSchoolTeamPlayer = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
-      if (isSchoolTeamPlayer) return true;
-      if (a.grade === 'College' && a.collegeLevel && a.collegeLevel !== 'No college team') return true;
-      return false;
-    },
-  },
-  {
-    id: 'adultPlay', section: 'Where You Play', type: 'select',
-    question: 'Where do you play?',
-    options: [
-      { label: 'Competitive rec league' }, { label: 'Casual rec league' },
-      { label: 'Pickup / open gym' }, { label: 'Mostly alone / driveway' },
-    ],
-    showIf: (a) => a.grade === 'Out of school / adult',
-  },
-  {
-    id: 'int_where', section: 'Where You Play', type: 'interstitial',
-    interstitialImage: IMG_WHERE_YOU_PLAY,
-    interstitialTitle: "Every level reads stats differently. We'll weigh yours against the competition you actually face.",
-  },
-  {
-    id: 'role', section: 'Your Role', type: 'select',
-    question: "What's your role on the team?",
-    subtitle: 'So Coach X knows what kind of player you are.',
-    options: [
-      { label: 'Primary scorer', subtitle: 'Plays are run for you' },
-      { label: 'Secondary scorer', subtitle: "You score but aren't the first option" },
-      { label: 'Playmaker', subtitle: 'Pass-first, set others up' },
-      { label: 'Two-way wing', subtitle: 'Score + defend' },
-      { label: 'Defensive stopper', subtitle: 'Guard the best player' },
-      { label: 'Rebounder / rim protector', subtitle: 'Big-man role' },
-      { label: '3-and-D specialist', subtitle: 'Shoot + defend' },
-      { label: 'Energy off the bench', subtitle: 'Spark plug' },
-      { label: 'Still figuring out my role' },
-    ],
-    showIf: (a) => playsOnTeam(a),
-  },
-  {
-    id: 'stats', section: 'Your Stats', type: 'statGrid',
-    question: 'Estimate your stats per game.',
-    subtitle: "It's fine if you don't know exactly. Leave blank if you don't track.",
-    statFields: [
-      { id: 'minutes', label: 'Minutes per game', placeholder: '0' },
-      { id: 'ppg', label: 'Points per game', placeholder: '0' },
-      { id: 'apg', label: 'Assists per game', placeholder: '0' },
-      { id: 'rpg', label: 'Rebounds per game', placeholder: '0' },
-    ],
-    showIf: (a) => playsOnTeam(a),
-  },
-  {
-    id: 'int_stats', section: 'Your Stats', type: 'interstitial',
-    interstitialImage: IMG_STATS_LOCKED,
-    interstitialTitle: "Raw numbers don't tell the whole story. Your role and level change what good looks like.",
-    showIf: (a) => playsOnTeam(a),
-  },
-  {
-    id: 'shootingMakes', section: 'Your Game', type: 'numberGrid',
-    question: 'Out of 10 wide open shots, how many do you make?',
-    subtitle: 'Be honest. This shapes your plan.',
-    numberFields: [
-      { id: 'layupStrong', label: 'Layups (strong hand)', max: 10 },
-      { id: 'layupWeak', label: 'Layups (weak hand)', max: 10 },
-      { id: 'freeThrows', label: 'Free throws', max: 10 },
-      { id: 'midRange', label: 'Mid-range', max: 10 },
-      { id: 'threes', label: '3-pointers', max: 10 },
-    ],
-  },
-  {
-    id: 'dribbling', section: 'Your Game', type: 'select',
-    question: 'How\'s your dribbling?',
-    options: [
-      { label: 'Strong with both hands' },
-      { label: 'Getting there' },
-      { label: 'Avoid using my weak hand' },
-      { label: 'Only use my right hand' },
-    ],
-  },
-  {
-    id: 'int_shot', section: 'Your Game', type: 'interstitial',
-    interstitialImage: IMG_SHOT_MAPPED,
-    interstitialTitle: "We know exactly what falls for you and what doesn't. Every drill gets chosen with that in mind.",
-  },
-  {
-    id: 'goal', section: 'Your Game', type: 'text',
-    question: 'What do you want to improve most?',
-    subtitle: 'Keep it short — one sentence.',
-    placeholder: 'e.g. be a better shooter off the dribble',
-  },
-  {
-    id: 'frequency', section: 'Your Schedule', type: 'select',
-    question: 'How often can you train?',
-    options: [
-      { label: 'Once or twice a week' }, { label: '3-4 times a week' },
-      { label: '5-6 times a week' }, { label: 'Every day' },
-    ],
-  },
-  {
-    id: 'duration', section: 'Your Schedule', type: 'select',
-    question: 'How long per session?',
-    options: [
-      { label: '20-30 minutes' }, { label: '30-45 minutes' },
-      { label: '45-60 minutes' }, { label: '60-90 minutes' },
-    ],
-  },
-  {
-    id: 'access', section: 'Your Schedule', type: 'multiselect',
-    question: 'Where do you usually train?',
-    subtitle: 'Pick all that apply.',
-    options: [
-      { label: 'Full court with hoop' }, { label: 'Half court with hoop' },
-      { label: 'Driveway with hoop' }, { label: 'Gym with weights' },
-      { label: 'Open space (no hoop)' },
-    ],
-  },
-  {
-    id: 'int_plan', section: 'Scouting Report', type: 'interstitial',
-    interstitialImage: IMG_SCOUTING_READY,
-    interstitialTitle: "Coach X is ready to build the plan that actually fits how you play.",
-  },
+  { id: 'sport', section: 'About You', type: 'select', question: 'What sport do you play?', subtitle: "We'll tailor everything to your game.", options: [{ label: 'Basketball' }, { label: 'Soccer', subtitle: 'Coming soon', disabled: true }, { label: 'Baseball', subtitle: 'Coming soon', disabled: true }, { label: 'Football', subtitle: 'Coming soon', disabled: true }] },
+  { id: 'position', section: 'About You', type: 'select', question: 'What position do you play?', subtitle: 'This shapes your skill priorities.', options: [{ label: 'Point Guard' }, { label: 'Shooting Guard' }, { label: 'Small Forward' }, { label: 'Power Forward' }, { label: 'Center' }] },
+  { id: 'description', section: 'About You', type: 'text', question: 'Describe yourself.', subtitle: "Height, jersey color, hair, anything so Coach X knows who you are.", placeholder: 'e.g. 5\'10", red jersey #5, curly hair' },
+  { id: 'grade', section: 'Where You Play', type: 'select', question: 'What grade are you in?', options: [{ label: 'Middle school (6-8)' }, { label: 'High school (9-12)' }, { label: 'College' }, { label: 'Out of school / adult' }] },
+  { id: 'schoolTeam', section: 'Where You Play', type: 'select', question: 'Do you play on a school team?', dynamicOptions: (a) => { if (a.grade === 'Middle school (6-8)') { return [{ label: 'Middle school team' }, { label: 'No school team' }]; } return [{ label: 'Varsity' }, { label: 'JV' }, { label: 'Freshman team' }, { label: 'No school team' }]; }, showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)' },
+  { id: 'playsAAU', section: 'Where You Play', type: 'select', question: 'Do you play AAU or club ball?', options: [{ label: 'Yes' }, { label: 'No' }], showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)' },
+  { id: 'aauCircuit', section: 'Where You Play', type: 'select', question: 'What circuit?', subtitle: 'This helps us know your level of competition.', options: [{ label: 'Top shoe circuit', subtitle: 'Nike EYBL, Under Armour UAA, Adidas 3SSB' }, { label: 'Mid shoe circuit', subtitle: 'Puma Pro 16, New Balance, other shoe' }, { label: 'Independent circuit', subtitle: 'Made Hoops, AGame Hoops, other national' }, { label: 'Local circuit', subtitle: 'Regional/state tournaments only' }], showIf: (a) => a.playsAAU === 'Yes' },
+  { id: 'aauStarter', section: 'Where You Play', type: 'select', question: 'Are you a starter on your AAU team?', options: [{ label: 'Yes, starter' }, { label: '6th man' }, { label: 'Rotation player' }, { label: 'Bench' }], showIf: (a) => a.playsAAU === 'Yes' },
+  { id: 'collegeLevel', section: 'Where You Play', type: 'select', question: 'What level do you play at?', options: [{ label: 'D1' }, { label: 'D2' }, { label: 'D3' }, { label: 'JUCO' }, { label: 'NAIA' }, { label: 'Club / intramural' }, { label: 'No college team' }], showIf: (a) => a.grade === 'College' },
+  { id: 'starter', section: 'Where You Play', type: 'select', question: 'Are you a starter on the team?', options: [{ label: 'Yes, starter' }, { label: '6th man' }, { label: 'Rotation player' }, { label: 'Bench' }], showIf: (a) => { if (a.playsAAU === 'Yes') return false; const isSchoolTeamPlayer = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam); if (isSchoolTeamPlayer) return true; if (a.grade === 'College' && a.collegeLevel && a.collegeLevel !== 'No college team') return true; return false; } },
+  { id: 'adultPlay', section: 'Where You Play', type: 'select', question: 'Where do you play?', options: [{ label: 'Competitive rec league' }, { label: 'Casual rec league' }, { label: 'Pickup / open gym' }, { label: 'Mostly alone / driveway' }], showIf: (a) => a.grade === 'Out of school / adult' },
+  { id: 'int_where', section: 'Where You Play', type: 'interstitial', interstitialImage: IMG_WHERE_YOU_PLAY, interstitialTitle: "Every level reads stats differently. We'll weigh yours against the competition you actually face." },
+  { id: 'role', section: 'Your Role', type: 'select', question: "What's your role on the team?", subtitle: 'So Coach X knows what kind of player you are.', options: [{ label: 'Primary scorer', subtitle: 'Plays are run for you' }, { label: 'Secondary scorer', subtitle: "You score but aren't the first option" }, { label: 'Playmaker', subtitle: 'Pass-first, set others up' }, { label: 'Two-way wing', subtitle: 'Score + defend' }, { label: 'Defensive stopper', subtitle: 'Guard the best player' }, { label: 'Rebounder / rim protector', subtitle: 'Big-man role' }, { label: '3-and-D specialist', subtitle: 'Shoot + defend' }, { label: 'Energy off the bench', subtitle: 'Spark plug' }, { label: 'Still figuring out my role' }], showIf: (a) => playsOnTeam(a) },
+  { id: 'stats', section: 'Your Stats', type: 'statGrid', question: 'Estimate your stats per game.', subtitle: "It's fine if you don't know exactly. Leave blank if you don't track.", statFields: [{ id: 'minutes', label: 'Minutes per game', placeholder: '0' }, { id: 'ppg', label: 'Points per game', placeholder: '0' }, { id: 'apg', label: 'Assists per game', placeholder: '0' }, { id: 'rpg', label: 'Rebounds per game', placeholder: '0' }], showIf: (a) => playsOnTeam(a) },
+  { id: 'int_stats', section: 'Your Stats', type: 'interstitial', interstitialImage: IMG_STATS_LOCKED, interstitialTitle: "Raw numbers don't tell the whole story. Your role and level change what good looks like.", showIf: (a) => playsOnTeam(a) },
+  { id: 'shootingMakes', section: 'Your Game', type: 'numberGrid', question: 'Out of 10 wide open shots, how many do you make?', subtitle: 'Be honest. This shapes your plan.', numberFields: [{ id: 'layupStrong', label: 'Layups (strong hand)', max: 10 }, { id: 'layupWeak', label: 'Layups (weak hand)', max: 10 }, { id: 'freeThrows', label: 'Free throws', max: 10 }, { id: 'midRange', label: 'Mid-range', max: 10 }, { id: 'threes', label: '3-pointers', max: 10 }] },
+  { id: 'dribbling', section: 'Your Game', type: 'select', question: 'How\'s your dribbling?', options: [{ label: 'Strong with both hands' }, { label: 'Getting there' }, { label: 'Avoid using my weak hand' }, { label: 'Only use my right hand' }] },
+  { id: 'int_shot', section: 'Your Game', type: 'interstitial', interstitialImage: IMG_SHOT_MAPPED, interstitialTitle: "We know exactly what falls for you and what doesn't. Every drill gets chosen with that in mind." },
+  { id: 'goal', section: 'Your Game', type: 'text', question: 'What do you want to improve most?', subtitle: 'Keep it short — one sentence.', placeholder: 'e.g. be a better shooter off the dribble' },
+  { id: 'frequency', section: 'Your Schedule', type: 'select', question: 'How often can you train?', options: [{ label: 'Once or twice a week' }, { label: '3-4 times a week' }, { label: '5-6 times a week' }, { label: 'Every day' }] },
+  { id: 'duration', section: 'Your Schedule', type: 'select', question: 'How long per session?', options: [{ label: '20-30 minutes' }, { label: '30-45 minutes' }, { label: '45-60 minutes' }, { label: '60-90 minutes' }] },
+  { id: 'access', section: 'Your Schedule', type: 'multiselect', question: 'Where do you usually train?', subtitle: 'Pick all that apply.', options: [{ label: 'Full court with hoop' }, { label: 'Half court with hoop' }, { label: 'Driveway with hoop' }, { label: 'Gym with weights' }, { label: 'Open space (no hoop)' }] },
+  { id: 'int_plan', section: 'Scouting Report', type: 'interstitial', interstitialImage: IMG_SCOUTING_READY, interstitialTitle: "Coach X is ready to build the plan that actually fits how you play." },
 ];
 
 function playsOnTeam(a: Record<string, any>): boolean {
@@ -297,12 +98,8 @@ function playsOnTeam(a: Record<string, any>): boolean {
     const hasSchool = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
     return hasSchool || a.playsAAU === 'Yes';
   }
-  if (a.grade === 'College') {
-    return a.collegeLevel && a.collegeLevel !== 'No college team';
-  }
-  if (a.grade === 'Out of school / adult') {
-    return a.adultPlay === 'Competitive rec league' || a.adultPlay === 'Casual rec league';
-  }
+  if (a.grade === 'College') return a.collegeLevel && a.collegeLevel !== 'No college team';
+  if (a.grade === 'Out of school / adult') return a.adultPlay === 'Competitive rec league' || a.adultPlay === 'Casual rec league';
   return false;
 }
 
@@ -328,7 +125,6 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
     defense: 5, iq: 5, athleticism: 5, creativity: 5, touch: 5,
     courtVision: 5, decisionMaking: 5,
   };
-
   const m = a.shootingMakes || {};
   const layupStrong = parseInt(m.layupStrong || '') || 0;
   const layupWeak = parseInt(m.layupWeak || '') || 0;
@@ -336,7 +132,6 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   const midRange = parseInt(m.midRange || '') || 0;
   const threes = parseInt(m.threes || '') || 0;
 
-  // Compute tier FIRST so we can use it for skill caps
   let tier = 5;
   if (a.aauCircuit === 'Top shoe circuit' || a.collegeLevel === 'D1') tier = 9;
   else if (a.aauCircuit === 'Mid shoe circuit' || a.aauCircuit === 'Independent circuit' || a.schoolTeam === 'Varsity' || a.collegeLevel === 'D2' || a.collegeLevel === 'D3') tier = 7;
@@ -345,25 +140,17 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   else if (a.adultPlay === 'Pickup / open gym') tier = 5;
   else if (a.adultPlay === 'Mostly alone / driveway') tier = 4;
 
-  // Shooting caps scale with tier — good makes at a lower level don't mean elite shooter
-  // tier 9 (top circuit) = shooting scores can reach 10, tier 5 = capped at 7, tier 4 = capped at 6
   const tierCap = Math.min(10, 5 + (tier - 4) * 0.8);
 
   if (midRange || threes || ft) {
     const shootingAvg = (midRange + threes + ft) / 3;
-    // Open shots don't saturate — max out at 90% of the score, capped by tier
     skills.shooting = Math.max(1, Math.min(tierCap, shootingAvg * 0.9 + 1));
     skills.shotForm = Math.max(1, Math.min(tierCap, (midRange + ft) / 2 * 0.9 + 1));
     skills.touch = Math.max(1, Math.min(tierCap, (ft + midRange) / 2 * 0.9 + 1));
   }
 
-  // Finishing is NOT the same as making open layups. Open layup makes are a floor, not ceiling.
-  // Someone who makes 10/10 open layups in middle school is NOT an elite finisher.
-  // Base finishing on layups but weight it down significantly and cap by tier.
   if (layupStrong || layupWeak) {
     const layupAvg = (layupStrong + layupWeak) / 2;
-    // Open layup 10 = ~6 finishing at top tier, ~5 at mid tier, ~4 at low tier
-    // Because real finishing requires contested reads, body control under pressure
     const finishingBase = 3 + (layupAvg * 0.3) + (tier - 4) * 0.3;
     skills.finishing = Math.max(1, Math.min(tierCap, finishingBase));
     skills.weakHand = Math.max(1, Math.min(tierCap, layupWeak * 0.8 + 1));
@@ -390,18 +177,14 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
   skills.defense += tierBump * 0.5;
   skills.athleticism += tierBump * 0.5;
 
-  if (a.starter === 'Yes, starter' || a.aauStarter === 'Yes, starter') {
-    skills.iq += 0.5; skills.decisionMaking += 0.5;
-  } else if (a.starter === 'Bench' || a.aauStarter === 'Bench') {
-    skills.iq -= 0.3;
-  }
+  if (a.starter === 'Yes, starter' || a.aauStarter === 'Yes, starter') { skills.iq += 0.5; skills.decisionMaking += 0.5; }
+  else if (a.starter === 'Bench' || a.aauStarter === 'Bench') { skills.iq -= 0.3; }
 
   const s = a.stats || {};
   const ppg = parseFloat(s.ppg) || 0;
   const apg = parseFloat(s.apg) || 0;
   const rpg = parseFloat(s.rpg) || 0;
   const minutes = parseFloat(s.minutes) || 0;
-
   const per30 = (stat: number) => (minutes > 0 ? (stat / minutes) * 30 : stat);
   const ppg30 = per30(ppg);
   const apg30 = per30(apg);
@@ -427,10 +210,6 @@ function computeSkills(a: Record<string, any>): Record<string, { level: number; 
     iq: 'Basketball IQ', athleticism: 'Athleticism', creativity: 'Creativity',
     touch: 'Touch', courtVision: 'Court Vision', decisionMaking: 'Decision Making',
   };
-  // Apply global tier cap to EVERY skill.
-  // A "strong" rating at middle school level isn't the same as "strong" at top circuit.
-  // tierCap was computed earlier as Math.min(10, 5 + (tier - 4) * 0.8)
-  // tier 9 = cap 10, tier 7 = cap 8.4, tier 5 = cap 5.8, tier 4 = cap 5
   for (const k of Object.keys(skills)) {
     result[k] = {
       level: Math.round(Math.max(1, Math.min(tierCap, skills[k])) * 10) / 10,
@@ -448,37 +227,15 @@ const LOADING_STEPS = [
   "Writing Coach X's notes",
 ];
 
-// Staggered fade-in animation for options
-function AnimatedOption({
-  index, children, style, onPress, activeOpacity, disabled,
-}: {
-  index: number;
-  children: React.ReactNode;
-  style: any;
-  onPress: () => void;
-  activeOpacity?: number;
-  disabled?: boolean;
-}) {
+function AnimatedOption({ index, children, style, onPress, activeOpacity, disabled }: { index: number; children: React.ReactNode; style: any; onPress: () => void; activeOpacity?: number; disabled?: boolean; }) {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(10)).current;
-
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 300,
-        delay: index * 60,
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 300,
-        delay: index * 60,
-        useNativeDriver: true,
-      }),
+      Animated.timing(opacity, { toValue: 1, duration: 300, delay: index * 60, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 300, delay: index * 60, useNativeDriver: true }),
     ]).start();
   }, []);
-
   return (
     <Animated.View style={{ opacity, transform: [{ translateY }] }}>
       <TouchableOpacity style={style} onPress={onPress} activeOpacity={activeOpacity} disabled={disabled}>
@@ -507,9 +264,6 @@ export default function TodayScreen() {
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
   useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
 
-  // LOGOUT DETECTION: If the user logs out from the More tab (which calls clearAll()),
-  // plan and profile become null. Any time we're in 'plan' state with no plan/profile,
-  // it means they just logged out and we should route back to welcome automatically.
   useEffect(() => {
     if (isReady && appState === 'plan' && (!plan || !profile)) {
       setAppState('welcome');
@@ -631,9 +385,7 @@ export default function TodayScreen() {
       };
       if (worst[1] <= 3) weakness = worstLabels[worst[0]] || weakness;
     }
-    if (a.dribbling === 'Avoid using my weak hand' || a.dribbling === 'Only use my right hand') {
-      weakness = 'Weak hand ball handling';
-    }
+    if (a.dribbling === 'Avoid using my weak hand' || a.dribbling === 'Only use my right hand') weakness = 'Weak hand ball handling';
 
     const computed = computeSkills(a);
     const skillLevels: Record<string, number> = {};
@@ -698,27 +450,17 @@ export default function TodayScreen() {
         if (payload.description) setDescription(payload.description);
         setSkillLevels(payload.skillLevels);
 
-        // Save to Supabase silently (fire-and-forget, no debug popups)
         try {
           const { data: userData } = await supabase.auth.getUser();
           if (userData.user) {
             const user = userData.user;
-
-            // Mark any old plans as not current
-            await supabase
-              .from('weekly_plans')
-              .update({ is_current: false })
-              .eq('user_id', user.id);
-
-            // Insert new plan
+            await supabase.from('weekly_plans').update({ is_current: false }).eq('user_id', user.id);
             await supabase.from('weekly_plans').insert({
               user_id: user.id,
               plan_data: planData,
               week_title: planData.weekTitle || 'Week 1',
               is_current: true,
             });
-
-            // Save onboarding answers
             await supabase.from('user_onboarding').upsert({
               user_id: user.id,
               answers: { ...payload, description: payload.description || '' },
@@ -726,7 +468,6 @@ export default function TodayScreen() {
             }, { onConflict: 'user_id' });
           }
         } catch (saveErr) {
-          // Silent fail — local storage still has the plan, user can keep using the app
           console.error('Supabase sync failed:', saveErr);
         }
 
@@ -746,7 +487,6 @@ export default function TodayScreen() {
 
   if (appState === 'welcome') return (
     <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      {/* Preload — renders images full-size offscreen so they're decoded and cached */}
       <View style={{ position: 'absolute', width: 300, height: 300, opacity: 0, top: -500, left: -500 }} pointerEvents="none">
         <Image source={IMG_WHERE_YOU_PLAY} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
         <Image source={IMG_STATS_LOCKED} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
@@ -805,25 +545,8 @@ export default function TodayScreen() {
           <Animated.View style={{ flex: 1, paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               {st.interstitialImage && (
-                <View style={{
-                  width: 300,
-                  height: 300,
-                  marginBottom: 40,
-                  backgroundColor: Colors.background,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 150,
-                  overflow: 'hidden',
-                }}>
-                  <Image
-                    source={st.interstitialImage}
-                    style={{
-                      width: 300,
-                      height: 300,
-                    }}
-                    resizeMode="contain"
-                    fadeDuration={0}
-                  />
+                <View style={{ width: 300, height: 300, marginBottom: 40, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', borderRadius: 150, overflow: 'hidden' }}>
+                  <Image source={st.interstitialImage} style={{ width: 300, height: 300 }} resizeMode="contain" fadeDuration={0} />
                 </View>
               )}
               <Text style={{ fontSize: 22, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.5 }}>
@@ -866,7 +589,6 @@ export default function TodayScreen() {
           </View>
           <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
             <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
-              {/* Section label with icon */}
               <View style={s.sectionRow}>
                 <View style={s.sectionIconWrap}>
                   <SectionIcon size={14} color={Colors.primary} />
@@ -894,14 +616,7 @@ export default function TodayScreen() {
               ))}
 
               {st.type === 'text' && (
-                <TextInput
-                  style={s.textIn}
-                  placeholder={st.placeholder}
-                  placeholderTextColor={Colors.textMuted}
-                  value={textInput}
-                  onChangeText={setTextInput}
-                  multiline maxLength={200} autoFocus
-                />
+                <TextInput style={s.textIn} placeholder={st.placeholder} placeholderTextColor={Colors.textMuted} value={textInput} onChangeText={setTextInput} multiline maxLength={200} autoFocus />
               )}
 
               {st.type === 'numberGrid' && st.numberFields?.map((f, i) => {
@@ -935,15 +650,7 @@ export default function TodayScreen() {
                 return (
                   <View key={i} style={s.sgRow}>
                     <Text style={s.sgLabel}>{f.label}</Text>
-                    <TextInput
-                      style={s.sgInput}
-                      keyboardType="decimal-pad"
-                      maxLength={5}
-                      value={grid[f.id] || ''}
-                      onChangeText={(v) => handleNumberChange(f.id, v.replace(/[^0-9.]/g, ''))}
-                      placeholder={f.placeholder || '0'}
-                      placeholderTextColor={Colors.textMuted}
-                    />
+                    <TextInput style={s.sgInput} keyboardType="decimal-pad" maxLength={5} value={grid[f.id] || ''} onChangeText={(v) => handleNumberChange(f.id, v.replace(/[^0-9.]/g, ''))} placeholder={f.placeholder || '0'} placeholderTextColor={Colors.textMuted} />
                   </View>
                 );
               })}
@@ -952,15 +659,8 @@ export default function TodayScreen() {
 
           {(st.type === 'text' || st.type === 'numberGrid' || st.type === 'statGrid' || st.type === 'multiselect') && (
             <View style={s.bn}>
-              <TouchableOpacity
-                style={[s.cb, !canGo() && s.cbDisabled]}
-                onPress={() => { if (st.type === 'text') handleTextSubmit(); else goNext(); }}
-                activeOpacity={0.85}
-                disabled={!canGo()}
-              >
-                <Text style={[s.ct, !canGo() && s.ctDisabled]}>
-                  {st.type === 'statGrid' ? 'CONTINUE (SKIP OK)' : 'CONTINUE'}
-                </Text>
+              <TouchableOpacity style={[s.cb, !canGo() && s.cbDisabled]} onPress={() => { if (st.type === 'text') handleTextSubmit(); else goNext(); }} activeOpacity={0.85} disabled={!canGo()}>
+                <Text style={[s.ct, !canGo() && s.ctDisabled]}>{st.type === 'statGrid' ? 'CONTINUE (SKIP OK)' : 'CONTINUE'}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -970,12 +670,7 @@ export default function TodayScreen() {
   }
 
   if (appState === 'auth') {
-    return (
-      <AuthScreen
-        onComplete={async () => { await generatePlanFromOnboarding(); }}
-        onBack={() => setAppState('onboarding')}
-      />
-    );
+    return <AuthScreen onComplete={async () => { await generatePlanFromOnboarding(); }} onBack={() => setAppState('onboarding')} />;
   }
 
   if (appState === 'signin') {
@@ -983,60 +678,19 @@ export default function TodayScreen() {
       <AuthScreen
         mode="signin"
         onComplete={async () => {
-          // Pull plan + profile from Supabase
           try {
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) {
-              setAppState('welcome');
-              return;
-            }
-
-            // Fetch latest current plan
-            const { data: planRow } = await supabase
-              .from('weekly_plans')
-              .select('plan_data, week_title')
-              .eq('user_id', user.id)
-              .eq('is_current', true)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            // Fetch onboarding answers
-            const { data: onboardingRow } = await supabase
-              .from('user_onboarding')
-              .select('answers')
-              .eq('user_id', user.id)
-              .maybeSingle();
-
-            if (planRow?.plan_data) {
-              usePlanStore.getState().setPlan(planRow.plan_data);
-            }
-
+            if (!user) { setAppState('welcome'); return; }
+            const { data: planRow } = await supabase.from('weekly_plans').select('plan_data, week_title').eq('user_id', user.id).eq('is_current', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
+            const { data: onboardingRow } = await supabase.from('user_onboarding').select('answers').eq('user_id', user.id).maybeSingle();
+            if (planRow?.plan_data) usePlanStore.getState().setPlan(planRow.plan_data);
             if (onboardingRow?.answers) {
               const a = onboardingRow.answers;
-              const prof = {
-                sport: a.sport || 'Basketball',
-                position: a.position || 'Player',
-                experience: a.experience || '',
-                goal: a.goal || '',
-                weakness: a.weakness || '',
-                frequency: a.frequency || '',
-                duration: a.duration || '',
-                access: a.access || '',
-              };
+              const prof = { sport: a.sport || 'Basketball', position: a.position || 'Player', experience: a.experience || '', goal: a.goal || '', weakness: a.weakness || '', frequency: a.frequency || '', duration: a.duration || '', access: a.access || '' };
               usePlanStore.getState().setProfile(prof as any);
             }
-
-            if (planRow?.plan_data) {
-              setAppState('plan');
-            } else {
-              // Signed in but no plan yet — start onboarding
-              setAppState('welcome');
-            }
-          } catch (e) {
-            console.error('Sign-in load failed:', e);
-            setAppState('welcome');
-          }
+            if (planRow?.plan_data) setAppState('plan'); else setAppState('welcome');
+          } catch (e) { console.error('Sign-in load failed:', e); setAppState('welcome'); }
         }}
         onBack={() => setAppState('welcome')}
       />
@@ -1046,7 +700,6 @@ export default function TodayScreen() {
   if (appState === 'analyzing') {
     return (
       <View style={[s.c, { paddingTop: insets.top + 40, paddingBottom: insets.bottom, paddingHorizontal: 28 }]}>
-        {/* Top section — progress bar + percentage */}
         <View style={{ marginBottom: 48 }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.textMuted, letterSpacing: 1.2 }}>BUILDING PLAN</Text>
@@ -1056,55 +709,21 @@ export default function TodayScreen() {
             <Animated.View style={{ height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
           </View>
         </View>
-
-        {/* Title */}
-        <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.8 }}>
-          Coach X is working
-        </Text>
-        <Text style={{ fontSize: 15, color: Colors.textSecondary, marginBottom: 36, letterSpacing: -0.2, lineHeight: 22 }}>
-          Analyzing your answers and building a plan around your game.
-        </Text>
-
-        {/* Checklist */}
+        <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.8 }}>Coach X is working</Text>
+        <Text style={{ fontSize: 15, color: Colors.textSecondary, marginBottom: 36, letterSpacing: -0.2, lineHeight: 22 }}>Analyzing your answers and building a plan around your game.</Text>
         <View>
           {LOADING_STEPS.map((step, i) => {
             const isDone = i < currentLoadingStep;
             const isCurrent = i === currentLoadingStep;
             const isPending = i > currentLoadingStep;
             return (
-              <View
-                key={i}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  paddingVertical: 14,
-                  opacity: isPending ? 0.35 : 1,
-                }}
-              >
-                <View style={{
-                  width: 24, height: 24, borderRadius: 12,
-                  backgroundColor: isDone ? '#1A1A1A' : 'transparent',
-                  borderWidth: isDone ? 0 : 1.5,
-                  borderColor: isCurrent ? '#1A1A1A' : Colors.surfaceBorder,
-                  alignItems: 'center', justifyContent: 'center',
-                  marginRight: 14,
-                }}>
-                  {isDone && (
-                    <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '700' }}>✓</Text>
-                  )}
-                  {isCurrent && (
-                    <ActivityIndicator size="small" color="#1A1A1A" />
-                  )}
+              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, opacity: isPending ? 0.35 : 1 }}>
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isDone ? '#1A1A1A' : 'transparent', borderWidth: isDone ? 0 : 1.5, borderColor: isCurrent ? '#1A1A1A' : Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
+                  {isDone && <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '700' }}>✓</Text>}
+                  {isCurrent && <ActivityIndicator size="small" color="#1A1A1A" />}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{
-                    fontSize: 16,
-                    fontWeight: isCurrent ? '600' : '500',
-                    color: isDone ? Colors.textPrimary : isCurrent ? Colors.textPrimary : Colors.textMuted,
-                    letterSpacing: -0.2,
-                  }}>
-                    {step}
-                  </Text>
+                  <Text style={{ fontSize: 16, fontWeight: isCurrent ? '600' : '500', color: isDone ? Colors.textPrimary : isCurrent ? Colors.textPrimary : Colors.textMuted, letterSpacing: -0.2 }}>{step}</Text>
                 </View>
               </View>
             );
@@ -1120,92 +739,79 @@ export default function TodayScreen() {
     const donePct = drills.length > 0 ? Math.round((drills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / drills.length) * 100) : 0;
 
     return (
-      <ScrollView style={[s.c, { paddingTop: insets.top }]} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        <View style={{ paddingHorizontal: 20, paddingTop: 16 }}>
-          <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4, letterSpacing: -0.8 }}>Today</Text>
-          <Text style={{ fontSize: 14, color: Colors.textMuted, marginBottom: 24 }}>{plan.weekTitle}</Text>
+      <View style={[s.c, { paddingTop: insets.top }]}>
+        {/* Coach X pill at the top of the plan view */}
+        <CoachXPill />
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginBottom: 24 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
-            {plan.days.map((d, i) => {
-              const isCur = i === currentDayIndex;
-              const dayPct = d.drills.length > 0 ? Math.round((d.drills.filter((_, j) => completedDrills[i + '-' + j]).length / d.drills.length) * 100) : 0;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={{
-                    minWidth: 60, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12,
-                    backgroundColor: isCur ? '#1A1A1A' : Colors.surface,
-                    borderWidth: 1, borderColor: isCur ? '#1A1A1A' : Colors.surfaceBorder,
-                    alignItems: 'center',
-                  }}
-                  onPress={() => usePlanStore.getState().setCurrentDayIndex(i)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: isCur ? Colors.white : Colors.textMuted, letterSpacing: 1, marginBottom: 3 }}>{DAYS_SHORT[i]}</Text>
-                  <Text style={{ fontSize: 15, fontWeight: '700', color: isCur ? Colors.white : Colors.textPrimary, letterSpacing: -0.2 }}>{d.day}</Text>
-                  {d.isRest ? (
-                    <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>REST</Text>
-                  ) : (
-                    <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>{dayPct}%</Text>
-                  )}
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+          <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
+            <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4, letterSpacing: -0.8 }}>Today</Text>
+            <Text style={{ fontSize: 14, color: Colors.textMuted, marginBottom: 24 }}>{plan.weekTitle}</Text>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginBottom: 24 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
+              {plan.days.map((d, i) => {
+                const isCur = i === currentDayIndex;
+                const dayPct = d.drills.length > 0 ? Math.round((d.drills.filter((_, j) => completedDrills[i + '-' + j]).length / d.drills.length) * 100) : 0;
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    style={{ minWidth: 60, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: isCur ? '#1A1A1A' : Colors.surface, borderWidth: 1, borderColor: isCur ? '#1A1A1A' : Colors.surfaceBorder, alignItems: 'center' }}
+                    onPress={() => usePlanStore.getState().setCurrentDayIndex(i)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: isCur ? Colors.white : Colors.textMuted, letterSpacing: 1, marginBottom: 3 }}>{DAYS_SHORT[i]}</Text>
+                    <Text style={{ fontSize: 15, fontWeight: '700', color: isCur ? Colors.white : Colors.textPrimary, letterSpacing: -0.2 }}>{d.day}</Text>
+                    {d.isRest ? <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>REST</Text> : <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>{dayPct}%</Text>}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {day?.isRest ? (
+              <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 28, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center' }}>
+                <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.5 }}>Rest day</Text>
+                <Text style={{ fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 }}>Recovery matters as much as the work. See you tomorrow.</Text>
+              </View>
+            ) : (
+              <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ fontSize: 12, color: Colors.textMuted, letterSpacing: 1.5, fontWeight: '700' }}>TODAY'S FOCUS</Text>
+                  <Text style={{ fontSize: 12, color: Colors.textMuted }}>{day?.duration}</Text>
+                </View>
+                <Text style={{ fontSize: 24, fontWeight: '700', color: Colors.textPrimary, marginBottom: 16, letterSpacing: -0.6 }}>{day?.focus}</Text>
+                <View style={{ height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
+                  <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
+                </View>
+                <TouchableOpacity style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }} onPress={() => router.push('/session')} activeOpacity={0.85}>
+                  <Play size={18} color={Colors.white} fill={Colors.white} />
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Start session</Text>
                 </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+                <View style={{ marginTop: 20 }}>
+                  {drills.map((d, i) => {
+                    const done = completedDrills[currentDayIndex + '-' + i];
+                    return (
+                      <TouchableOpacity key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder }} onPress={() => router.push('/drill/' + i)} activeOpacity={0.7}>
+                        <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: done ? Colors.primary : Colors.surfaceBorder, backgroundColor: done ? Colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                          {done && <Text style={{ fontSize: 9, color: Colors.black, fontWeight: '800' }}>✓</Text>}
+                        </View>
+                        <Text style={{ flex: 1, fontSize: 13, color: done ? Colors.textMuted : Colors.textPrimary, textDecorationLine: done ? 'line-through' : 'none' }} numberOfLines={1}>{d.name}</Text>
+                        <Text style={{ fontSize: 11, color: Colors.textMuted }}>{d.time}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
-          {day?.isRest ? (
-            <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 28, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center' }}>
-              <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.5 }}>Rest day</Text>
-              <Text style={{ fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 }}>Recovery matters as much as the work. See you tomorrow.</Text>
-            </View>
-          ) : (
-            <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ fontSize: 12, color: Colors.textMuted, letterSpacing: 1.5, fontWeight: '700' }}>TODAY'S FOCUS</Text>
-                <Text style={{ fontSize: 12, color: Colors.textMuted }}>{day?.duration}</Text>
+            {plan.aiInsight && (
+              <View style={{ marginTop: 20, backgroundColor: Colors.surface, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 8 }}>COACH X INSIGHT</Text>
+                <Text style={{ fontSize: 14, color: Colors.textSecondary, lineHeight: 21 }}>{plan.aiInsight}</Text>
               </View>
-              <Text style={{ fontSize: 24, fontWeight: '700', color: Colors.textPrimary, marginBottom: 16, letterSpacing: -0.6 }}>{day?.focus}</Text>
-              <View style={{ height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
-                <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
-              </View>
-              <TouchableOpacity
-                style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                onPress={() => router.push('/session')}
-                activeOpacity={0.85}
-              >
-                <Play size={18} color={Colors.white} fill={Colors.white} />
-                <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Start session</Text>
-              </TouchableOpacity>
-              <View style={{ marginTop: 20 }}>
-                {drills.map((d, i) => {
-                  const done = completedDrills[currentDayIndex + '-' + i];
-                  return (
-                    <TouchableOpacity
-                      key={i}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder }}
-                      onPress={() => router.push('/drill/' + i)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: done ? Colors.primary : Colors.surfaceBorder, backgroundColor: done ? Colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        {done && <Text style={{ fontSize: 9, color: Colors.black, fontWeight: '800' }}>✓</Text>}
-                      </View>
-                      <Text style={{ flex: 1, fontSize: 13, color: done ? Colors.textMuted : Colors.textPrimary, textDecorationLine: done ? 'line-through' : 'none' }} numberOfLines={1}>{d.name}</Text>
-                      <Text style={{ fontSize: 11, color: Colors.textMuted }}>{d.time}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-          )}
-
-          {plan.aiInsight && (
-            <View style={{ marginTop: 20, backgroundColor: Colors.surface, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 8 }}>COACH X INSIGHT</Text>
-              <Text style={{ fontSize: 14, color: Colors.textSecondary, lineHeight: 21 }}>{plan.aiInsight}</Text>
-            </View>
-          )}
-        </View>
-      </ScrollView>
+            )}
+          </View>
+        </ScrollView>
+      </View>
     );
   }
 
@@ -1220,13 +826,8 @@ const s = StyleSheet.create({
   pc: { flex: 1, paddingHorizontal: 12 },
   pt: { height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden' },
   pf: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
-  // Section row with icon
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  sectionIconWrap: {
-    width: 26, height: 26, borderRadius: 13, backgroundColor: '#FBF5E2',
-    borderWidth: 1, borderColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  sectionIconWrap: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FBF5E2', borderWidth: 1, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   qs: { fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5 },
   qq: { fontSize: 26, fontWeight: '700', color: Colors.textPrimary, lineHeight: 32, marginBottom: 8, letterSpacing: -0.8 },
   qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20, letterSpacing: -0.1 },
@@ -1251,13 +852,4 @@ const s = StyleSheet.create({
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
   ct: { fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 },
   ctDisabled: { color: Colors.textMuted },
-  scHeader: { fontSize: 11, fontWeight: '800', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 },
-  scRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
-  scLabel: { fontSize: 14, fontWeight: '600', color: Colors.textPrimary, width: 120 },
-  scBarWrap: { flex: 1, height: 8, backgroundColor: Colors.surfaceBorder, borderRadius: 4, overflow: 'hidden' },
-  scBarFill: { height: 8, borderRadius: 4 },
-  scVal: { fontSize: 13, fontWeight: '800', color: Colors.textPrimary, width: 36, textAlign: 'right' },
-  scRowFull: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
-  scLabelSm: { fontSize: 13, color: Colors.textSecondary },
-  scValSm: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary },
 });
