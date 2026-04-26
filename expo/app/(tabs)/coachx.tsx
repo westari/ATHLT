@@ -28,6 +28,63 @@ interface ChatMessage {
   filmData?: any;
 }
 
+// Pull a smart opening greeting based on the user's recent activity.
+// Falls back to a default if there's no memory yet (e.g., new user).
+async function buildOpeningGreeting(): Promise<string> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return "What's good. I'm Coach X — your AI trainer. Sign in so I can pull up your training history.";
+    }
+
+    // Pull last session + weakest skill in parallel
+    const [sessionsRes, skillsRes] = await Promise.all([
+      supabase
+        .from('sessions')
+        .select('date, completed_drills_count, skills_worked, overall_feedback')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false })
+        .limit(1),
+      supabase
+        .from('skill_state')
+        .select('skill_category, current_level')
+        .eq('user_id', user.id)
+        .order('current_level', { ascending: true })
+        .limit(1),
+    ]);
+
+    const lastSession = sessionsRes.data?.[0];
+    const weakestSkill = skillsRes.data?.[0];
+
+    const SKILL_LABELS: Record<string, string> = {
+      ballHandling: 'ball handling', shooting: 'shooting', shotForm: 'shot form',
+      finishing: 'finishing', weakHand: 'weak hand', defense: 'defense',
+      iq: 'basketball IQ', athleticism: 'athleticism', creativity: 'creativity',
+      touch: 'touch', courtVision: 'court vision', decisionMaking: 'decision making',
+    };
+
+    // Best case: we have both session history AND skill data
+    if (lastSession && weakestSkill) {
+      const skillName = SKILL_LABELS[weakestSkill.skill_category] || weakestSkill.skill_category;
+      const level = Number(weakestSkill.current_level).toFixed(1);
+      return `What's good. I just pulled up your training history — your ${skillName} is sitting at ${level}/10, that's the lowest. We'll keep hammering it. What's on your mind?`;
+    }
+
+    // Have skill data but no session history yet
+    if (weakestSkill) {
+      const skillName = SKILL_LABELS[weakestSkill.skill_category] || weakestSkill.skill_category;
+      const level = Number(weakestSkill.current_level).toFixed(1);
+      return `What's good. Based on your profile, ${skillName} is your weakest area at ${level}/10 — that's where we lock in. What's up?`;
+    }
+
+    // Have a plan but no memory yet (new user post-onboarding)
+    return "What's good. I built your plan based on what you told me. Run a session and I'll start tracking everything. What you wanna ask?";
+  } catch (e) {
+    console.error('buildOpeningGreeting failed:', e);
+    return "What's good. I'm Coach X — your AI trainer. Ask me anything about your game, or upload film and I'll break it down for you.";
+  }
+}
+
 export default function CoachXScreen() {
   const insets = useSafeAreaInsets();
   const { profile, plan } = usePlanStore();
@@ -37,13 +94,16 @@ export default function CoachXScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
+  // Build a smart memory-aware opening greeting on first mount
   useEffect(() => {
     if (messages.length === 0) {
-      setMessages([{
-        role: 'assistant',
-        content: "What's good. I'm Coach X — your AI trainer. Ask me anything about your game, or upload film and I'll break it down for you.",
-        type: 'text',
-      }]);
+      buildOpeningGreeting().then(greeting => {
+        setMessages([{
+          role: 'assistant',
+          content: greeting,
+          type: 'text',
+        }]);
+      });
     }
   }, []);
 
@@ -54,36 +114,47 @@ export default function CoachXScreen() {
   const sendMessage = async () => {
     if (!inputText.trim() || isLoading) return;
 
-    var userMsg = inputText.trim();
+    const userMsg = inputText.trim();
     setInputText('');
     Keyboard.dismiss();
 
-    var newMsgs: ChatMessage[] = [...messages, { role: 'user', content: userMsg, type: 'text' }];
+    const newMsgs: ChatMessage[] = [...messages, { role: 'user', content: userMsg, type: 'text' }];
     setMessages(newMsgs);
     setIsLoading(true);
     scrollToBottom();
 
     try {
-      var response = await fetch('https://collectiq-xi.vercel.app/api/coach-chat', {
+      // Get the user's Supabase JWT so the backend can identify them and pull memory
+      const { data: { session } } = await supabase.auth.getSession();
+      const accessToken = session?.access_token || '';
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
+      const response = await fetch('https://collectiq-xi.vercel.app/api/coach-chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           message: userMsg,
           profile: profile,
           plan: plan ? { weekTitle: plan.weekTitle, aiInsight: plan.aiInsight } : null,
-          chatHistory: newMsgs.slice(-10).map(function(m) { return { role: m.role, content: m.content }; }),
+          chatHistory: newMsgs.slice(-10).map(m => ({ role: m.role, content: m.content })),
         }),
       });
 
-      var data = await response.json();
+      const data = await response.json();
 
       if (response.ok && data.reply) {
-        setMessages(function(prev) { return [...prev, { role: 'assistant', content: data.reply, type: 'text' }]; });
+        setMessages(prev => [...prev, { role: 'assistant', content: data.reply, type: 'text' }]);
       } else {
-        setMessages(function(prev) { return [...prev, { role: 'assistant', content: "My bad, having trouble right now. Try again.", type: 'text' }]; });
+        setMessages(prev => [...prev, { role: 'assistant', content: "My bad, having trouble right now. Try again.", type: 'text' }]);
       }
     } catch (e) {
-      setMessages(function(prev) { return [...prev, { role: 'assistant', content: "Can't connect right now. Check your connection.", type: 'text' }]; });
+      setMessages(prev => [...prev, { role: 'assistant', content: "Can't connect right now. Check your connection.", type: 'text' }]);
     }
 
     setIsLoading(false);
@@ -93,13 +164,13 @@ export default function CoachXScreen() {
   const handleFilmUpload = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
-    var perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') {
       Alert.alert('Permission needed', 'We need access to your camera roll.');
       return;
     }
 
-    var result = await ImagePicker.launchImageLibraryAsync({
+    const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['videos'],
       allowsEditing: true,
       videoMaxDuration: 60,
@@ -109,24 +180,24 @@ export default function CoachXScreen() {
     if (result.canceled || !result.assets[0]?.uri) return;
 
     setIsUploading(true);
-    setMessages(function(prev) { return [...prev, { role: 'user', content: '🎬 Uploaded a film clip', type: 'text' }]; });
-    setMessages(function(prev) { return [...prev, { role: 'assistant', content: 'Let me watch this...', type: 'text' }]; });
+    setMessages(prev => [...prev, { role: 'user', content: '🎬 Uploaded a film clip', type: 'text' }]);
+    setMessages(prev => [...prev, { role: 'assistant', content: 'Let me watch this...', type: 'text' }]);
     scrollToBottom();
 
     try {
-      var fileName = 'film_' + Date.now() + '.mp4';
+      const fileName = 'film_' + Date.now() + '.mp4';
 
-      var formData = new FormData();
+      const formData = new FormData();
       formData.append('file', {
         uri: result.assets[0].uri,
         type: 'video/mp4',
         name: fileName,
       } as any);
 
-      var supabaseUrl = 'https://tvtojlwdpipntkktguck.supabase.co';
-      var supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2dG9qbHdkcGlwbnRra3RndWNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0ODMxNDYsImV4cCI6MjA5MTA1OTE0Nn0.9GiDMwjhdZNotoJT_mFlxvxgns0I0pgjVNmM1oyPqFY';
+      const supabaseUrl = 'https://tvtojlwdpipntkktguck.supabase.co';
+      const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2dG9qbHdkcGlwbnRra3RndWNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0ODMxNDYsImV4cCI6MjA5MTA1OTE0Nn0.9GiDMwjhdZNotoJT_mFlxvxgns0I0pgjVNmM1oyPqFY';
 
-      var uploadRes = await fetch(
+      const uploadRes = await fetch(
         supabaseUrl + '/storage/v1/object/films/' + fileName,
         {
           method: 'POST',
@@ -139,34 +210,34 @@ export default function CoachXScreen() {
       );
 
       if (!uploadRes.ok) {
-        setMessages(function(prev) { return [...prev, { role: 'assistant', content: "Couldn't upload that clip. Try a shorter one.", type: 'text' }]; });
+        setMessages(prev => [...prev, { role: 'assistant', content: "Couldn't upload that clip. Try a shorter one.", type: 'text' }]);
         setIsUploading(false);
         scrollToBottom();
         return;
       }
 
-      var videoUrl = supabaseUrl + '/storage/v1/object/public/films/' + fileName;
+      const videoUrl = supabaseUrl + '/storage/v1/object/public/films/' + fileName;
 
       // Update the "watching" message
-      setMessages(function(prev) {
-        var updated = [...prev];
+      setMessages(prev => {
+        const updated = [...prev];
         updated[updated.length - 1] = { role: 'assistant', content: 'Watching your film... this takes about a minute.', type: 'text' };
         return updated;
       });
       scrollToBottom();
 
-      var analysisRes = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
+      const analysisRes = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ videoUrl: videoUrl, profile: profile }),
       });
 
-      var analysisData = await analysisRes.json();
+      const analysisData = await analysisRes.json();
 
       if (analysisRes.ok && analysisData.overallGrade) {
         // Remove the "watching" message and add the result
-        setMessages(function(prev) {
-          var updated = prev.slice(0, -1);
+        setMessages(prev => {
+          const updated = prev.slice(0, -1);
           updated.push({
             role: 'assistant',
             content: '',
@@ -176,15 +247,15 @@ export default function CoachXScreen() {
           return updated;
         });
       } else {
-        setMessages(function(prev) {
-          var updated = [...prev];
+        setMessages(prev => {
+          const updated = [...prev];
           updated[updated.length - 1] = { role: 'assistant', content: "Had trouble analyzing that clip. Try a shorter one or better lighting.", type: 'text' };
           return updated;
         });
       }
     } catch (e) {
-      setMessages(function(prev) {
-        var updated = [...prev];
+      setMessages(prev => {
+        const updated = [...prev];
         updated[updated.length - 1] = { role: 'assistant', content: "Something went wrong. Try again.", type: 'text' };
         return updated;
       });
@@ -194,12 +265,12 @@ export default function CoachXScreen() {
     scrollToBottom();
   };
 
-  var GRADE_COLORS: Record<string, string> = {
+  const GRADE_COLORS: Record<string, string> = {
     'A': '#8B9A6B', 'B': Colors.primary, 'C': '#B08D57', 'D': '#C47A6C', 'F': '#C44A4A',
   };
 
-  var renderFilmResult = (data: any) => {
-    var gc = GRADE_COLORS[data.overallGrade] || Colors.primary;
+  const renderFilmResult = (data: any) => {
+    const gc = GRADE_COLORS[data.overallGrade] || Colors.primary;
     return (
       <View style={s.filmResult}>
         <View style={s.filmGradeRow}>
@@ -216,51 +287,45 @@ export default function CoachXScreen() {
         {data.strengths && data.strengths.length > 0 && (
           <View style={s.filmSection}>
             <Text style={s.filmSectionTitle}>STRENGTHS</Text>
-            {data.strengths.map(function(item: any, i: number) {
-              return (
-                <View key={i} style={s.filmItem}>
-                  <View style={[s.filmDot, { backgroundColor: '#8B9A6B' }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.filmSkill}>{item.skill}</Text>
-                    <Text style={s.filmDetail}>{item.detail}</Text>
-                  </View>
+            {data.strengths.map((item: any, i: number) => (
+              <View key={i} style={s.filmItem}>
+                <View style={[s.filmDot, { backgroundColor: '#8B9A6B' }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.filmSkill}>{item.skill}</Text>
+                  <Text style={s.filmDetail}>{item.detail}</Text>
                 </View>
-              );
-            })}
+              </View>
+            ))}
           </View>
         )}
 
         {data.weaknesses && data.weaknesses.length > 0 && (
           <View style={s.filmSection}>
             <Text style={s.filmSectionTitle}>WORK ON</Text>
-            {data.weaknesses.map(function(item: any, i: number) {
-              return (
-                <View key={i} style={s.filmItem}>
-                  <View style={[s.filmDot, { backgroundColor: '#C47A6C' }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.filmSkill}>{item.skill}</Text>
-                    <Text style={s.filmDetail}>{item.detail}</Text>
-                  </View>
+            {data.weaknesses.map((item: any, i: number) => (
+              <View key={i} style={s.filmItem}>
+                <View style={[s.filmDot, { backgroundColor: '#C47A6C' }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.filmSkill}>{item.skill}</Text>
+                  <Text style={s.filmDetail}>{item.detail}</Text>
                 </View>
-              );
-            })}
+              </View>
+            ))}
           </View>
         )}
 
         {data.drillRecommendations && data.drillRecommendations.length > 0 && (
           <View style={s.filmSection}>
             <Text style={s.filmSectionTitle}>DRILLS I'D ADD</Text>
-            {data.drillRecommendations.map(function(item: any, i: number) {
-              return (
-                <View key={i} style={s.filmItem}>
-                  <View style={[s.filmDot, { backgroundColor: Colors.primary }]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.filmSkill}>{item.name}</Text>
-                    <Text style={s.filmDetail}>{item.reason}</Text>
-                  </View>
+            {data.drillRecommendations.map((item: any, i: number) => (
+              <View key={i} style={s.filmItem}>
+                <View style={[s.filmDot, { backgroundColor: Colors.primary }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.filmSkill}>{item.name}</Text>
+                  <Text style={s.filmDetail}>{item.reason}</Text>
                 </View>
-              );
-            })}
+              </View>
+            ))}
           </View>
         )}
       </View>
@@ -286,13 +351,11 @@ export default function CoachXScreen() {
             "Explain my plan",
             "I only have 20 min",
             "How's my left hand?",
-          ].map(function(q, i) {
-            return (
-              <TouchableOpacity key={i} style={s.quickBtn} onPress={function() { setInputText(q); }} activeOpacity={0.7}>
-                <Text style={s.quickTxt}>{q}</Text>
-              </TouchableOpacity>
-            );
-          })}
+          ].map((q, i) => (
+            <TouchableOpacity key={i} style={s.quickBtn} onPress={() => setInputText(q)} activeOpacity={0.7}>
+              <Text style={s.quickTxt}>{q}</Text>
+            </TouchableOpacity>
+          ))}
         </ScrollView>
       )}
 
@@ -305,22 +368,20 @@ export default function CoachXScreen() {
           showsVerticalScrollIndicator={false}
           onContentSizeChange={scrollToBottom}
         >
-          {messages.map(function(msg, i) {
-            return (
-              <View key={i} style={[s.msgRow, msg.role === 'user' ? s.msgRowUser : s.msgRowCoach]}>
-                {msg.role === 'assistant' && (
-                  <Image source={require('@/assets/images/coach-x-small.png')} style={s.msgAvatar} resizeMode="cover" />
-                )}
-                {msg.type === 'film-result' && msg.filmData ? (
-                  renderFilmResult(msg.filmData)
-                ) : (
-                  <View style={[s.msgBubble, msg.role === 'user' ? s.msgBubbleUser : s.msgBubbleCoach]}>
-                    <Text style={[s.msgText, msg.role === 'user' ? s.msgTextUser : s.msgTextCoach]}>{msg.content}</Text>
-                  </View>
-                )}
-              </View>
-            );
-          })}
+          {messages.map((msg, i) => (
+            <View key={i} style={[s.msgRow, msg.role === 'user' ? s.msgRowUser : s.msgRowCoach]}>
+              {msg.role === 'assistant' && (
+                <Image source={require('@/assets/images/coach-x-small.png')} style={s.msgAvatar} resizeMode="cover" />
+              )}
+              {msg.type === 'film-result' && msg.filmData ? (
+                renderFilmResult(msg.filmData)
+              ) : (
+                <View style={[s.msgBubble, msg.role === 'user' ? s.msgBubbleUser : s.msgBubbleCoach]}>
+                  <Text style={[s.msgText, msg.role === 'user' ? s.msgTextUser : s.msgTextCoach]}>{msg.content}</Text>
+                </View>
+              )}
+            </View>
+          ))}
           {isLoading && (
             <View style={[s.msgRow, s.msgRowCoach]}>
               <Image source={require('@/assets/images/coach-x-small.png')} style={s.msgAvatar} resizeMode="cover" />
