@@ -1,65 +1,148 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
+  Image,
   Platform,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Upload, Film, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Film as FilmIcon, Upload, Play, Eye } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { supabase } from '@/constants/supabase';
+import CoachXPill from '@/components/CoachXPill';
+
+/**
+ * Film tab — replaces the old Coach X chat tab.
+ * Core feature: upload your own film, Coach X breaks it down with timestamped feedback.
+ *
+ * Sections:
+ *  - Upload pill (primary CTA)
+ *  - Latest analysis result (if any)
+ *  - History of past film analyses
+ *  - Recommended players to study (based on profile)
+ */
 
 interface FilmAnalysis {
+  id: string;
+  date: string;
+  videoUrl: string;
   overallGrade: string;
   summary: string;
-  strengths: { skill: string; detail: string }[];
-  weaknesses: { skill: string; detail: string }[];
-  drillRecommendations: { name: string; reason: string }[];
-  coachNote: string;
+  coachNote?: string;
+  strengths?: { skill: string; detail: string }[];
+  weaknesses?: { skill: string; detail: string }[];
+  drillRecommendations?: { name: string; reason: string }[];
 }
 
 const GRADE_COLORS: Record<string, string> = {
   'A': '#8B9A6B', 'B': Colors.primary, 'C': '#B08D57', 'D': '#C47A6C', 'F': '#C44A4A',
 };
 
+// Recommended players to study based on position (placeholder data — Coach X will personalize later)
+const PLAYERS_TO_STUDY: Record<string, { name: string; reason: string }[]> = {
+  'Point Guard': [
+    { name: 'Chris Paul', reason: 'Pace control + mid-range mastery' },
+    { name: 'Trae Young', reason: 'Pull-up game from deep' },
+  ],
+  'Shooting Guard': [
+    { name: 'Devin Booker', reason: 'Mid-range footwork is elite' },
+    { name: 'Anthony Edwards', reason: 'Athleticism + finishing through contact' },
+  ],
+  'Small Forward': [
+    { name: 'Jayson Tatum', reason: 'Step-back jumper mechanics' },
+    { name: 'Jaylen Brown', reason: 'Two-way wing model' },
+  ],
+  'Power Forward': [
+    { name: 'Pascal Siakam', reason: 'Footwork and finishing variety' },
+    { name: 'Paolo Banchero', reason: 'Scoring against bigger defenders' },
+  ],
+  'Center': [
+    { name: 'Joel Embiid', reason: 'Footwork and face-up game' },
+    { name: 'Bam Adebayo', reason: 'Rim protection + passing' },
+  ],
+};
+
 export default function FilmScreen() {
   const insets = useSafeAreaInsets();
   const { profile } = usePlanStore();
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysis, setAnalysis] = useState<FilmAnalysis | null>(null);
-  const [error, setError] = useState('');
-  const [expandedSection, setExpandedSection] = useState<string | null>('strengths');
-  const [analyzeProgress, setAnalyzeProgress] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [analyses, setAnalyses] = useState<FilmAnalysis[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
+  const [latestResult, setLatestResult] = useState<any>(null);
 
-  const analyzeVideo = async (uri: string) => {
-    setIsAnalyzing(true);
-    setError('');
-    setAnalyzeProgress('Uploading video...');
+  // Load past film analyses on mount
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIsLoadingHistory(false);
+        return;
+      }
+
+      // NOTE: This requires a `film_analyses` table in Supabase. If it doesn't
+      // exist yet, this query will fail silently and history will just be empty.
+      const { data } = await supabase
+        .from('film_analyses')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('date', { ascending: false })
+        .limit(20);
+
+      if (data) setAnalyses(data as FilmAnalysis[]);
+    } catch (e) {
+      console.error('Failed to load film history:', e);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') {
+      Alert.alert('Permission needed', 'We need access to your camera roll.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['videos'],
+      allowsEditing: true,
+      videoMaxDuration: 60,
+      quality: 0.3,
+    });
+
+    if (result.canceled || !result.assets[0]?.uri) return;
+
+    setIsUploading(true);
+    setLatestResult(null);
 
     try {
-      var fileName = 'film_' + Date.now() + '.mp4';
+      const fileName = 'film_' + Date.now() + '.mp4';
 
-      // Create FormData with the file URI - this works on React Native
-      var formData = new FormData();
+      const formData = new FormData();
       formData.append('file', {
-        uri: uri,
+        uri: result.assets[0].uri,
         type: 'video/mp4',
         name: fileName,
       } as any);
 
-      // Upload directly to Supabase Storage REST API
-      var supabaseUrl = 'https://tvtojlwdpipntkktguck.supabase.co';
-      var supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2dG9qbHdkcGlwbnRra3RndWNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0ODMxNDYsImV4cCI6MjA5MTA1OTE0Nn0.9GiDMwjhdZNotoJT_mFlxvxgns0I0pgjVNmM1oyPqFY';
+      const supabaseUrl = 'https://tvtojlwdpipntkktguck.supabase.co';
+      const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2dG9qbHdkcGlwbnRra3RndWNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0ODMxNDYsImV4cCI6MjA5MTA1OTE0Nn0.9GiDMwjhdZNotoJT_mFlxvxgns0I0pgjVNmM1oyPqFY';
 
-      var uploadRes = await fetch(
+      const uploadRes = await fetch(
         supabaseUrl + '/storage/v1/object/films/' + fileName,
         {
           method: 'POST',
@@ -72,216 +155,211 @@ export default function FilmScreen() {
       );
 
       if (!uploadRes.ok) {
-        var errText = await uploadRes.text();
-        console.error('Upload error:', errText);
-        setError('Failed to upload video. Try again.');
-        setIsAnalyzing(false);
+        Alert.alert('Upload failed', 'Try a shorter clip.');
+        setIsUploading(false);
         return;
       }
 
-      var videoUrl = supabaseUrl + '/storage/v1/object/public/films/' + fileName;
+      const videoUrl = supabaseUrl + '/storage/v1/object/public/films/' + fileName;
 
-      setAnalyzeProgress('Coach X is watching your film... this takes about a minute.');
-
-      var response = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
+      const analysisRes = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          videoUrl: videoUrl,
-          profile: profile,
-        }),
+        body: JSON.stringify({ videoUrl, profile }),
       });
 
-      var data = await response.json();
+      const analysisData = await analysisRes.json();
 
-      if (response.ok && data.overallGrade) {
-        setAnalysis(data);
+      if (analysisRes.ok && analysisData.overallGrade) {
+        setLatestResult({ ...analysisData, videoUrl });
+
+        // Save to film_analyses table for history
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            await supabase.from('film_analyses').insert({
+              user_id: user.id,
+              video_url: videoUrl,
+              overall_grade: analysisData.overallGrade,
+              summary: analysisData.summary,
+              coach_note: analysisData.coachNote,
+              strengths: analysisData.strengths,
+              weaknesses: analysisData.weaknesses,
+              drill_recommendations: analysisData.drillRecommendations,
+              date: new Date().toISOString(),
+            });
+            // Refresh history
+            loadHistory();
+          }
+        } catch (saveErr) {
+          console.error('Failed to save film analysis:', saveErr);
+        }
       } else {
-        setError(data.error || 'Failed to analyze video. Try a shorter clip.');
+        Alert.alert('Analysis failed', "Couldn't analyze that clip. Try a shorter one or better lighting.");
       }
-    } catch (e: any) {
-      console.error('Film error:', e);
-      setError('Something went wrong. Try again.');
+    } catch (e) {
+      Alert.alert('Error', 'Something went wrong. Try again.');
     }
 
-    setIsAnalyzing(false);
-    setAnalyzeProgress('');
+    setIsUploading(false);
   };
 
-  const handlePickVideo = async () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setError('');
-
-    var perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== 'granted') {
-      Alert.alert('Permission needed', 'We need access to your camera roll.');
-      return;
-    }
-
-    var result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['videos'],
-      allowsEditing: true,
-      videoMaxDuration: 60,
-      quality: 0.3,
-    });
-
-    if (result.canceled || !result.assets[0]?.uri) return;
-    await analyzeVideo(result.assets[0].uri);
-  };
-
-  const handleRecordVideo = async () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setError('');
-
-    var perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (perm.status !== 'granted') {
-      Alert.alert('Permission needed', 'We need camera access.');
-      return;
-    }
-
-    var result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['videos'],
-      videoMaxDuration: 60,
-      quality: 0.3,
-    });
-
-    if (result.canceled || !result.assets[0]?.uri) return;
-    await analyzeVideo(result.assets[0].uri);
-  };
-
-  var toggleSection = (section: string) => {
-    setExpandedSection(expandedSection === section ? null : section);
-  };
-
-  if (isAnalyzing) {
+  const renderAnalysisCard = (data: any) => {
+    const gc = GRADE_COLORS[data.overallGrade] || Colors.primary;
     return (
-      <View style={[s.container, { paddingTop: insets.top }]}>
-        <View style={s.analyzingScreen}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={s.analyzingTitle}>Analyzing your film</Text>
-          <Text style={s.analyzingText}>{analyzeProgress}</Text>
-          <Text style={s.analyzingHint}>Coach X is breaking down every play.</Text>
+      <View style={s.analysisCard}>
+        <View style={s.gradeRow}>
+          <View style={[s.gradeCircle, { borderColor: gc }]}>
+            <Text style={[s.gradeText, { color: gc }]}>{data.overallGrade}</Text>
+          </View>
+          <Text style={s.summary}>{data.summary}</Text>
         </View>
-      </View>
-    );
-  }
 
-  if (analysis) {
-    var gc = GRADE_COLORS[analysis.overallGrade] || Colors.primary;
-    return (
-      <View style={[s.container, { paddingTop: insets.top }]}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
-          <View style={s.headerRow}>
-            <Text style={s.headerTitleSmall}>Film Analysis</Text>
-            <TouchableOpacity style={s.newBtn} onPress={() => setAnalysis(null)} activeOpacity={0.7}>
-              <Text style={s.newBtnTxt}>New Analysis</Text>
-            </TouchableOpacity>
-          </View>
+        {data.coachNote && <Text style={s.coachNote}>"{data.coachNote}"</Text>}
 
-          <View style={s.gradeCard}>
-            <View style={[s.gradeCircle, { borderColor: gc }]}>
-              <Text style={[s.gradeText, { color: gc }]}>{analysis.overallGrade}</Text>
-            </View>
-            <Text style={s.gradeSummary}>{analysis.summary}</Text>
-          </View>
-
-          {analysis.coachNote && (
-            <View style={s.coachNote}>
-              <Text style={s.coachNoteLabel}>COACH X SAYS</Text>
-              <Text style={s.coachNoteText}>{analysis.coachNote}</Text>
-            </View>
-          )}
-
-          <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('strengths')} activeOpacity={0.7}>
+        {data.strengths && data.strengths.length > 0 && (
+          <View style={s.section}>
             <Text style={s.sectionTitle}>STRENGTHS</Text>
-            <Text style={[s.sectionCount, { color: '#8B9A6B' }]}>{analysis.strengths?.length || 0}</Text>
-            {expandedSection === 'strengths' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
-          </TouchableOpacity>
-          {expandedSection === 'strengths' && analysis.strengths?.map((item, i) => (
-            <View key={i} style={s.itemCard}>
-              <View style={[s.itemDot, { backgroundColor: '#8B9A6B' }]} />
-              <View style={s.itemContent}>
-                <Text style={s.itemSkill}>{item.skill}</Text>
-                <Text style={s.itemDetail}>{item.detail}</Text>
-              </View>
-            </View>
-          ))}
-
-          <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('weaknesses')} activeOpacity={0.7}>
-            <Text style={s.sectionTitle}>AREAS TO IMPROVE</Text>
-            <Text style={[s.sectionCount, { color: '#C47A6C' }]}>{analysis.weaknesses?.length || 0}</Text>
-            {expandedSection === 'weaknesses' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
-          </TouchableOpacity>
-          {expandedSection === 'weaknesses' && analysis.weaknesses?.map((item, i) => (
-            <View key={i} style={s.itemCard}>
-              <View style={[s.itemDot, { backgroundColor: '#C47A6C' }]} />
-              <View style={s.itemContent}>
-                <Text style={s.itemSkill}>{item.skill}</Text>
-                <Text style={s.itemDetail}>{item.detail}</Text>
-              </View>
-            </View>
-          ))}
-
-          {analysis.drillRecommendations && analysis.drillRecommendations.length > 0 && (
-            <>
-              <TouchableOpacity style={s.sectionHeader} onPress={() => toggleSection('drills')} activeOpacity={0.7}>
-                <Text style={s.sectionTitle}>RECOMMENDED DRILLS</Text>
-                <Text style={[s.sectionCount, { color: Colors.primary }]}>{analysis.drillRecommendations.length}</Text>
-                {expandedSection === 'drills' ? <ChevronUp size={18} color={Colors.textMuted} /> : <ChevronDown size={18} color={Colors.textMuted} />}
-              </TouchableOpacity>
-              {expandedSection === 'drills' && analysis.drillRecommendations.map((item, i) => (
-                <View key={i} style={s.itemCard}>
-                  <View style={[s.itemDot, { backgroundColor: Colors.primary }]} />
-                  <View style={s.itemContent}>
-                    <Text style={s.itemSkill}>{item.name}</Text>
-                    <Text style={s.itemDetail}>{item.reason}</Text>
-                  </View>
+            {data.strengths.map((item: any, i: number) => (
+              <View key={i} style={s.item}>
+                <View style={[s.dot, { backgroundColor: '#8B9A6B' }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.skill}>{item.skill}</Text>
+                  <Text style={s.detail}>{item.detail}</Text>
                 </View>
-              ))}
-            </>
-          )}
+              </View>
+            ))}
+          </View>
+        )}
 
-          <View style={{ height: 30 }} />
-        </ScrollView>
+        {data.weaknesses && data.weaknesses.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>WORK ON</Text>
+            {data.weaknesses.map((item: any, i: number) => (
+              <View key={i} style={s.item}>
+                <View style={[s.dot, { backgroundColor: '#C47A6C' }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.skill}>{item.skill}</Text>
+                  <Text style={s.detail}>{item.detail}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {data.drillRecommendations && data.drillRecommendations.length > 0 && (
+          <View style={s.section}>
+            <Text style={s.sectionTitle}>DRILLS COACH X RECOMMENDS</Text>
+            {data.drillRecommendations.map((item: any, i: number) => (
+              <View key={i} style={s.item}>
+                <View style={[s.dot, { backgroundColor: Colors.primary }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={s.skill}>{item.name}</Text>
+                  <Text style={s.detail}>{item.reason}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
     );
-  }
+  };
+
+  const playersToStudy = profile?.position
+    ? PLAYERS_TO_STUDY[profile.position] || []
+    : [];
 
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
+      {/* Coach X pill at top */}
+      <CoachXPill />
+
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
-        <Text style={s.headerTitle}>Film Study</Text>
-        <Text style={s.headerSub}>Upload game film and Coach X will break down your performance.</Text>
+        {/* Header */}
+        <Text style={s.title}>Film Room</Text>
+        <Text style={s.subtitle}>Upload your game footage. Coach X breaks it down.</Text>
 
-        {error ? <Text style={s.error}>{error}</Text> : null}
-
-        <TouchableOpacity style={s.uploadCard} onPress={handlePickVideo} activeOpacity={0.85}>
-          <View style={s.uploadIcon}><Upload size={28} color={Colors.primary} /></View>
-          <Text style={s.uploadTitle}>Upload from Camera Roll</Text>
-          <Text style={s.uploadSub}>Select a game clip (under 60 seconds)</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={s.uploadCard} onPress={handleRecordVideo} activeOpacity={0.85}>
-          <View style={s.uploadIcon}><Film size={28} color={Colors.primary} /></View>
-          <Text style={s.uploadTitle}>Record New Clip</Text>
-          <Text style={s.uploadSub}>Film yourself or a game right now</Text>
-        </TouchableOpacity>
-
-        <View style={s.howCard}>
-          <Text style={s.howTitle}>HOW IT WORKS</Text>
-          {[
-            { n: '1', t: 'Upload a game clip or practice footage' },
-            { n: '2', t: 'Coach X analyzes your movements and decisions' },
-            { n: '3', t: 'Get a breakdown with drills to improve' },
-          ].map((step, i) => (
-            <View key={i} style={s.howStep}>
-              <View style={s.howNum}><Text style={s.howNumTxt}>{step.n}</Text></View>
-              <Text style={s.howText}>{step.t}</Text>
+        {/* Upload CTA */}
+        <TouchableOpacity
+          style={s.uploadBtn}
+          onPress={handleUpload}
+          activeOpacity={0.85}
+          disabled={isUploading}
+        >
+          {isUploading ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <ActivityIndicator size="small" color={Colors.white} />
+              <Text style={s.uploadTxt}>Coach X is watching...</Text>
             </View>
-          ))}
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Upload size={20} color={Colors.white} />
+              <Text style={s.uploadTxt}>Upload Film</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        <Text style={s.uploadHint}>Up to 60 seconds. Game footage works best.</Text>
+
+        {/* Latest result (just analyzed) */}
+        {latestResult && (
+          <View style={{ marginTop: 24 }}>
+            <Text style={s.sectionHeader}>LATEST ANALYSIS</Text>
+            {renderAnalysisCard(latestResult)}
+          </View>
+        )}
+
+        {/* Players to study */}
+        {playersToStudy.length > 0 && (
+          <View style={{ marginTop: 24 }}>
+            <Text style={s.sectionHeader}>PLAYERS TO STUDY</Text>
+            <Text style={s.sectionSub}>Based on your position</Text>
+            {playersToStudy.map((p, i) => (
+              <View key={i} style={s.playerCard}>
+                <View style={s.playerIcon}>
+                  <Eye size={18} color={Colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.playerName}>{p.name}</Text>
+                  <Text style={s.playerReason}>{p.reason}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* History */}
+        <View style={{ marginTop: 24 }}>
+          <Text style={s.sectionHeader}>YOUR FILM HISTORY</Text>
+          {isLoadingHistory ? (
+            <ActivityIndicator color={Colors.primary} style={{ marginTop: 20 }} />
+          ) : analyses.length === 0 ? (
+            <View style={s.emptyHistory}>
+              <FilmIcon size={32} color={Colors.textMuted} />
+              <Text style={s.emptyText}>No film analyses yet</Text>
+              <Text style={s.emptySubtext}>Upload your first clip above</Text>
+            </View>
+          ) : (
+            analyses.map((a, i) => {
+              const gc = GRADE_COLORS[a.overallGrade] || Colors.primary;
+              return (
+                <View key={i} style={s.historyCard}>
+                  <View style={[s.gradePill, { backgroundColor: gc + '22', borderColor: gc }]}>
+                    <Text style={[s.gradePillText, { color: gc }]}>{a.overallGrade}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.historyDate}>
+                      {new Date(a.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </Text>
+                    <Text style={s.historySummary} numberOfLines={2}>{a.summary}</Text>
+                  </View>
+                </View>
+              );
+            })
+          )}
         </View>
 
-        <View style={{ height: 30 }} />
+        <View style={{ height: 40 }} />
       </ScrollView>
     </View>
   );
@@ -290,40 +368,95 @@ export default function FilmScreen() {
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: 20 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 16, marginBottom: 16 },
-  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, paddingTop: 16, marginBottom: 8 },
-  headerTitleSmall: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary },
-  headerSub: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 24 },
-  error: { fontSize: 13, color: '#C47A6C', backgroundColor: '#2A1515', borderRadius: 10, padding: 12, marginBottom: 16 },
-  newBtn: { backgroundColor: Colors.surface, borderRadius: 10, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 14, paddingVertical: 8 },
-  newBtnTxt: { fontSize: 13, fontWeight: '600', color: Colors.primary },
-  uploadCard: { backgroundColor: Colors.surface, borderRadius: 18, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 24, alignItems: 'center', marginBottom: 14 },
-  uploadIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#1A1708', borderWidth: 2, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center', marginBottom: 14 },
-  uploadTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
-  uploadSub: { fontSize: 13, color: Colors.textMuted },
-  howCard: { backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, marginBottom: 14 },
-  howTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 16 },
-  howStep: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, marginBottom: 14 },
-  howNum: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
-  howNumTxt: { fontSize: 13, fontWeight: '800', color: Colors.black },
-  howText: { fontSize: 14, color: Colors.textSecondary, lineHeight: 20, flex: 1, paddingTop: 3 },
-  analyzingScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
-  analyzingTitle: { fontSize: 22, fontWeight: '800', color: Colors.textPrimary, marginTop: 24, marginBottom: 8 },
-  analyzingText: { fontSize: 15, color: Colors.primary, fontWeight: '500', marginBottom: 8 },
-  analyzingHint: { fontSize: 13, color: Colors.textMuted },
-  gradeCard: { backgroundColor: Colors.surface, borderRadius: 18, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 24, alignItems: 'center', marginBottom: 16 },
-  gradeCircle: { width: 80, height: 80, borderRadius: 40, borderWidth: 4, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  gradeText: { fontSize: 36, fontWeight: '900' },
-  gradeSummary: { fontSize: 15, color: Colors.textSecondary, textAlign: 'center', lineHeight: 22 },
-  coachNote: { backgroundColor: '#141210', borderRadius: 14, borderWidth: 1, borderColor: '#2A2518', padding: 18, marginBottom: 16 },
-  coachNoteLabel: { fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5, marginBottom: 8 },
-  coachNoteText: { fontSize: 15, color: Colors.primary, lineHeight: 22, fontStyle: 'italic' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, marginBottom: 8 },
-  sectionTitle: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, flex: 1 },
-  sectionCount: { fontSize: 16, fontWeight: '800' },
-  itemCard: { flexDirection: 'row', gap: 12, paddingVertical: 12, paddingHorizontal: 16, marginBottom: 4 },
-  itemDot: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },
-  itemContent: { flex: 1 },
-  itemSkill: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, marginBottom: 3 },
-  itemDetail: { fontSize: 13, color: Colors.textSecondary, lineHeight: 19 },
+  title: {
+    fontSize: 28, fontWeight: '700', color: Colors.textPrimary,
+    marginTop: 8, marginBottom: 4, letterSpacing: -0.8,
+  },
+  subtitle: { fontSize: 14, color: Colors.textMuted, marginBottom: 24 },
+  uploadBtn: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 100,
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadTxt: { fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 },
+  uploadHint: {
+    fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginTop: 10,
+  },
+  sectionHeader: {
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
+    letterSpacing: 1.5, marginBottom: 6,
+  },
+  sectionSub: {
+    fontSize: 12, color: Colors.textMuted, marginBottom: 12,
+  },
+  // Analysis card (full)
+  analysisCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    padding: 16,
+  },
+  gradeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  gradeCircle: {
+    width: 48, height: 48, borderRadius: 24, borderWidth: 3,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  gradeText: { fontSize: 22, fontWeight: '900' },
+  summary: { fontSize: 13, color: Colors.textSecondary, lineHeight: 19, flex: 1 },
+  coachNote: {
+    fontSize: 13, color: Colors.primary, fontStyle: 'italic',
+    lineHeight: 19, marginBottom: 12,
+  },
+  section: { marginTop: 8 },
+  sectionTitle: {
+    fontSize: 10, fontWeight: '700', color: Colors.textMuted,
+    letterSpacing: 1.2, marginBottom: 8,
+  },
+  item: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  dot: { width: 6, height: 6, borderRadius: 3, marginTop: 6 },
+  skill: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary, marginBottom: 2 },
+  detail: { fontSize: 12, color: Colors.textSecondary, lineHeight: 17 },
+  // Players to study
+  playerCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 14, marginBottom: 8,
+  },
+  playerIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: '#FBF5E2',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  playerName: { fontSize: 14, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
+  playerReason: { fontSize: 12, color: Colors.textMuted },
+  // History
+  historyCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface,
+    borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 14, marginBottom: 8,
+  },
+  gradePill: {
+    width: 44, height: 44, borderRadius: 22,
+    borderWidth: 2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  gradePillText: { fontSize: 18, fontWeight: '900' },
+  historyDate: { fontSize: 12, color: Colors.textMuted, marginBottom: 4, fontWeight: '600' },
+  historySummary: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
+  emptyHistory: {
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 40, gap: 8,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+  },
+  emptyText: { fontSize: 14, color: Colors.textPrimary, fontWeight: '600' },
+  emptySubtext: { fontSize: 12, color: Colors.textMuted },
 });
