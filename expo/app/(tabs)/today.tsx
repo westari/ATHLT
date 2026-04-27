@@ -13,6 +13,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import CoachXPill from '@/components/CoachXPill';
+import CoachXClimax from '@/components/CoachXClimax';
 import { usePlanStore } from '@/store/planStore';
 import { supabase } from '@/constants/supabase';
 
@@ -250,7 +251,8 @@ export default function TodayScreen() {
   const router = useRouter();
   const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
 
-  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'plan'>('loading');
+  // Added 'climax' to the appState union
+  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'climax' | 'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -471,7 +473,8 @@ export default function TodayScreen() {
           console.error('Supabase sync failed:', saveErr);
         }
 
-        setAppState('plan');
+        // CHANGED: instead of going straight to plan, show climax first
+        setAppState('climax');
       } else {
         Alert.alert('Plan generation failed', 'Please try again.');
         setAppState('welcome');
@@ -733,6 +736,16 @@ export default function TodayScreen() {
     );
   }
 
+  // NEW: climax state — shows scouting report carousel between analyzing and plan
+  if (appState === 'climax' && plan?.coachSummary) {
+    return (
+      <CoachXClimax
+        coachSummary={plan.coachSummary}
+        onComplete={() => setAppState('plan')}
+      />
+    );
+  }
+
   if (appState === 'plan' && plan) {
     const day = plan.days?.[currentDayIndex];
     const drills = day?.drills || [];
@@ -740,7 +753,6 @@ export default function TodayScreen() {
 
     return (
       <View style={[s.c, { paddingTop: insets.top }]}>
-        {/* Coach X pill at the top of the plan view */}
         <CoachXPill />
 
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
