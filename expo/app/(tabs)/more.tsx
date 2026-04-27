@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 import {
   User, RefreshCw, LogOut, Star, Shield, Info, ChevronRight,
 } from 'lucide-react-native';
@@ -36,22 +37,63 @@ export default function MoreScreen() {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
   useEffect(() => {
-    // Initial session check
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session?.user) {
-        setUserEmail(data.session.user.email || null);
+    let mounted = true;
+
+    const checkAuth = async () => {
+      try {
+        // Try getSession first (reads from local storage)
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (sessionData.session?.user && mounted) {
+          setUserEmail(sessionData.session.user.email || null);
+          setIsLoadingAuth(false);
+          return;
+        }
+
+        // Fallback: getUser makes a live API call
+        const { data: userData } = await supabase.auth.getUser();
+        if (userData.user && mounted) {
+          setUserEmail(userData.user.email || null);
+        }
+      } catch (e) {
+        console.error('Auth check failed:', e);
+      } finally {
+        if (mounted) setIsLoadingAuth(false);
       }
-      setIsLoadingAuth(false);
-    });
+    };
+
+    checkAuth();
 
     // Listen for auth state changes (sign in, sign out, token refresh)
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
       setUserEmail(session?.user?.email ?? null);
       setIsLoadingAuth(false);
     });
 
-    return () => { sub.subscription.unsubscribe(); };
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
+
+  // Re-check auth every time user navigates to the More tab
+  useFocusEffect(
+    useCallback(() => {
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session?.user) {
+          setUserEmail(data.session.user.email || null);
+        } else {
+          supabase.auth.getUser().then(({ data: userData }) => {
+            if (userData.user) {
+              setUserEmail(userData.user.email || null);
+            } else {
+              setUserEmail(null);
+            }
+          });
+        }
+      });
+    }, [])
+  );
 
   const handleLogout = () => {
     if (Platform.OS === 'web') {
@@ -221,7 +263,7 @@ export default function MoreScreen() {
         {/* Menu */}
         <View style={s.menu}>
           <TouchableOpacity style={s.menuItem} activeOpacity={0.7}>
-            <Star size={20} color={Colors.primary} />
+            <Star size={20} color={Colors.textSecondary} />
             <Text style={s.menuItemText}>Rate ATHLT</Text>
             <ChevronRight size={16} color={Colors.textMuted} />
           </TouchableOpacity>
@@ -243,13 +285,11 @@ export default function MoreScreen() {
           <Text style={s.resetTxt}>Reset Training Profile</Text>
         </TouchableOpacity>
 
-        {/* Log out — always shows when someone is signed in */}
-        {userEmail && (
-          <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
-            <LogOut size={18} color={Colors.danger} />
-            <Text style={s.logoutTxt}>Log out</Text>
-          </TouchableOpacity>
-        )}
+        {/* Log out — always show */}
+        <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+          <LogOut size={18} color={Colors.danger} />
+          <Text style={s.logoutTxt}>Log out</Text>
+        </TouchableOpacity>
 
         <Text style={s.version}>ATHLT v1.0.0 — Scaled Studios</Text>
         <View style={{ height: 30 }} />
@@ -262,8 +302,8 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: 20 },
   headerTitle: {
-    fontSize: 28, fontWeight: '800', color: Colors.textPrimary,
-    paddingTop: 16, marginBottom: 20,
+    fontSize: 28, fontWeight: '700', color: Colors.textPrimary,
+    paddingTop: 16, marginBottom: 20, letterSpacing: -0.8,
   },
   accountCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
@@ -279,7 +319,7 @@ const s = StyleSheet.create({
   },
   accountInfo: { flex: 1 },
   accountEmail: {
-    fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2,
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2, letterSpacing: -0.3,
   },
   accountType: { fontSize: 12, color: Colors.textMuted },
   section: {

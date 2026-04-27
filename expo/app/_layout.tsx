@@ -1,28 +1,72 @@
-import { Stack } from "expo-router";
-import React, { useEffect } from "react";
-import * as SplashScreen from "expo-splash-screen";
-import { StatusBar } from "expo-status-bar";
-import Colors from "@/constants/colors";
+import { Stack } from 'expo-router';
+import React, { useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+import {
+  useFonts,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+  Inter_900Black,
+} from '@expo-google-fonts/inter';
+import * as SplashScreen from 'expo-splash-screen';
+import Colors from '@/constants/colors';
 
-void SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+function applyDefaultFont() {
+  // @ts-ignore
+  const textRender = Text.render;
+  // @ts-ignore
+  Text.render = function(...args: any[]) {
+    const el = textRender.apply(this, args);
+    return React.cloneElement(el, {
+      style: [{ fontFamily: 'Inter_500Medium' }, el.props.style],
+    });
+  };
+}
+
+let fontApplied = false;
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+    Inter_900Black,
+  });
+
   useEffect(() => {
-    void SplashScreen.hideAsync();
-  }, []);
+    if (fontsLoaded && !fontApplied) {
+      applyDefaultFont();
+      fontApplied = true;
+    }
+  }, [fontsLoaded]);
+
+  const onLayoutRootView = useCallback(async () => {
+    if (fontsLoaded || fontError) {
+      await SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [fontsLoaded, fontError]);
+
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
 
   return (
-    <>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: Colors.background },
-        }}
-      >
+    <View style={s.container} onLayout={onLayoutRootView}>
+      <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="session" options={{ animation: 'slide_from_bottom', presentation: 'fullScreenModal' }} />
+        <Stack.Screen name="session" />
+        <Stack.Screen name="drill/[id]" />
       </Stack>
-    </>
+    </View>
   );
 }
+
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+});

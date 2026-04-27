@@ -86,6 +86,8 @@ export async function loadProfileFromCloud(): Promise<{ profile: PlayerProfile |
 // ============================================================
 // PLAN SYNC
 // ============================================================
+// IMPORTANT: Writes to BOTH 'plans' and 'weekly_plans' tables to support
+// legacy code paths. Reads from 'plans' first, falls back to 'weekly_plans'.
 
 export async function savePlanToCloud(plan: TrainingPlan) {
   const { data: { user } } = await supabase.auth.getUser();
@@ -94,24 +96,47 @@ export async function savePlanToCloud(plan: TrainingPlan) {
     return { error: 'not_signed_in' };
   }
 
-  // Mark all existing plans as inactive
-  await supabase.from('plans').update({ is_active: false }).eq('user_id', user.id);
-
-  // Insert the new plan as active
-  const { error } = await supabase.from('plans').insert({
+  const planRow = {
     user_id: user.id,
     week_title: plan.weekTitle,
     ai_insight: plan.aiInsight,
     coach_summary: (plan as any).coachSummary || {},
     days: plan.days,
+  };
+
+  // Mark all existing plans as inactive (both tables)
+  await supabase.from('plans').update({ is_active: false }).eq('user_id', user.id);
+  await supabase.from('weekly_plans').update({ is_active: false, is_current: false }).eq('user_id', user.id);
+
+  // Insert into 'plans' table
+  const { error: plansError } = await supabase.from('plans').insert({
+    ...planRow,
     is_active: true,
   });
 
-  if (error) {
-    console.error('savePlanToCloud error:', error);
-    return { error: error.message };
+  if (plansError) {
+    console.error('savePlanToCloud plans error:', plansError);
+  } else {
+    console.log('savePlanToCloud plans: success');
   }
-  console.log('savePlanToCloud: success');
+
+  // Insert into 'weekly_plans' table (legacy)
+  const { error: weeklyError } = await supabase.from('weekly_plans').insert({
+    ...planRow,
+    is_active: true,
+    is_current: true,
+  });
+
+  if (weeklyError) {
+    console.error('savePlanToCloud weekly_plans error:', weeklyError);
+  } else {
+    console.log('savePlanToCloud weekly_plans: success');
+  }
+
+  // Return error only if BOTH failed
+  if (plansError && weeklyError) {
+    return { error: plansError.message };
+  }
   return { error: null };
 }
 
@@ -121,24 +146,49 @@ export async function loadPlanFromCloud(): Promise<{ plan: TrainingPlan | null; 
     return { plan: null, error: 'not_signed_in' };
   }
 
-  const { data, error } = await supabase.from('plans').select('*').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
-  if (error) {
-    console.error('loadPlanFromCloud error:', error);
-    return { plan: null, error: error.message };
-  }
-  if (!data) {
-    return { plan: null, error: null };
+  // Try 'plans' table first
+  const { data: plansData } = await supabase
+    .from('plans')
+    .select('*')
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (plansData) {
+    const plan: TrainingPlan = {
+      weekTitle: plansData.week_title || '',
+      aiInsight: plansData.ai_insight || '',
+      days: plansData.days || [],
+    };
+    (plan as any).coachSummary = plansData.coach_summary || {};
+    console.log('loadPlanFromCloud: loaded from plans table');
+    return { plan, error: null };
   }
 
-  const plan: TrainingPlan = {
-    weekTitle: data.week_title || '',
-    aiInsight: data.ai_insight || '',
-    days: data.days || [],
-  };
-  // Attach coachSummary even though it's not in the type definition (used at runtime)
-  (plan as any).coachSummary = data.coach_summary || {};
+  // Fallback: try 'weekly_plans' table
+  const { data: weeklyData } = await supabase
+    .from('weekly_plans')
+    .select('*')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  return { plan, error: null };
+  if (weeklyData) {
+    const plan: TrainingPlan = {
+      weekTitle: weeklyData.week_title || '',
+      aiInsight: weeklyData.ai_insight || '',
+      days: weeklyData.days || [],
+    };
+    (plan as any).coachSummary = weeklyData.coach_summary || {};
+    console.log('loadPlanFromCloud: loaded from weekly_plans table (fallback)');
+    return { plan, error: null };
+  }
+
+  console.log('loadPlanFromCloud: no plan found in either table');
+  return { plan: null, error: null };
 }
 
 // ============================================================

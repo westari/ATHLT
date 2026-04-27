@@ -1,22 +1,16 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  saveProfileToCloud,
-  savePlanToCloud,
-  saveCompletedDrillToCloud,
-  loadAllUserDataFromCloud,
-} from '@/lib/supabaseSync';
 
 export interface PlanDrill {
   name: string;
   time: string;
   type: 'warmup' | 'skill' | 'shooting' | 'conditioning';
   detail: string;
+  primarySkill?: string;
+  drillId?: string;
   duration?: number;
   sets?: number;
   reps?: number;
-  drillId?: string;
-  primarySkill?: string;
 }
 export interface PlanDay {
   day: string;
@@ -29,6 +23,7 @@ export interface PlanDay {
 export interface TrainingPlan {
   weekTitle: string;
   aiInsight: string;
+  coachSummary?: any;
   days: PlanDay[];
 }
 export interface PlayerProfile {
@@ -69,37 +64,85 @@ interface PlanStore {
   skillLevels: Record<string, number>;
   setPlan: (plan: TrainingPlan) => void;
   setProfile: (profile: PlayerProfile) => void;
-  setDescription: (desc: string) => void;
+  setDescription: (description: string) => void;
   setSkillLevels: (skills: Record<string, number>) => void;
   setIsGenerating: (val: boolean) => void;
   setCurrentDayIndex: (i: number) => void;
   toggleDrill: (dayIndex: number, drillIndex: number) => void;
+  markDrillComplete: (dayIndex: number, drillIndex: number) => void;
   completeSession: (session: CompletedSession) => void;
   loadFromStorage: () => Promise<void>;
-  loadFromCloud: () => Promise<{ hasCloudData: boolean }>;
   clearAll: () => void;
 }
 
 const STORAGE_KEY = 'athlt_plan_store';
 
-const saveToStorage = async (state: Partial<PlanStore>) => {
-  try {
-    const data = {
-      plan: state.plan,
-      profile: state.profile,
-      description: state.description,
-      completedDrills: state.completedDrills,
-      completedSessions: state.completedSessions,
-      currentStreak: state.currentStreak,
-      totalSessions: state.totalSessions,
-      currentDayIndex: state.currentDayIndex,
-      skillLevels: state.skillLevels,
-    };
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch (e) {
-    console.error('Failed to save to storage:', e);
-  }
+// Debounced save — prevents spamming AsyncStorage on rapid changes
+let saveTimer: any = null;
+const saveToStorage = (state: Partial<PlanStore>) => {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      const data = {
+        plan: state.plan,
+        profile: state.profile,
+        description: state.description,
+        completedDrills: state.completedDrills,
+        completedSessions: state.completedSessions,
+        currentStreak: state.currentStreak,
+        totalSessions: state.totalSessions,
+        currentDayIndex: state.currentDayIndex,
+        skillLevels: state.skillLevels,
+      };
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.error('Failed to save to storage:', e);
+    }
+  }, 500);
 };
+
+/**
+ * Compute streak from session dates.
+ * Streak = consecutive calendar days with at least one completed session,
+ * counting back from today.
+ */
+function computeStreak(sessions: CompletedSession[]): number {
+  if (sessions.length === 0) return 0;
+
+  const uniqueDays = Array.from(
+    new Set(sessions.map(s => new Date(s.date).toDateString()))
+  ).sort();
+
+  let streak = 0;
+  let checkDate = new Date();
+  checkDate.setHours(0, 0, 0, 0);
+
+  const lastSessionDay = new Date(uniqueDays[uniqueDays.length - 1]);
+  lastSessionDay.setHours(0, 0, 0, 0);
+  const daysSinceLast = Math.round(
+    (checkDate.getTime() - lastSessionDay.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  // If last session was 2+ days ago, streak is 0
+  if (daysSinceLast > 1) return 0;
+
+  for (let i = uniqueDays.length - 1; i >= 0; i--) {
+    const sessionDay = new Date(uniqueDays[i]);
+    sessionDay.setHours(0, 0, 0, 0);
+    const dayDiff = Math.round(
+      (checkDate.getTime() - sessionDay.getTime()) / (1000 * 60 * 60 * 24)
+    );
+
+    if (dayDiff === 0 || dayDiff === 1) {
+      streak++;
+      checkDate.setDate(checkDate.getDate() - 1);
+    } else {
+      break;
+    }
+  }
+
+  return streak;
+}
 
 export const usePlanStore = create<PlanStore>((set, get) => ({
   plan: null,
@@ -114,69 +157,55 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   skillLevels: {},
 
   setPlan: (plan) => {
-    set({ plan });
+    // Reset day index on new plan
+    set({ plan, currentDayIndex: 0 });
     saveToStorage(get());
-    // Fire-and-forget cloud sync
-    savePlanToCloud(plan).catch(e => console.error('Plan cloud sync failed:', e));
   },
-
   setProfile: (profile) => {
     set({ profile });
     saveToStorage(get());
-    // Fire-and-forget cloud sync (includes current skillLevels and description)
-    saveProfileToCloud(profile, get().skillLevels, get().description).catch(e => console.error('Profile cloud sync failed:', e));
   },
-
-  setDescription: (desc) => {
-    set({ description: desc });
+  setDescription: (description) => {
+    set({ description });
     saveToStorage(get());
-    // If a profile exists, re-sync it with the new description
-    const p = get().profile;
-    if (p) {
-      saveProfileToCloud(p, get().skillLevels, desc).catch(e => console.error('Profile cloud sync failed:', e));
-    }
   },
-
   setSkillLevels: (skills) => {
     set({ skillLevels: skills });
     saveToStorage(get());
-    // If a profile exists, re-sync it with the new skill levels
-    const p = get().profile;
-    if (p) {
-      saveProfileToCloud(p, skills, get().description).catch(e => console.error('Profile cloud sync failed:', e));
-    }
   },
-
   setIsGenerating: (val) => {
     set({ isGenerating: val });
   },
-
   setCurrentDayIndex: (i) => {
     set({ currentDayIndex: i });
     saveToStorage(get());
   },
-
   toggleDrill: (dayIndex, drillIndex) => {
     const key = `${dayIndex}-${drillIndex}`;
     const current = get().completedDrills;
-    const newValue = !current[key];
-    const updated = { ...current, [key]: newValue };
+    const updated = { ...current, [key]: !current[key] };
     set({ completedDrills: updated });
     saveToStorage(get());
-    // Fire-and-forget cloud sync
-    saveCompletedDrillToCloud(dayIndex, drillIndex, newValue).catch(e => console.error('Drill cloud sync failed:', e));
   },
-
+  // Explicit completion — never un-marks. Use inside session flow.
+  markDrillComplete: (dayIndex, drillIndex) => {
+    const key = `${dayIndex}-${drillIndex}`;
+    const current = get().completedDrills;
+    if (current[key]) return; // already complete, no-op
+    const updated = { ...current, [key]: true };
+    set({ completedDrills: updated });
+    saveToStorage(get());
+  },
   completeSession: (session) => {
     const sessions = [...get().completedSessions, session];
+    const newStreak = computeStreak(sessions);
     set({
       completedSessions: sessions,
       totalSessions: get().totalSessions + 1,
-      currentStreak: get().currentStreak + 1,
+      currentStreak: newStreak,
     });
     saveToStorage(get());
   },
-
   loadFromStorage: async () => {
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -198,31 +227,6 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       console.error('Failed to load from storage:', e);
     }
   },
-
-  loadFromCloud: async () => {
-    try {
-      const result = await loadAllUserDataFromCloud();
-      if (result.hasCloudData) {
-        set({
-          profile: result.profile,
-          plan: result.plan,
-          skillLevels: result.skillLevels,
-          description: result.description || '',
-          completedDrills: result.completedDrills,
-        });
-        // Also save to local storage so app loads instantly next time
-        saveToStorage(get());
-        console.log('loadFromCloud: loaded user data from Supabase');
-        return { hasCloudData: true };
-      }
-      console.log('loadFromCloud: no cloud data for this user');
-      return { hasCloudData: false };
-    } catch (e) {
-      console.error('loadFromCloud error:', e);
-      return { hasCloudData: false };
-    }
-  },
-
   clearAll: () => {
     set({
       plan: null,
@@ -235,6 +239,6 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       currentDayIndex: 0,
       skillLevels: {},
     });
-    AsyncStorage.removeItem(STORAGE_KEY);
+    AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
   },
 }));
