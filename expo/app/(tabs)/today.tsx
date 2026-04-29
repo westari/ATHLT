@@ -13,6 +13,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import CoachXPill from '@/components/CoachXPill';
+import CoachXClimax from '@/components/CoachXClimax';
 import { usePlanStore } from '@/store/planStore';
 import { supabase } from '@/constants/supabase';
 
@@ -250,7 +251,7 @@ export default function TodayScreen() {
   const router = useRouter();
   const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
 
-  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'plan'>('loading');
+  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'climax' | 'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -345,6 +346,49 @@ export default function TodayScreen() {
     const current = (answers[st.id] as Record<string, any>) || {};
     setAnswers({ ...answers, [st.id]: { ...current, [fieldId]: value } });
   };
+
+  // ===== DEBUG: instantly jump to the climax screen with fake data =====
+  // Remove this whole function before launch
+  const debugJumpToClimax = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    usePlanStore.getState().setPlan({
+      weekTitle: 'Week 1: Test Plan',
+      aiInsight: 'Fake insight for testing.',
+      coachSummary: {
+        greeting: "Alright, I just finished going through everything you told me. Took a hard look at your game — your strengths, your weaknesses, where you fit in. Here's what I came back with.",
+        assessment: "You're a guard with a tight handle on your strong hand but your weak hand is leaving points on the table. Your shooting form is solid, you just need more reps under pressure. Defense is your sleeper strength — most guys your age don't take it serious. You do.",
+        planOverview: "We're hammering weak hand for the next 4 weeks. Every session has at least one left-hand drill, sometimes two. Shooting stays in the rotation but we're taking your form work to the next level — pull-ups off the bounce, contested reps. By week 4 you'll feel different.",
+        motivation: "Look, the work is the work. Show up. Don't skip the boring drills. The reps you don't want to do are the reps that change your game. I'll be watching. Let's get it.",
+      },
+      days: [
+        { day: 'Mon', date: '', focus: 'Test', duration: '30 min', isRest: false, drills: [] },
+        { day: 'Tue', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
+        { day: 'Wed', date: '', focus: 'Test', duration: '30 min', isRest: false, drills: [] },
+        { day: 'Thu', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
+        { day: 'Fri', date: '', focus: 'Test', duration: '30 min', isRest: false, drills: [] },
+        { day: 'Sat', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
+        { day: 'Sun', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
+      ],
+    } as any);
+    usePlanStore.getState().setProfile({
+      sport: 'Basketball',
+      position: 'Point Guard',
+      experience: '3-5 years',
+      goal: 'Become a better all-around scorer',
+      weakness: 'Weak hand finishing',
+      frequency: '3-4 times a week',
+      duration: '30-45 minutes',
+      access: ['Half court with hoop'],
+      driving: 'not specified',
+      leftHand: 'Weak - I avoid it',
+      pressure: 'not specified',
+      goToMove: 'not specified',
+      threeConfidence: 'Somewhat',
+      freeThrow: '60-80%',
+    } as any);
+    setAppState('climax');
+  };
+  // ===== END DEBUG =====
 
   const buildPayloadFromAnswers = (a: Record<string, any>) => {
     let experience = '';
@@ -471,7 +515,7 @@ export default function TodayScreen() {
           console.error('Supabase sync failed:', saveErr);
         }
 
-        setAppState('plan');
+        setAppState('climax');
       } else {
         Alert.alert('Plan generation failed', 'Please try again.');
         setAppState('welcome');
@@ -525,6 +569,27 @@ export default function TodayScreen() {
           <Text style={{ fontSize: 15, color: Colors.textSecondary, letterSpacing: -0.2 }}>Already have an account? </Text>
           <Text style={{ fontSize: 15, color: Colors.textPrimary, fontWeight: '600', letterSpacing: -0.2 }}>Sign in</Text>
         </TouchableOpacity>
+
+        {/* ===== DEBUG: test climax screen instantly. Remove before launch. ===== */}
+        <TouchableOpacity
+          style={{
+            marginTop: 32,
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            backgroundColor: '#FBF5E2',
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: Colors.primary,
+            alignItems: 'center',
+          }}
+          onPress={debugJumpToClimax}
+          activeOpacity={0.7}
+        >
+          <Text style={{ fontSize: 13, color: Colors.primary, fontWeight: '700', letterSpacing: 0.5 }}>
+            🔧 TEST CLIMAX SCREEN
+          </Text>
+        </TouchableOpacity>
+        {/* ===== END DEBUG ===== */}
       </ScrollView>
     </View>
   );
@@ -733,6 +798,15 @@ export default function TodayScreen() {
     );
   }
 
+  if (appState === 'climax' && plan?.coachSummary) {
+    return (
+      <CoachXClimax
+        coachSummary={plan.coachSummary}
+        onComplete={() => setAppState('plan')}
+      />
+    );
+  }
+
   if (appState === 'plan' && plan) {
     const day = plan.days?.[currentDayIndex];
     const drills = day?.drills || [];
@@ -740,7 +814,6 @@ export default function TodayScreen() {
 
     return (
       <View style={[s.c, { paddingTop: insets.top }]}>
-        {/* Coach X pill at the top of the plan view */}
         <CoachXPill />
 
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
