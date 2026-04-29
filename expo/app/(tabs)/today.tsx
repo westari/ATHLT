@@ -14,6 +14,7 @@ import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
 import CoachXPill from '@/components/CoachXPill';
 import CoachXClimax from '@/components/CoachXClimax';
+import TodayHome from '@/components/TodayHome';
 import { usePlanStore } from '@/store/planStore';
 import { supabase } from '@/constants/supabase';
 
@@ -808,82 +809,10 @@ export default function TodayScreen() {
   }
 
   if (appState === 'plan' && plan) {
-    const day = plan.days?.[currentDayIndex];
-    const drills = day?.drills || [];
-    const donePct = drills.length > 0 ? Math.round((drills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / drills.length) * 100) : 0;
-
     return (
-      <View style={[s.c, { paddingTop: insets.top }]}>
+      <View style={[s.c]}>
         <CoachXPill />
-
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-          <View style={{ paddingHorizontal: 20, paddingTop: 8 }}>
-            <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4, letterSpacing: -0.8 }}>Today</Text>
-            <Text style={{ fontSize: 14, color: Colors.textMuted, marginBottom: 24 }}>{plan.weekTitle}</Text>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -20, marginBottom: 24 }} contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}>
-              {plan.days.map((d, i) => {
-                const isCur = i === currentDayIndex;
-                const dayPct = d.drills.length > 0 ? Math.round((d.drills.filter((_, j) => completedDrills[i + '-' + j]).length / d.drills.length) * 100) : 0;
-                return (
-                  <TouchableOpacity
-                    key={i}
-                    style={{ minWidth: 60, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, backgroundColor: isCur ? '#1A1A1A' : Colors.surface, borderWidth: 1, borderColor: isCur ? '#1A1A1A' : Colors.surfaceBorder, alignItems: 'center' }}
-                    onPress={() => usePlanStore.getState().setCurrentDayIndex(i)}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: isCur ? Colors.white : Colors.textMuted, letterSpacing: 1, marginBottom: 3 }}>{DAYS_SHORT[i]}</Text>
-                    <Text style={{ fontSize: 15, fontWeight: '700', color: isCur ? Colors.white : Colors.textPrimary, letterSpacing: -0.2 }}>{d.day}</Text>
-                    {d.isRest ? <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>REST</Text> : <Text style={{ fontSize: 9, color: isCur ? Colors.white : Colors.textMuted, marginTop: 2 }}>{dayPct}%</Text>}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-
-            {day?.isRest ? (
-              <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 28, borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center' }}>
-                <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.5 }}>Rest day</Text>
-                <Text style={{ fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 }}>Recovery matters as much as the work. See you tomorrow.</Text>
-              </View>
-            ) : (
-              <View style={{ backgroundColor: Colors.surface, borderRadius: 20, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <Text style={{ fontSize: 12, color: Colors.textMuted, letterSpacing: 1.5, fontWeight: '700' }}>TODAY'S FOCUS</Text>
-                  <Text style={{ fontSize: 12, color: Colors.textMuted }}>{day?.duration}</Text>
-                </View>
-                <Text style={{ fontSize: 24, fontWeight: '700', color: Colors.textPrimary, marginBottom: 16, letterSpacing: -0.6 }}>{day?.focus}</Text>
-                <View style={{ height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
-                  <View style={{ height: 4, backgroundColor: Colors.primary, width: donePct + '%' }} />
-                </View>
-                <TouchableOpacity style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }} onPress={() => router.push('/session')} activeOpacity={0.85}>
-                  <Play size={18} color={Colors.white} fill={Colors.white} />
-                  <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Start session</Text>
-                </TouchableOpacity>
-                <View style={{ marginTop: 20 }}>
-                  {drills.map((d, i) => {
-                    const done = completedDrills[currentDayIndex + '-' + i];
-                    return (
-                      <TouchableOpacity key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder }} onPress={() => router.push('/drill/' + i)} activeOpacity={0.7}>
-                        <View style={{ width: 18, height: 18, borderRadius: 9, borderWidth: 1.5, borderColor: done ? Colors.primary : Colors.surfaceBorder, backgroundColor: done ? Colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                          {done && <Text style={{ fontSize: 9, color: Colors.black, fontWeight: '800' }}>✓</Text>}
-                        </View>
-                        <Text style={{ flex: 1, fontSize: 13, color: done ? Colors.textMuted : Colors.textPrimary, textDecorationLine: done ? 'line-through' : 'none' }} numberOfLines={1}>{d.name}</Text>
-                        <Text style={{ fontSize: 11, color: Colors.textMuted }}>{d.time}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
-            )}
-
-            {plan.aiInsight && (
-              <View style={{ marginTop: 20, backgroundColor: Colors.surface, borderRadius: 16, padding: 20, borderWidth: 1, borderColor: Colors.surfaceBorder }}>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 8 }}>COACH X INSIGHT</Text>
-                <Text style={{ fontSize: 14, color: Colors.textSecondary, lineHeight: 21 }}>{plan.aiInsight}</Text>
-              </View>
-            )}
-          </View>
-        </ScrollView>
+        <TodayHome />
       </View>
     );
   }
