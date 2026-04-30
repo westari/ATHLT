@@ -4,14 +4,14 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Check, Clock, Target, Play } from 'lucide-react-native';
+import { ArrowLeft, Check, Clock, Target, Play, AlertCircle, Lightbulb } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
+import { resolvePlanDrill } from '@/lib/resolveDrill';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-// Standard YouTube aspect ratio is 16:9
 const VIDEO_HEIGHT = Math.round((SCREEN_W - 40) * 9 / 16);
 
 export default function DrillDetailScreen() {
@@ -22,7 +22,8 @@ export default function DrillDetailScreen() {
 
   const drillIndex = parseInt(id || '0');
   const day = plan?.days?.[currentDayIndex];
-  const drill = day?.drills?.[drillIndex];
+  const planDrill = day?.drills?.[drillIndex];
+  const drill = resolvePlanDrill(planDrill);
 
   const [videoPlaying, setVideoPlaying] = useState(false);
 
@@ -48,16 +49,8 @@ export default function DrillDetailScreen() {
     toggleDrillComplete(currentDayIndex, drillIndex);
   };
 
-  // Drill data — these fields come from your drill object on the plan.
-  // Falls back gracefully if a field is missing.
-  const drillName: string = drill.name || 'Drill';
-  const drillSummary: string = (drill as any).summary || (drill as any).description || '';
+  // YouTube ID — drills will get these added over time. Falls back to "video coming soon".
   const youtubeId: string = (drill as any).youtubeId || '';
-  const drillTime: string = drill.time || '';
-  const drillFocus: string = (drill as any).focus || '';
-  const drillSets: string = (drill as any).sets || '';
-  const drillReps: string = (drill as any).reps || '';
-  const drillCues: string[] = (drill as any).cues || [];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -68,22 +61,25 @@ export default function DrillDetailScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
+        contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ========== 1. Drill name ========== */}
+        {/* ========== Title + category ========== */}
         <View style={styles.titleWrap}>
-          <Text style={styles.drillName}>{drillName}</Text>
+          {drill.category ? (
+            <Text style={styles.category}>{drill.category.toUpperCase()}</Text>
+          ) : null}
+          <Text style={styles.drillName}>{drill.name}</Text>
         </View>
 
-        {/* ========== 2. Short summary ========== */}
-        {drillSummary ? (
+        {/* ========== Summary ========== */}
+        {drill.summary ? (
           <View style={styles.summaryWrap}>
-            <Text style={styles.summaryText}>{drillSummary}</Text>
+            <Text style={styles.summaryText}>{drill.summary}</Text>
           </View>
         ) : null}
 
-        {/* ========== 3. YouTube video (the main thing) ========== */}
+        {/* ========== Video ========== */}
         {youtubeId ? (
           <View style={styles.videoWrap}>
             <View style={styles.videoBox}>
@@ -116,44 +112,56 @@ export default function DrillDetailScreen() {
           </View>
         )}
 
-        {/* ========== 4. Drill details ========== */}
+        {/* ========== Quick info chips ========== */}
         <View style={styles.detailsWrap}>
           <View style={styles.detailsRow}>
-            {drillTime ? (
+            {drill.time ? (
               <View style={styles.detailChip}>
                 <Clock size={14} color={Colors.primary} />
-                <Text style={styles.detailChipText}>{drillTime}</Text>
+                <Text style={styles.detailChipText}>{drill.time}</Text>
               </View>
             ) : null}
-            {drillFocus ? (
+            {drill.difficulty ? (
               <View style={styles.detailChip}>
                 <Target size={14} color={Colors.primary} />
-                <Text style={styles.detailChipText}>{drillFocus}</Text>
+                <Text style={styles.detailChipText}>{drill.difficulty}</Text>
               </View>
             ) : null}
           </View>
 
-          {(drillSets || drillReps) ? (
-            <View style={styles.metaCard}>
-              {drillSets ? (
-                <View style={styles.metaItem}>
-                  <Text style={styles.metaLabel}>SETS</Text>
-                  <Text style={styles.metaValue}>{drillSets}</Text>
-                </View>
-              ) : null}
-              {drillReps ? (
-                <View style={styles.metaItem}>
-                  <Text style={styles.metaLabel}>REPS</Text>
-                  <Text style={styles.metaValue}>{drillReps}</Text>
-                </View>
-              ) : null}
+          {/* ========== Equipment ========== */}
+          {drill.equipment && drill.equipment.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>EQUIPMENT</Text>
+              <Text style={styles.sectionText}>
+                {drill.equipment.join(', ')}
+              </Text>
             </View>
           ) : null}
 
-          {drillCues.length > 0 ? (
-            <View style={styles.cuesWrap}>
-              <Text style={styles.cuesTitle}>COACH X CUES</Text>
-              {drillCues.map((cue, i) => (
+          {/* ========== Steps ========== */}
+          {drill.steps && drill.steps.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>HOW TO DO IT</Text>
+              {drill.steps.map((step, i) => (
+                <View key={i} style={styles.stepRow}>
+                  <View style={styles.stepNumber}>
+                    <Text style={styles.stepNumberText}>{i + 1}</Text>
+                  </View>
+                  <Text style={styles.stepText}>{step}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {/* ========== Coaching points ========== */}
+          {drill.coachingPoints && drill.coachingPoints.length > 0 ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Lightbulb size={14} color={Colors.primary} />
+                <Text style={styles.sectionTitle}>COACH X CUES</Text>
+              </View>
+              {drill.coachingPoints.map((cue, i) => (
                 <View key={i} style={styles.cueRow}>
                   <Text style={styles.cueBullet}>—</Text>
                   <Text style={styles.cueText}>{cue}</Text>
@@ -161,10 +169,39 @@ export default function DrillDetailScreen() {
               ))}
             </View>
           ) : null}
+
+          {/* ========== Common mistakes ========== */}
+          {drill.commonMistakes && drill.commonMistakes.length > 0 ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <AlertCircle size={14} color="#C47A6C" />
+                <Text style={[styles.sectionTitle, { color: '#C47A6C' }]}>WATCH OUT FOR</Text>
+              </View>
+              {drill.commonMistakes.map((m, i) => (
+                <View key={i} style={styles.cueRow}>
+                  <Text style={[styles.cueBullet, { color: '#C47A6C' }]}>×</Text>
+                  <Text style={styles.cueText}>{m}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {/* ========== Variations ========== */}
+          {drill.variations && drill.variations.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>VARIATIONS</Text>
+              {drill.variations.map((v, i) => (
+                <View key={i} style={styles.cueRow}>
+                  <Text style={styles.cueBullet}>—</Text>
+                  <Text style={styles.cueText}>{v}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       </ScrollView>
 
-      {/* ========== Bottom: Mark complete ========== */}
+      {/* Mark complete bottom button */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
         <TouchableOpacity
           style={[styles.completeBtn, isComplete && styles.completeBtnDone]}
@@ -187,7 +224,6 @@ export default function DrillDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-
   header: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 12, paddingVertical: 8,
@@ -196,11 +232,14 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
-
   errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorText: { fontSize: 16, color: Colors.textMuted },
 
-  titleWrap: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 8 },
+  titleWrap: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 12 },
+  category: {
+    fontSize: 11, fontWeight: '700', color: Colors.primary,
+    letterSpacing: 1.5, marginBottom: 6,
+  },
   drillName: {
     fontSize: 28, fontWeight: '700', color: Colors.textPrimary,
     letterSpacing: -0.8, lineHeight: 34,
@@ -215,7 +254,6 @@ const styles = StyleSheet.create({
   videoBox: {
     borderRadius: 16, overflow: 'hidden', backgroundColor: '#000',
   },
-
   videoMissingWrap: { paddingHorizontal: 20, marginBottom: 20 },
   videoMissingBox: {
     height: VIDEO_HEIGHT, alignItems: 'center', justifyContent: 'center',
@@ -225,7 +263,7 @@ const styles = StyleSheet.create({
   videoMissingText: { fontSize: 13, color: Colors.textMuted },
 
   detailsWrap: { paddingHorizontal: 20 },
-  detailsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 16 },
+  detailsRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 20 },
   detailChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 12, paddingVertical: 7,
@@ -234,36 +272,43 @@ const styles = StyleSheet.create({
   },
   detailChipText: {
     fontSize: 12, fontWeight: '600', color: Colors.primary, letterSpacing: -0.1,
+    textTransform: 'capitalize',
   },
 
-  metaCard: {
-    flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    paddingVertical: 16, paddingHorizontal: 20, marginBottom: 16,
-  },
-  metaItem: { flex: 1, alignItems: 'flex-start' },
-  metaLabel: {
-    fontSize: 10, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5, marginBottom: 4,
-  },
-  metaValue: {
-    fontSize: 22, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.5,
-  },
-
-  cuesWrap: {
-    backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 16, marginBottom: 8,
-  },
-  cuesTitle: {
+  section: { marginBottom: 24 },
+  sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
+  sectionTitle: {
     fontSize: 11, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 10,
+    letterSpacing: 1.5, marginBottom: 12,
   },
-  cueRow: { flexDirection: 'row', gap: 8, paddingVertical: 6 },
-  cueBullet: { fontSize: 14, color: Colors.textMuted, lineHeight: 20 },
+  sectionText: {
+    fontSize: 14, color: Colors.textSecondary, lineHeight: 20,
+  },
+
+  stepRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  stepNumber: {
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: '#1A1A1A',
+    alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  stepNumberText: {
+    fontSize: 12, fontWeight: '700', color: Colors.white,
+  },
+  stepText: {
+    flex: 1, fontSize: 14, color: Colors.textPrimary,
+    lineHeight: 21, letterSpacing: -0.2,
+  },
+
+  cueRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  cueBullet: {
+    fontSize: 14, color: Colors.primary, lineHeight: 20,
+    fontWeight: '700', minWidth: 14,
+  },
   cueText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
 
   bottomBar: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
     paddingHorizontal: 20, paddingTop: 12,
     backgroundColor: Colors.background,
     borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
