@@ -8,20 +8,18 @@ import { Play, Edit3 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
+import { resolvePlanDrill } from '@/lib/resolveDrill';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-
-// Coach X portrait — replace with your real one when Dreamina art is ready
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
 
-// Coach X line based on the day's focus. Short, real-coach tone.
 function getCoachXLine(focus: string, isRest: boolean): string {
   if (isRest) return 'Rest day. Recover. See you tomorrow.';
   const f = (focus || '').toLowerCase();
   if (f.includes('shoot')) return "Shooting day. Let's eat.";
   if (f.includes('handle') || f.includes('dribbl') || f.includes('ball')) return 'Handle day. Lock in.';
   if (f.includes('finish') || f.includes('rim')) return 'Finishing today. Get to the rack.';
-  if (f.includes('weak hand') || f.includes('left')) return "Weak hand work. This is where you separate.";
+  if (f.includes('weak hand') || f.includes('left')) return 'Weak hand work. This is where you separate.';
   if (f.includes('defen')) return 'Defense day. Sit down and guard.';
   if (f.includes('iq') || f.includes('mental')) return 'Film and IQ work today. Sharpen up.';
   if (f.includes('condition') || f.includes('agility') || f.includes('athlet')) return 'Conditioning. Push the pace.';
@@ -36,9 +34,16 @@ export default function TodayHome() {
   if (!plan) return null;
 
   const day = plan.days?.[currentDayIndex];
-  const drills = day?.drills || [];
-  const donePct = drills.length > 0
-    ? Math.round((drills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / drills.length) * 100)
+  const planDrills = day?.drills || [];
+
+  // Resolve every drill in the day from the library
+  const resolvedDrills = useMemo(
+    () => planDrills.map(d => resolvePlanDrill(d)).filter((d): d is NonNullable<typeof d> => d !== null),
+    [planDrills]
+  );
+
+  const donePct = resolvedDrills.length > 0
+    ? Math.round((resolvedDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / resolvedDrills.length) * 100)
     : 0;
 
   const coachLine = useMemo(
@@ -57,33 +62,34 @@ export default function TodayHome() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== Top: Coach X talking ===== */}
+        {/* ===== Coach X talking — portrait LEFT, message RIGHT ===== */}
         <View style={styles.coachBlock}>
           <View style={styles.coachLeft}>
+            <Image source={COACH_X_PORTRAIT} style={styles.coachImg} resizeMode="contain" />
+          </View>
+          <View style={styles.coachRight}>
             <Text style={styles.coachLabel}>COACH X</Text>
             <Text style={styles.coachMessage}>{coachLine}</Text>
           </View>
-          <View style={styles.coachRight}>
-            <Image source={COACH_X_PORTRAIT} style={styles.coachImg} resizeMode="contain" />
-          </View>
         </View>
 
-        {/* ===== Day pills ===== */}
+        {/* ===== Day pills — closer to Coach X now ===== */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={{ marginBottom: 20 }}
+          style={{ marginBottom: 16 }}
           contentContainerStyle={{ paddingHorizontal: 20, gap: 10 }}
         >
           {plan.days.map((d, i) => {
             const isCur = i === currentDayIndex;
-            const dayPct = d.drills.length > 0
-              ? Math.round((d.drills.filter((_, j) => completedDrills[i + '-' + j]).length / d.drills.length) * 100)
+            const dayDrills = (d.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean);
+            const dayPct = dayDrills.length > 0
+              ? Math.round((dayDrills.filter((_, j) => completedDrills[i + '-' + j]).length / dayDrills.length) * 100)
               : 0;
             return (
               <TouchableOpacity
@@ -124,14 +130,12 @@ export default function TodayHome() {
               </View>
               <Text style={styles.planFocus}>{day?.focus}</Text>
 
-              {/* Progress bar */}
               <View style={styles.progressTrack}>
                 <View style={[styles.progressFill, { width: donePct + '%' }]} />
               </View>
 
-              {/* Drill list */}
               <View style={{ marginTop: 8 }}>
-                {drills.map((d, i) => {
+                {resolvedDrills.map((d, i) => {
                   const done = completedDrills[currentDayIndex + '-' + i];
                   return (
                     <TouchableOpacity
@@ -158,7 +162,6 @@ export default function TodayHome() {
                 })}
               </View>
 
-              {/* Buttons */}
               <TouchableOpacity style={styles.startBtn} onPress={onStartSession} activeOpacity={0.85}>
                 <Play size={18} color={Colors.white} fill={Colors.white} />
                 <Text style={styles.startBtnTxt}>Start session</Text>
@@ -172,10 +175,9 @@ export default function TodayHome() {
           )}
         </View>
 
-        {/* ===== Bottom section placeholder — design later ===== */}
         <View style={styles.bottomSection}>
           <Text style={styles.bottomLabel}>COMING SOON</Text>
-          <Text style={styles.bottomBody}>Yesterday's recap, weekly progress, and more — designing this next.</Text>
+          <Text style={styles.bottomBody}>Yesterday's recap, weekly progress, and more.</Text>
         </View>
       </ScrollView>
     </View>
@@ -185,14 +187,17 @@ export default function TodayHome() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
+  // Coach X block — tighter spacing, portrait LEFT
   coachBlock: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 24,
+    paddingTop: 4,
+    paddingBottom: 16,
     alignItems: 'center',
   },
-  coachLeft: { flex: 1, paddingRight: 12 },
+  coachLeft: { width: 76, height: 76, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+  coachImg: { width: 76, height: 76 },
+  coachRight: { flex: 1 },
   coachLabel: {
     fontSize: 11, fontWeight: '700', color: Colors.primary,
     letterSpacing: 1.5, marginBottom: 6,
@@ -201,8 +206,6 @@ const styles = StyleSheet.create({
     fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
     letterSpacing: -0.6, lineHeight: 28,
   },
-  coachRight: { width: 80, height: 80, alignItems: 'center', justifyContent: 'center' },
-  coachImg: { width: 80, height: 80 },
 
   dayPill: {
     minWidth: 60, paddingHorizontal: 12, paddingVertical: 10,
