@@ -19,9 +19,9 @@ function getCoachXLine(focus: string, isRest: boolean): string {
   if (f.includes('shoot')) return "Shooting day. Let's eat.";
   if (f.includes('handle') || f.includes('dribbl') || f.includes('ball')) return 'Handle day. Lock in.';
   if (f.includes('finish') || f.includes('rim')) return 'Finishing today. Get to the rack.';
-  if (f.includes('weak hand') || f.includes('left')) return 'Weak hand work. This is where you separate.';
+  if (f.includes('weak hand') || f.includes('left')) return 'Weak hand work. Where you separate.';
   if (f.includes('defen')) return 'Defense day. Sit down and guard.';
-  if (f.includes('iq') || f.includes('mental')) return 'Film and IQ work today. Sharpen up.';
+  if (f.includes('iq') || f.includes('mental')) return 'Film and IQ. Sharpen up.';
   if (f.includes('condition') || f.includes('agility') || f.includes('athlet')) return 'Conditioning. Push the pace.';
   return "Here's today. Let's get it.";
 }
@@ -36,7 +36,6 @@ export default function TodayHome() {
   const day = plan.days?.[currentDayIndex];
   const planDrills = day?.drills || [];
 
-  // Resolve every drill in the day from the library
   const resolvedDrills = useMemo(
     () => planDrills.map(d => resolvePlanDrill(d)).filter((d): d is NonNullable<typeof d> => d !== null),
     [planDrills]
@@ -67,18 +66,16 @@ export default function TodayHome() {
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== Coach X talking — portrait LEFT, message RIGHT ===== */}
+        {/* ===== Coach X header — smaller portrait, more text room ===== */}
         <View style={styles.coachBlock}>
-          <View style={styles.coachLeft}>
-            <Image source={COACH_X_PORTRAIT} style={styles.coachImg} resizeMode="contain" />
-          </View>
-          <View style={styles.coachRight}>
+          <Image source={COACH_X_PORTRAIT} style={styles.coachImg} resizeMode="contain" />
+          <View style={styles.coachTextWrap}>
             <Text style={styles.coachLabel}>COACH X</Text>
-            <Text style={styles.coachMessage}>{coachLine}</Text>
+            <Text style={styles.coachMessage} numberOfLines={2}>{coachLine}</Text>
           </View>
         </View>
 
-        {/* ===== Day pills — closer to Coach X now ===== */}
+        {/* ===== Day pills ===== */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -153,7 +150,7 @@ export default function TodayHome() {
                       <Text style={[
                         styles.drillName,
                         { color: done ? Colors.textMuted : Colors.textPrimary, textDecorationLine: done ? 'line-through' : 'none' }
-                      ]} numberOfLines={1}>
+                      ]} numberOfLines={1} ellipsizeMode="tail">
                         {d.name}
                       </Text>
                       <Text style={styles.drillTime}>{d.time}</Text>
@@ -174,11 +171,6 @@ export default function TodayHome() {
             </View>
           )}
         </View>
-
-        <View style={styles.bottomSection}>
-          <Text style={styles.bottomLabel}>COMING SOON</Text>
-          <Text style={styles.bottomBody}>Yesterday's recap, weekly progress, and more.</Text>
-        </View>
       </ScrollView>
     </View>
   );
@@ -187,24 +179,24 @@ export default function TodayHome() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
-  // Coach X block — tighter spacing, portrait LEFT
+  // Coach X — smaller, tighter, single row, no wrap issues
   coachBlock: {
     flexDirection: 'row',
     paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 16,
+    paddingTop: 8,
+    paddingBottom: 20,
     alignItems: 'center',
+    gap: 12,
   },
-  coachLeft: { width: 76, height: 76, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-  coachImg: { width: 76, height: 76 },
-  coachRight: { flex: 1 },
+  coachImg: { width: 60, height: 60 },
+  coachTextWrap: { flex: 1 },
   coachLabel: {
-    fontSize: 11, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 6,
+    fontSize: 10, fontWeight: '700', color: Colors.primary,
+    letterSpacing: 1.5, marginBottom: 4,
   },
   coachMessage: {
-    fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.6, lineHeight: 28,
+    fontSize: 20, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.5, lineHeight: 26,
   },
 
   dayPill: {
@@ -245,11 +237,11 @@ const styles = StyleSheet.create({
   },
   drillCheck: {
     width: 18, height: 18, borderRadius: 9, borderWidth: 1.5,
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
   drillCheckMark: { fontSize: 9, color: Colors.black, fontWeight: '800' },
   drillName: { flex: 1, fontSize: 13 },
-  drillTime: { fontSize: 11, color: Colors.textMuted },
+  drillTime: { fontSize: 11, color: Colors.textMuted, flexShrink: 0 },
 
   startBtn: {
     backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 16,
@@ -279,18 +271,5 @@ const styles = StyleSheet.create({
   restBody: {
     fontSize: 14, color: Colors.textSecondary,
     textAlign: 'center', lineHeight: 20,
-  },
-
-  bottomSection: {
-    marginTop: 24, marginHorizontal: 20, paddingVertical: 20, paddingHorizontal: 16,
-    borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderStyle: 'dashed', alignItems: 'center',
-  },
-  bottomLabel: {
-    fontSize: 10, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5, marginBottom: 6,
-  },
-  bottomBody: {
-    fontSize: 12, color: Colors.textMuted, textAlign: 'center', lineHeight: 18,
   },
 });
