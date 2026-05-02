@@ -244,11 +244,13 @@ export default function EditWorkoutScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             style={{ marginBottom: 12 }}
-            contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
+            contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 6, alignItems: 'center' }}
+            keyboardShouldPersistTaps="always"
           >
             <TouchableOpacity
-              style={[styles.catChip, selectedCategory === 'All' && styles.catChipActive]}
+              style={[styles.catChip, { marginRight: 8 }, selectedCategory === 'All' && styles.catChipActive]}
               onPress={() => setSelectedCategory('All')}
+              activeOpacity={0.6}
             >
               <Text style={[styles.catChipText, selectedCategory === 'All' && styles.catChipTextActive]}>
                 All
@@ -257,8 +259,12 @@ export default function EditWorkoutScreen() {
             {DRILL_CATEGORIES.map(cat => (
               <TouchableOpacity
                 key={cat.name}
-                style={[styles.catChip, selectedCategory === cat.name && styles.catChipActive]}
-                onPress={() => setSelectedCategory(cat.name)}
+                style={[styles.catChip, { marginRight: 8 }, selectedCategory === cat.name && styles.catChipActive]}
+                onPress={() => {
+                  if (Platform.OS !== 'web') void Haptics.selectionAsync();
+                  setSelectedCategory(cat.name);
+                }}
+                activeOpacity={0.6}
               >
                 <Text style={[styles.catChipText, selectedCategory === cat.name && styles.catChipTextActive]}>
                   {cat.name}
@@ -268,7 +274,10 @@ export default function EditWorkoutScreen() {
           </ScrollView>
 
           {/* Drill list */}
-          <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 40 }}
+            keyboardShouldPersistTaps="always"
+          >
             {filteredLibrary.length === 0 ? (
               <View style={styles.emptyWrap}>
                 <Text style={styles.emptyText}>No drills match your search.</Text>
@@ -427,16 +436,19 @@ const styles = StyleSheet.create({
   },
 
   catChip: {
-    paddingHorizontal: 14, paddingVertical: 8,
+    paddingHorizontal: 14, paddingVertical: 10,
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 100,
+    minHeight: 36,
+    justifyContent: 'center',
   },
   catChipActive: {
     backgroundColor: '#1A1A1A', borderColor: '#1A1A1A',
   },
   catChipText: {
-    fontSize: 12, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
+    fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
+    lineHeight: 18,
   },
   catChipTextActive: { color: Colors.white },
 
