@@ -13,8 +13,8 @@ import { useRouter } from 'expo-router';
 import { ChevronRight, Search, ArrowLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { DRILL_CATEGORIES, getDrillsByCategory, ALL_DRILLS } from '@/constants/drills';
-import type { Drill } from '@/constants/drills';
+import { DRILL_CATEGORIES, getDrillsByCategory, ALL_DRILLS } from '@/constants/drillLibrary';
+import type { Drill } from '@/constants/drillLibrary';
 
 const DIFFICULTY_COLORS = {
   beginner: '#8B9A6B',
