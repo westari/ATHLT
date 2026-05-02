@@ -216,27 +216,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 6, paddingHorizontal: 20, marginBottom: 10,
   },
   videoFilterChip: {
-    flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
+    flex: 1, height: 40, alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 100,
-    minHeight: 36,
   },
   videoFilterActive: {
     backgroundColor: '#FBF5E2', borderColor: Colors.primary,
   },
   videoFilterText: {
     fontSize: 13, fontWeight: '600', color: Colors.textSecondary, letterSpacing: -0.1,
-    lineHeight: 18,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   videoFilterTextActive: { color: Colors.primary },
 
   catChip: {
-    paddingHorizontal: 14, paddingVertical: 10,
+    paddingHorizontal: 14, paddingVertical: 0,
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 100,
-    minHeight: 36,
+    height: 40,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   catChipActive: {
@@ -244,7 +246,9 @@ const styles = StyleSheet.create({
   },
   catChipText: {
     fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
-    lineHeight: 18,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   catChipTextActive: { color: Colors.white },
 
