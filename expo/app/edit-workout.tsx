@@ -25,6 +25,9 @@ export default function EditWorkoutScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [hasChanges, setHasChanges] = useState(false);
+  // Holds the previous drills array right before "Start over" is pressed,
+  // so the user can undo and bring everything back.
+  const [undoStack, setUndoStack] = useState<any[] | null>(null);
 
   const day = plan?.days?.[currentDayIndex];
   const planDrills = day?.drills || [];
@@ -75,6 +78,7 @@ export default function EditWorkoutScreen() {
       time: `${drill.duration} min`,
     };
     updateDrills([...planDrills, newDrill]);
+    setUndoStack(null); // Clear undo — they're building new
     setMode('list');
     setSearchQuery('');
     setSelectedCategory('All');
@@ -83,9 +87,17 @@ export default function EditWorkoutScreen() {
   // ===== Rebuild from scratch =====
   const handleRebuildFromScratch = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    // Just clears today's drills. The user can then add from library.
-    // Future: could call generate-plan with a "rebuild this day" flag.
+    // Save the current drills so we can undo
+    setUndoStack([...planDrills]);
     updateDrills([]);
+  };
+
+  // ===== Undo "Start over" =====
+  const handleUndo = () => {
+    if (!undoStack) return;
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    updateDrills(undoStack);
+    setUndoStack(null);
   };
 
   // ===== Reorder drill (move up) =====
@@ -155,6 +167,26 @@ export default function EditWorkoutScreen() {
             <Text style={styles.actionLabel}>Start over</Text>
           </TouchableOpacity>
         </View>
+
+        {/* ===== Undo banner — shown after Start over ===== */}
+        {undoStack ? (
+          <View style={styles.undoBanner}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.undoBannerTitle}>Cleared your workout</Text>
+              <Text style={styles.undoBannerBody}>
+                Tap undo to bring those drills back.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.undoBtn}
+              onPress={handleUndo}
+              activeOpacity={0.7}
+            >
+              <RotateCcw size={14} color={Colors.primary} />
+              <Text style={styles.undoBtnText}>Undo</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* ===== Drill list ===== */}
         <View style={styles.drillsSection}>
@@ -364,6 +396,32 @@ const styles = StyleSheet.create({
   },
 
   drillsSection: { paddingHorizontal: 20 },
+
+  undoBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#FBF5E2',
+    borderWidth: 1, borderColor: Colors.primary,
+    borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12,
+    marginHorizontal: 20, marginBottom: 16,
+  },
+  undoBannerTitle: {
+    fontSize: 13, fontWeight: '700', color: Colors.primary,
+    letterSpacing: -0.2, marginBottom: 2,
+  },
+  undoBannerBody: {
+    fontSize: 12, color: Colors.textSecondary, lineHeight: 16,
+  },
+  undoBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 8,
+    backgroundColor: Colors.background,
+    borderRadius: 100,
+    borderWidth: 1, borderColor: Colors.primary,
+  },
+  undoBtnText: {
+    fontSize: 12, fontWeight: '700', color: Colors.primary, letterSpacing: -0.1,
+  },
   sectionTitle: {
     fontSize: 11, fontWeight: '700', color: Colors.textMuted,
     letterSpacing: 1.5, marginBottom: 10,
@@ -436,11 +494,12 @@ const styles = StyleSheet.create({
   },
 
   catChip: {
-    paddingHorizontal: 14, paddingVertical: 10,
+    paddingHorizontal: 14, paddingVertical: 0,
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 100,
-    minHeight: 36,
+    height: 40,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   catChipActive: {
@@ -448,7 +507,9 @@ const styles = StyleSheet.create({
   },
   catChipText: {
     fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
-    lineHeight: 18,
+    lineHeight: 20,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   catChipTextActive: { color: Colors.white },
 
