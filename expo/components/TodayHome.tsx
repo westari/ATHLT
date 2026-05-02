@@ -13,18 +13,7 @@ import { resolvePlanDrill } from '@/lib/resolveDrill';
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
 
-function getCoachXLine(focus: string, isRest: boolean): string {
-  if (isRest) return 'Rest day. Recover. See you tomorrow.';
-  const f = (focus || '').toLowerCase();
-  if (f.includes('shoot')) return "Shooting day. Let's eat.";
-  if (f.includes('handle') || f.includes('dribbl') || f.includes('ball')) return 'Handle day. Lock in.';
-  if (f.includes('finish') || f.includes('rim')) return 'Finishing today. Get to the rack.';
-  if (f.includes('weak hand') || f.includes('left')) return 'Weak hand work. Where you separate.';
-  if (f.includes('defen')) return 'Defense day. Sit down and guard.';
-  if (f.includes('iq') || f.includes('mental')) return 'Film and IQ. Sharpen up.';
-  if (f.includes('condition') || f.includes('agility') || f.includes('athlet')) return 'Conditioning. Push the pace.';
-  return "Here's today. Let's get it.";
-}
+const COACH_X_LINE = "Here's today. Let's go.";
 
 export default function TodayHome() {
   const insets = useSafeAreaInsets();
@@ -45,10 +34,7 @@ export default function TodayHome() {
     ? Math.round((resolvedDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / resolvedDrills.length) * 100)
     : 0;
 
-  const coachLine = useMemo(
-    () => getCoachXLine(day?.focus || '', !!day?.isRest),
-    [day?.focus, day?.isRest]
-  );
+  const coachLine = COACH_X_LINE;
 
   const onStartSession = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -114,25 +100,37 @@ export default function TodayHome() {
 
         {/* ===== Plan card ===== */}
         <View style={styles.planCardWrap}>
-          {day?.isRest ? (
-            <View style={styles.restCard}>
-              <Text style={styles.restTitle}>Rest day</Text>
-              <Text style={styles.restBody}>Recovery matters as much as the work. See you tomorrow.</Text>
+          <View style={styles.planCard}>
+            {day?.isRest ? (
+              <View style={styles.restNote}>
+                <Text style={styles.restNoteLabel}>REST DAY</Text>
+                <Text style={styles.restNoteBody}>
+                  Recovery is part of the work. But if you wanna get shots up, go ahead.
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.planHeader}>
+              <Text style={styles.planLabel}>
+                {day?.isRest ? 'OPTIONAL WORKOUT' : "TODAY'S WORKOUT"}
+              </Text>
+              <Text style={styles.planDuration}>{day?.duration}</Text>
             </View>
-          ) : (
-            <View style={styles.planCard}>
-              <View style={styles.planHeader}>
-                <Text style={styles.planLabel}>TODAY'S WORKOUT</Text>
-                <Text style={styles.planDuration}>{day?.duration}</Text>
-              </View>
-              <Text style={styles.planFocus}>{day?.focus}</Text>
+            <Text style={styles.planFocus}>{day?.focus || (day?.isRest ? 'Rest' : '')}</Text>
 
-              <View style={styles.progressTrack}>
-                <View style={[styles.progressFill, { width: donePct + '%' }]} />
-              </View>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: donePct + '%' }]} />
+            </View>
 
-              <View style={{ marginTop: 8 }}>
-                {resolvedDrills.map((d, i) => {
+            <View style={{ marginTop: 8 }}>
+              {resolvedDrills.length === 0 ? (
+                <View style={styles.emptyDrillsWrap}>
+                  <Text style={styles.emptyDrillsText}>
+                    No drills yet. Tap "Edit workout" to add some.
+                  </Text>
+                </View>
+              ) : (
+                resolvedDrills.map((d, i) => {
                   const done = completedDrills[currentDayIndex + '-' + i];
                   return (
                     <TouchableOpacity
@@ -156,20 +154,22 @@ export default function TodayHome() {
                       <Text style={styles.drillTime}>{d.time}</Text>
                     </TouchableOpacity>
                   );
-                })}
-              </View>
+                })
+              )}
+            </View>
 
+            {resolvedDrills.length > 0 ? (
               <TouchableOpacity style={styles.startBtn} onPress={onStartSession} activeOpacity={0.85}>
                 <Play size={18} color={Colors.white} fill={Colors.white} />
                 <Text style={styles.startBtnTxt}>Start session</Text>
               </TouchableOpacity>
+            ) : null}
 
-              <TouchableOpacity style={styles.editBtn} onPress={onEditWorkout} activeOpacity={0.7}>
-                <Edit3 size={16} color={Colors.textPrimary} />
-                <Text style={styles.editBtnTxt}>Edit workout</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+            <TouchableOpacity style={styles.editBtn} onPress={onEditWorkout} activeOpacity={0.7}>
+              <Edit3 size={16} color={Colors.textPrimary} />
+              <Text style={styles.editBtnTxt}>Edit workout</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
     </View>
@@ -260,16 +260,26 @@ const styles = StyleSheet.create({
     fontSize: 14, fontWeight: '600', color: Colors.textPrimary, letterSpacing: 0.2,
   },
 
-  restCard: {
-    backgroundColor: Colors.surface, borderRadius: 20, padding: 28,
-    borderWidth: 1, borderColor: Colors.surfaceBorder, alignItems: 'center',
+  restNote: {
+    backgroundColor: '#FBF5E2',
+    borderWidth: 1, borderColor: Colors.primary,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
   },
-  restTitle: {
-    fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
-    marginBottom: 8, letterSpacing: -0.5,
+  restNoteLabel: {
+    fontSize: 10, fontWeight: '700', color: Colors.primary,
+    letterSpacing: 1.5, marginBottom: 4,
   },
-  restBody: {
-    fontSize: 14, color: Colors.textSecondary,
-    textAlign: 'center', lineHeight: 20,
+  restNoteBody: {
+    fontSize: 13, color: Colors.textSecondary, lineHeight: 18,
+  },
+
+  emptyDrillsWrap: {
+    paddingVertical: 24, alignItems: 'center',
+    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
+  },
+  emptyDrillsText: {
+    fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18,
   },
 });
