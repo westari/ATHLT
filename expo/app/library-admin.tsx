@@ -216,30 +216,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 6, paddingHorizontal: 20, marginBottom: 10,
   },
   videoFilterChip: {
-    flex: 1, paddingVertical: 8, alignItems: 'center',
+    flex: 1, paddingVertical: 10, alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 100,
+    minHeight: 36,
   },
   videoFilterActive: {
     backgroundColor: '#FBF5E2', borderColor: Colors.primary,
   },
   videoFilterText: {
-    fontSize: 12, fontWeight: '600', color: Colors.textSecondary, letterSpacing: -0.1,
+    fontSize: 13, fontWeight: '600', color: Colors.textSecondary, letterSpacing: -0.1,
+    lineHeight: 18,
   },
   videoFilterTextActive: { color: Colors.primary },
 
   catChip: {
-    paddingHorizontal: 14, paddingVertical: 7,
+    paddingHorizontal: 14, paddingVertical: 10,
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 100,
+    minHeight: 36,
+    justifyContent: 'center',
   },
   catChipActive: {
     backgroundColor: '#1A1A1A', borderColor: '#1A1A1A',
   },
   catChipText: {
-    fontSize: 12, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
+    fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
+    lineHeight: 18,
   },
   catChipTextActive: { color: Colors.white },
 
