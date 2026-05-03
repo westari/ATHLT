@@ -10,6 +10,7 @@ import YoutubePlayer from 'react-native-youtube-iframe';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
+import { getDrillById } from '@/constants/drillLibrary';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const VIDEO_HEIGHT = Math.round((SCREEN_W - 40) * 9 / 16);
@@ -20,10 +21,25 @@ export default function DrillDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { plan, currentDayIndex, completedDrills, toggleDrillComplete } = usePlanStore();
 
-  const drillIndex = parseInt(id || '0');
-  const day = plan?.days?.[currentDayIndex];
-  const planDrill = day?.drills?.[drillIndex];
-  const drill = resolvePlanDrill(planDrill);
+  const idStr = String(id || '');
+
+  // Smart resolution: id can be a library drillId ("bh-4") OR a numeric plan index ("0")
+  let drill: any = null;
+  let drillIndex: number = -1;
+
+  const libraryDrill = getDrillById(idStr);
+  if (libraryDrill) {
+    drill = libraryDrill;
+  } else {
+    drillIndex = parseInt(idStr) || 0;
+    const day = plan?.days?.[currentDayIndex];
+    const planDrill = day?.drills?.[drillIndex];
+    const resolved = resolvePlanDrill(planDrill);
+    if (resolved) {
+      const fromLib = resolved.id ? getDrillById(resolved.id) : null;
+      drill = fromLib ? { ...fromLib, time: resolved.time } : resolved;
+    }
+  }
 
   const [videoPlaying, setVideoPlaying] = useState(false);
 
@@ -42,15 +58,17 @@ export default function DrillDetailScreen() {
     );
   }
 
-  const isComplete = !!completedDrills[currentDayIndex + '-' + drillIndex];
+  const isComplete = drillIndex >= 0
+    ? !!completedDrills[currentDayIndex + '-' + drillIndex]
+    : false;
 
   const handleComplete = () => {
+    if (drillIndex < 0) return;
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     toggleDrillComplete(currentDayIndex, drillIndex);
   };
 
-  // YouTube ID — drills will get these added over time. Falls back to "video coming soon".
-  const youtubeId: string = (drill as any).youtubeId || '';
+  const youtubeId: string = drill.youtubeId || '';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -64,7 +82,6 @@ export default function DrillDetailScreen() {
         contentContainerStyle={{ paddingBottom: 100 + insets.bottom }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ========== Title + category ========== */}
         <View style={styles.titleWrap}>
           {drill.category ? (
             <Text style={styles.category}>{drill.category.toUpperCase()}</Text>
@@ -72,14 +89,12 @@ export default function DrillDetailScreen() {
           <Text style={styles.drillName}>{drill.name}</Text>
         </View>
 
-        {/* ========== Summary ========== */}
         {drill.summary ? (
           <View style={styles.summaryWrap}>
             <Text style={styles.summaryText}>{drill.summary}</Text>
           </View>
         ) : null}
 
-        {/* ========== Video ========== */}
         {youtubeId ? (
           <View style={styles.videoWrap}>
             <View style={styles.videoBox}>
@@ -112,13 +127,17 @@ export default function DrillDetailScreen() {
           </View>
         )}
 
-        {/* ========== Quick info chips ========== */}
         <View style={styles.detailsWrap}>
           <View style={styles.detailsRow}>
             {drill.time ? (
               <View style={styles.detailChip}>
                 <Clock size={14} color={Colors.primary} />
                 <Text style={styles.detailChipText}>{drill.time}</Text>
+              </View>
+            ) : drill.duration ? (
+              <View style={styles.detailChip}>
+                <Clock size={14} color={Colors.primary} />
+                <Text style={styles.detailChipText}>{drill.duration} min</Text>
               </View>
             ) : null}
             {drill.difficulty ? (
@@ -129,21 +148,17 @@ export default function DrillDetailScreen() {
             ) : null}
           </View>
 
-          {/* ========== Equipment ========== */}
           {drill.equipment && drill.equipment.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>EQUIPMENT</Text>
-              <Text style={styles.sectionText}>
-                {drill.equipment.join(', ')}
-              </Text>
+              <Text style={styles.sectionText}>{drill.equipment.join(', ')}</Text>
             </View>
           ) : null}
 
-          {/* ========== Steps ========== */}
           {drill.steps && drill.steps.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>HOW TO DO IT</Text>
-              {drill.steps.map((step, i) => (
+              {drill.steps.map((step: string, i: number) => (
                 <View key={i} style={styles.stepRow}>
                   <View style={styles.stepNumber}>
                     <Text style={styles.stepNumberText}>{i + 1}</Text>
@@ -154,14 +169,13 @@ export default function DrillDetailScreen() {
             </View>
           ) : null}
 
-          {/* ========== Coaching points ========== */}
           {drill.coachingPoints && drill.coachingPoints.length > 0 ? (
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Lightbulb size={14} color={Colors.primary} />
                 <Text style={styles.sectionTitle}>COACH X CUES</Text>
               </View>
-              {drill.coachingPoints.map((cue, i) => (
+              {drill.coachingPoints.map((cue: string, i: number) => (
                 <View key={i} style={styles.cueRow}>
                   <Text style={styles.cueBullet}>—</Text>
                   <Text style={styles.cueText}>{cue}</Text>
@@ -170,14 +184,13 @@ export default function DrillDetailScreen() {
             </View>
           ) : null}
 
-          {/* ========== Common mistakes ========== */}
           {drill.commonMistakes && drill.commonMistakes.length > 0 ? (
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <AlertCircle size={14} color="#C47A6C" />
                 <Text style={[styles.sectionTitle, { color: '#C47A6C' }]}>WATCH OUT FOR</Text>
               </View>
-              {drill.commonMistakes.map((m, i) => (
+              {drill.commonMistakes.map((m: string, i: number) => (
                 <View key={i} style={styles.cueRow}>
                   <Text style={[styles.cueBullet, { color: '#C47A6C' }]}>×</Text>
                   <Text style={styles.cueText}>{m}</Text>
@@ -186,11 +199,10 @@ export default function DrillDetailScreen() {
             </View>
           ) : null}
 
-          {/* ========== Variations ========== */}
           {drill.variations && drill.variations.length > 0 ? (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>VARIATIONS</Text>
-              {drill.variations.map((v, i) => (
+              {drill.variations.map((v: string, i: number) => (
                 <View key={i} style={styles.cueRow}>
                   <Text style={styles.cueBullet}>—</Text>
                   <Text style={styles.cueText}>{v}</Text>
@@ -201,23 +213,24 @@ export default function DrillDetailScreen() {
         </View>
       </ScrollView>
 
-      {/* Mark complete bottom button */}
-      <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
-        <TouchableOpacity
-          style={[styles.completeBtn, isComplete && styles.completeBtnDone]}
-          onPress={handleComplete}
-          activeOpacity={0.85}
-        >
-          {isComplete ? (
-            <>
-              <Check size={18} color={Colors.white} />
-              <Text style={styles.completeBtnText}>Completed</Text>
-            </>
-          ) : (
-            <Text style={styles.completeBtnText}>Mark complete</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      {drillIndex >= 0 && (
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
+          <TouchableOpacity
+            style={[styles.completeBtn, isComplete && styles.completeBtnDone]}
+            onPress={handleComplete}
+            activeOpacity={0.85}
+          >
+            {isComplete ? (
+              <>
+                <Check size={18} color={Colors.white} />
+                <Text style={styles.completeBtnText}>Completed</Text>
+              </>
+            ) : (
+              <Text style={styles.completeBtnText}>Mark complete</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
