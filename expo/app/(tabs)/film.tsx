@@ -1,28 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView,
-  Image, Alert,
+  Image, Alert, Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEvent } from 'expo';
 import {
-  Upload, Play, Plus, Bookmark, MessageCircle,
-  TrendingUp, AlertCircle, ChevronRight,
+  Upload, Play, Pause, Plus, Bookmark, MessageCircle,
+  TrendingUp, AlertCircle, ChevronRight, ChevronLeft,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import CoachXPill from '@/components/CoachXPill';
 import { supabase } from '@/constants/supabase';
 import { usePlanStore } from '@/store/planStore';
 import { getDrillById } from '@/constants/drillLibrary';
-import { EXAMPLE_ANALYSIS } from '@/constants/exampleAnalysis';
 
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
 const BACKEND_URL = 'https://collectiq-xi.vercel.app';
 const SUPABASE_URL = 'https://tvtojlwdpipntkktguck.supabase.co';
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type AppState = 'idle' | 'uploading' | 'analyzing' | 'result';
+
+interface Moment {
+  type: 'strength' | 'weakness';
+  timestamp: number;
+  label: string;
+  detail: string;
+}
 
 interface FilmAnalysis {
   id: string;
@@ -31,11 +40,9 @@ interface FilmAnalysis {
   overallGrade: string;
   openingLine: string;
   summary: string;
-  strengths: { skill: string; detail: string }[];
-  weaknesses: { skill: string; detail: string }[];
+  moments: Moment[];
   drillRecommendations: { drillId: string; reason: string }[];
   coachNote: string;
-  isExample?: boolean;
 }
 
 export default function FilmTab() {
@@ -49,6 +56,15 @@ export default function FilmTab() {
   const [pastFilms, setPastFilms] = useState<FilmAnalysis[]>([]);
   const [currentAnalysis, setCurrentAnalysis] = useState<FilmAnalysis | null>(null);
   const [savedDrills, setSavedDrills] = useState<Set<string>>(new Set());
+  const [activeMomentIndex, setActiveMomentIndex] = useState(0);
+
+  // ===== Video player setup =====
+  const player = useVideoPlayer(currentAnalysis?.videoUrl || '', p => {
+    p.loop = false;
+    p.muted = false;
+  });
+
+  const { isPlaying } = useEvent(player, 'playingChange', { isPlaying: player.playing });
 
   useEffect(() => { loadPastFilms(); }, []);
 
@@ -69,8 +85,7 @@ export default function FilmTab() {
           overallGrade: f.overall_grade,
           openingLine: f.opening_line || '',
           summary: f.summary || '',
-          strengths: f.strengths || [],
-          weaknesses: f.weaknesses || [],
+          moments: f.moments || [],
           drillRecommendations: f.drill_recommendations || [],
           coachNote: f.coach_note || '',
         })));
@@ -90,8 +105,7 @@ export default function FilmTab() {
         overall_grade: analysis.overallGrade,
         opening_line: analysis.openingLine,
         summary: analysis.summary,
-        strengths: analysis.strengths,
-        weaknesses: analysis.weaknesses,
+        moments: analysis.moments,
         drill_recommendations: analysis.drillRecommendations,
         coach_note: analysis.coachNote,
       });
@@ -183,6 +197,7 @@ export default function FilmTab() {
       setProgress(1);
       await saveAnalysis(videoUrl, analysis);
 
+      setActiveMomentIndex(0);
       setCurrentAnalysis({
         id: 'current',
         videoUrl,
@@ -197,26 +212,34 @@ export default function FilmTab() {
     }
   };
 
-  // ===== Open the example breakdown =====
-  const handleOpenExample = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    setCurrentAnalysis({
-      id: 'example',
-      videoUrl: '',
-      date: new Date().toISOString(),
-      ...EXAMPLE_ANALYSIS,
-    });
-    setState('result');
+  // ===== Moment navigation =====
+  const goToMoment = (index: number) => {
+    if (!currentAnalysis || !currentAnalysis.moments || currentAnalysis.moments.length === 0) return;
+    const safeIndex = Math.max(0, Math.min(index, currentAnalysis.moments.length - 1));
+    setActiveMomentIndex(safeIndex);
+    const moment = currentAnalysis.moments[safeIndex];
+    if (player && moment) {
+      player.currentTime = moment.timestamp;
+      player.play();
+    }
+    if (Platform.OS !== 'web') void Haptics.selectionAsync();
+  };
+
+  const handleNextMoment = () => {
+    goToMoment(activeMomentIndex + 1);
+  };
+
+  const handlePrevMoment = () => {
+    goToMoment(activeMomentIndex - 1);
+  };
+
+  const handlePlayPause = () => {
+    if (!player) return;
+    if (isPlaying) player.pause();
+    else player.play();
   };
 
   const handleAddDrillToToday = (drillId: string) => {
-    if (currentAnalysis?.isExample) {
-      Alert.alert(
-        "This is an example",
-        "Upload your own film to get personalized drill recommendations Coach X picks for you."
-      );
-      return;
-    }
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (!plan) return;
     const drill = getDrillById(drillId);
@@ -231,13 +254,6 @@ export default function FilmTab() {
   };
 
   const handleSaveDrill = (drillId: string) => {
-    if (currentAnalysis?.isExample) {
-      Alert.alert(
-        "This is an example",
-        "Upload your own film to save drills Coach X picks for you."
-      );
-      return;
-    }
     if (Platform.OS !== 'web') void Haptics.selectionAsync();
     setSavedDrills(prev => {
       const next = new Set(prev);
@@ -247,16 +263,10 @@ export default function FilmTab() {
     });
   };
 
-  const handleAskCoach = () => {
-    if (currentAnalysis?.isExample) {
-      Alert.alert(
-        "This is an example",
-        "Upload your own film and you'll be able to ask Coach X questions about it."
-      );
-      return;
-    }
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    Alert.alert('Coming soon', 'Ask Coach X about this film — coming in next update.');
+  const formatTimestamp = (sec: number): string => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
   // ===== LOADING SCREEN =====
@@ -302,75 +312,155 @@ export default function FilmTab() {
 
   // ===== RESULT SCREEN =====
   if (state === 'result' && currentAnalysis) {
-    const isExample = !!currentAnalysis.isExample;
+    const moments = currentAnalysis.moments || [];
+    const activeMoment = moments[activeMomentIndex];
+    const videoDuration = moments.length > 0 ? Math.max(...moments.map(m => m.timestamp)) + 5 : 60;
+
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
-        <CoachXPill />
         <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
-          {/* Example banner — only shown for example breakdown */}
-          {isExample && (
-            <View style={styles.exampleBanner}>
-              <Text style={styles.exampleBannerLabel}>EXAMPLE BREAKDOWN</Text>
-              <Text style={styles.exampleBannerText}>
-                This is what Coach X's analysis looks like. Upload your film to get yours.
-              </Text>
+          {/* ===== Top bar with back + grade ===== */}
+          <View style={styles.topBar}>
+            <TouchableOpacity
+              onPress={() => { setState('idle'); setCurrentAnalysis(null); player?.pause(); }}
+              style={styles.backBtn}
+              activeOpacity={0.7}
+            >
+              <ChevronLeft size={22} color={Colors.textPrimary} />
+              <Text style={styles.backBtnText}>Back</Text>
+            </TouchableOpacity>
+            <View style={styles.gradeBadgeSmall}>
+              <Text style={styles.gradeBadgeSmallText}>{currentAnalysis.overallGrade}</Text>
+            </View>
+          </View>
+
+          {/* ===== VIDEO PLAYER ===== */}
+          <View style={styles.videoContainer}>
+            <VideoView
+              style={styles.videoPlayer}
+              player={player}
+              contentFit="contain"
+              nativeControls={false}
+            />
+            <TouchableOpacity
+              style={styles.playOverlay}
+              onPress={handlePlayPause}
+              activeOpacity={0.8}
+            >
+              {!isPlaying && (
+                <View style={styles.playBtnCircle}>
+                  <Play size={28} color={Colors.white} fill={Colors.white} />
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* ===== TIMELINE WITH MOMENT MARKERS ===== */}
+          {moments.length > 0 && (
+            <View style={styles.timelineWrap}>
+              <View style={styles.timelineTrack}>
+                {moments.map((m, i) => {
+                  const left = (m.timestamp / videoDuration) * 100;
+                  const isActive = i === activeMomentIndex;
+                  const color = m.type === 'strength' ? '#8B9A6B' : '#C47A6C';
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      style={[
+                        styles.momentMarker,
+                        {
+                          left: `${left}%`,
+                          backgroundColor: color,
+                          transform: [{ scale: isActive ? 1.4 : 1 }],
+                          borderColor: isActive ? Colors.textPrimary : 'transparent',
+                          borderWidth: isActive ? 2 : 0,
+                        },
+                      ]}
+                      onPress={() => goToMoment(i)}
+                      activeOpacity={0.7}
+                    />
+                  );
+                })}
+              </View>
+              <View style={styles.timelineLabels}>
+                <Text style={styles.timelineLabel}>0:00</Text>
+                <Text style={styles.timelineLabel}>{formatTimestamp(videoDuration)}</Text>
+              </View>
+            </View>
+          )}
+
+          {/* ===== MOMENT NAVIGATION ===== */}
+          {moments.length > 0 && activeMoment && (
+            <View style={styles.momentNav}>
               <TouchableOpacity
-                style={styles.exampleBannerBtn}
-                onPress={() => { setState('idle'); setCurrentAnalysis(null); setTimeout(handleUploadFilm, 100); }}
-                activeOpacity={0.85}
+                style={[styles.navBtn, activeMomentIndex === 0 && styles.navBtnDisabled]}
+                onPress={handlePrevMoment}
+                disabled={activeMomentIndex === 0}
+                activeOpacity={0.7}
               >
-                <Upload size={14} color={Colors.white} />
-                <Text style={styles.exampleBannerBtnText}>Upload my film</Text>
+                <ChevronLeft size={18} color={activeMomentIndex === 0 ? Colors.textMuted : Colors.textPrimary} />
+                <Text style={[styles.navBtnText, activeMomentIndex === 0 && { color: Colors.textMuted }]}>Prev</Text>
+              </TouchableOpacity>
+
+              <View style={styles.momentCounter}>
+                <Text style={styles.momentCounterText}>
+                  {activeMomentIndex + 1} of {moments.length}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.navBtn, activeMomentIndex === moments.length - 1 && styles.navBtnDisabled]}
+                onPress={handleNextMoment}
+                disabled={activeMomentIndex === moments.length - 1}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.navBtnText, activeMomentIndex === moments.length - 1 && { color: Colors.textMuted }]}>Next</Text>
+                <ChevronRight size={18} color={activeMomentIndex === moments.length - 1 ? Colors.textMuted : Colors.textPrimary} />
               </TouchableOpacity>
             </View>
           )}
 
-          <View style={styles.resultHeader}>
-            <View style={styles.resultHeaderRow}>
-              <Image source={COACH_X_PORTRAIT} style={styles.resultPortrait} resizeMode="contain" />
-              <View style={styles.gradeBadge}>
-                <Text style={styles.gradeBadgeText}>{currentAnalysis.overallGrade}</Text>
-              </View>
-            </View>
-            {currentAnalysis.openingLine ? (
-              <Text style={styles.openingLine}>{currentAnalysis.openingLine}</Text>
-            ) : null}
-            {currentAnalysis.summary ? (
-              <Text style={styles.summaryText}>{currentAnalysis.summary}</Text>
-            ) : null}
-          </View>
-
-          {currentAnalysis.strengths.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <TrendingUp size={14} color="#8B9A6B" />
-                <Text style={[styles.sectionTitle, { color: '#8B9A6B' }]}>WHAT YOU'RE DOING WELL</Text>
-              </View>
-              {currentAnalysis.strengths.map((s, i) => (
-                <View key={i} style={styles.itemCard}>
-                  <Text style={styles.itemSkill}>{s.skill}</Text>
-                  <Text style={styles.itemDetail}>{s.detail}</Text>
+          {/* ===== ACTIVE MOMENT — COACH X COMMENTARY ===== */}
+          {activeMoment && (
+            <View style={styles.commentaryBox}>
+              <View style={styles.commentaryHeader}>
+                <Image source={COACH_X_PORTRAIT} style={styles.commentaryPortrait} resizeMode="contain" />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.commentaryLabelRow}>
+                    <Text style={styles.commentaryTimestamp}>{formatTimestamp(activeMoment.timestamp)}</Text>
+                    <View style={[
+                      styles.commentaryTypeTag,
+                      { backgroundColor: activeMoment.type === 'strength' ? '#E8EDD8' : '#F5DDD6' }
+                    ]}>
+                      <Text style={[
+                        styles.commentaryTypeTagText,
+                        { color: activeMoment.type === 'strength' ? '#5C6843' : '#8B4A3C' }
+                      ]}>
+                        {activeMoment.type === 'strength' ? 'STRENGTH' : 'WORK ON'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.commentaryLabel}>{activeMoment.label}</Text>
                 </View>
-              ))}
+              </View>
+              <Text style={styles.commentaryDetail}>"{activeMoment.detail}"</Text>
             </View>
           )}
 
-          {currentAnalysis.weaknesses.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <AlertCircle size={14} color="#C47A6C" />
-                <Text style={[styles.sectionTitle, { color: '#C47A6C' }]}>WHAT TO WORK ON</Text>
-              </View>
-              {currentAnalysis.weaknesses.map((w, i) => (
-                <View key={i} style={styles.itemCard}>
-                  <Text style={styles.itemSkill}>{w.skill}</Text>
-                  <Text style={styles.itemDetail}>{w.detail}</Text>
-                </View>
-              ))}
+          {/* ===== OPENING LINE / SUMMARY ===== */}
+          {(currentAnalysis.openingLine || currentAnalysis.summary) && (
+            <View style={styles.summaryBox}>
+              {currentAnalysis.openingLine ? (
+                <Text style={styles.openingLine}>{currentAnalysis.openingLine}</Text>
+              ) : null}
+              {currentAnalysis.summary ? (
+                <Text style={styles.summaryText}>{currentAnalysis.summary}</Text>
+              ) : null}
             </View>
           )}
 
+          {/* ===== DRILL RECOMMENDATIONS ===== */}
           {currentAnalysis.drillRecommendations.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -421,27 +511,13 @@ export default function FilmTab() {
             </View>
           )}
 
+          {/* ===== COACH NOTE ===== */}
           {currentAnalysis.coachNote ? (
             <View style={styles.coachNote}>
               <Text style={styles.coachNoteLabel}>COACH X SAYS</Text>
               <Text style={styles.coachNoteText}>"{currentAnalysis.coachNote}"</Text>
             </View>
           ) : null}
-
-          <TouchableOpacity style={styles.askBtn} onPress={handleAskCoach} activeOpacity={0.85}>
-            <MessageCircle size={16} color={Colors.white} />
-            <Text style={styles.askBtnText}>
-              {isExample ? 'Upload my film to ask Coach X' : 'Ask Coach X about this film'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.doneBtn}
-            onPress={() => { setState('idle'); setCurrentAnalysis(null); }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.doneBtnText}>{isExample ? 'Back' : 'Done'}</Text>
-          </TouchableOpacity>
         </ScrollView>
       </View>
     );
@@ -467,64 +543,14 @@ export default function FilmTab() {
         </TouchableOpacity>
         <Text style={styles.uploadHint}>Up to 60 seconds. Game footage works best.</Text>
 
-        {pastFilms.length === 0 ? (
-          <>
-            {/* ===== Example breakdown card — shown only when no real films exist ===== */}
-            <View style={styles.exampleSectionLabel}>
-              <Text style={styles.exampleSectionLabelText}>SEE WHAT YOU'LL GET</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.exampleCard}
-              onPress={handleOpenExample}
-              activeOpacity={0.7}
-            >
-              <View style={styles.exampleCardHeader}>
-                <Image source={COACH_X_PORTRAIT} style={styles.exampleCardPortrait} resizeMode="contain" />
-                <View style={{ flex: 1 }}>
-                  <View style={styles.exampleCardLabelRow}>
-                    <View style={styles.exampleTag}>
-                      <Text style={styles.exampleTagText}>EXAMPLE</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.exampleCardTitle}>Sample Player · Point Guard</Text>
-                </View>
-                <View style={styles.exampleCardGrade}>
-                  <Text style={styles.exampleCardGradeText}>{EXAMPLE_ANALYSIS.overallGrade}</Text>
-                </View>
-              </View>
-
-              <Text style={styles.exampleCardLine}>
-                "{EXAMPLE_ANALYSIS.openingLine}"
-              </Text>
-
-              <View style={styles.exampleCardMeta}>
-                <Text style={styles.exampleCardMetaItem}>
-                  {EXAMPLE_ANALYSIS.strengths.length} strengths
-                </Text>
-                <Text style={styles.exampleCardMetaDot}>·</Text>
-                <Text style={styles.exampleCardMetaItem}>
-                  {EXAMPLE_ANALYSIS.weaknesses.length} to work on
-                </Text>
-                <Text style={styles.exampleCardMetaDot}>·</Text>
-                <Text style={styles.exampleCardMetaItem}>
-                  {EXAMPLE_ANALYSIS.drillRecommendations.length} drills
-                </Text>
-              </View>
-
-              <View style={styles.exampleCardFooter}>
-                <Text style={styles.exampleCardFooterText}>See full breakdown</Text>
-                <ChevronRight size={16} color={Colors.primary} />
-              </View>
-            </TouchableOpacity>
-          </>
-        ) : (
+        {pastFilms.length > 0 && (
           <View style={styles.pastFilmsSection}>
             <Text style={styles.pastFilmsTitle}>YOUR FILM</Text>
             {pastFilms.map(f => (
               <TouchableOpacity
                 key={f.id}
                 style={styles.pastFilmCard}
-                onPress={() => { setCurrentAnalysis(f); setState('result'); }}
+                onPress={() => { setActiveMomentIndex(0); setCurrentAnalysis(f); setState('result'); }}
                 activeOpacity={0.7}
               >
                 <View style={styles.pastFilmGrade}>
@@ -551,198 +577,133 @@ export default function FilmTab() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
-  idleHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20,
+  // ===== TOP BAR (result screen) =====
+  topBar: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12,
   },
-  idleHeaderPortrait: { width: 56, height: 56 },
-  idleHeaderLabel: {
-    fontSize: 10, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 4,
+  backBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 2,
+    paddingVertical: 8, paddingRight: 12,
   },
-  idleHeaderText: {
-    fontSize: 20, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.5, lineHeight: 26,
+  backBtnText: {
+    fontSize: 15, color: Colors.textPrimary, fontWeight: '500',
   },
-
-  uploadCard: {
-    backgroundColor: '#1A1A1A', marginHorizontal: 20,
-    borderRadius: 100, paddingVertical: 18,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  gradeBadgeSmall: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#FBF5E2', borderWidth: 2, borderColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
   },
-  uploadCardText: {
-    fontSize: 15, fontWeight: '600', color: Colors.white, letterSpacing: 0.2,
-  },
-  uploadHint: {
-    fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginTop: 10, marginBottom: 24,
+  gradeBadgeSmallText: {
+    fontSize: 16, fontWeight: '800', color: Colors.primary, letterSpacing: -0.3,
   },
 
-  // ===== EXAMPLE CARD =====
-  exampleSectionLabel: {
-    paddingHorizontal: 20, marginBottom: 10,
+  // ===== VIDEO PLAYER =====
+  videoContainer: {
+    width: SCREEN_WIDTH,
+    aspectRatio: 16 / 9,
+    backgroundColor: '#000',
+    position: 'relative',
   },
-  exampleSectionLabelText: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5,
+  videoPlayer: {
+    width: '100%', height: '100%',
   },
-  exampleCard: {
+  playOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  playBtnCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  // ===== TIMELINE =====
+  timelineWrap: {
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8,
+    backgroundColor: '#1A1A1A',
+  },
+  timelineTrack: {
+    height: 8, backgroundColor: '#3A3A3A', borderRadius: 4,
+    position: 'relative',
+  },
+  momentMarker: {
+    position: 'absolute', top: -4,
+    width: 16, height: 16, borderRadius: 8,
+    marginLeft: -8,
+  },
+  timelineLabels: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    marginTop: 6,
+  },
+  timelineLabel: {
+    fontSize: 11, color: '#999', fontWeight: '600', letterSpacing: 0.3,
+  },
+
+  // ===== MOMENT NAV =====
+  momentNav: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#1A1A1A',
+    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16,
+  },
+  navBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 10, paddingHorizontal: 14,
+    backgroundColor: '#2A2A2A',
+    borderRadius: 100,
+    minWidth: 90, justifyContent: 'center',
+  },
+  navBtnDisabled: { opacity: 0.4 },
+  navBtnText: {
+    fontSize: 14, fontWeight: '600', color: Colors.white, letterSpacing: -0.1,
+  },
+  momentCounter: {
+    paddingHorizontal: 12,
+  },
+  momentCounterText: {
+    fontSize: 13, color: '#999', fontWeight: '600', letterSpacing: 0.3,
+  },
+
+  // ===== COACH X COMMENTARY BOX =====
+  commentaryBox: {
     backgroundColor: Colors.surface,
-    marginHorizontal: 20,
+    marginHorizontal: 16, marginTop: 16,
     borderRadius: 16,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     padding: 16,
   },
-  exampleCardHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginBottom: 14,
+  commentaryHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginBottom: 12,
   },
-  exampleCardPortrait: { width: 44, height: 44 },
-  exampleCardLabelRow: {
-    flexDirection: 'row', marginBottom: 4,
+  commentaryPortrait: { width: 48, height: 48 },
+  commentaryLabelRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginBottom: 4,
   },
-  exampleTag: {
-    backgroundColor: '#FBF5E2',
-    borderWidth: 1, borderColor: Colors.primary,
+  commentaryTimestamp: {
+    fontSize: 12, fontWeight: '800', color: Colors.primary,
+    letterSpacing: 0.5, fontVariant: ['tabular-nums'],
+  },
+  commentaryTypeTag: {
     paddingHorizontal: 7, paddingVertical: 2,
     borderRadius: 100,
   },
-  exampleTagText: {
-    fontSize: 9, fontWeight: '800', color: Colors.primary, letterSpacing: 1,
+  commentaryTypeTagText: {
+    fontSize: 9, fontWeight: '800', letterSpacing: 1,
   },
-  exampleCardTitle: {
-    fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2,
+  commentaryLabel: {
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.3,
   },
-  exampleCardGrade: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#FBF5E2',
-    borderWidth: 1.5, borderColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  exampleCardGradeText: {
-    fontSize: 16, fontWeight: '800', color: Colors.primary, letterSpacing: -0.3,
-  },
-  exampleCardLine: {
-    fontSize: 14, fontWeight: '600', color: Colors.textPrimary,
-    letterSpacing: -0.2, lineHeight: 20, marginBottom: 12,
+  commentaryDetail: {
+    fontSize: 14, color: Colors.textPrimary, lineHeight: 20,
     fontStyle: 'italic',
   },
-  exampleCardMeta: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    marginBottom: 14,
-  },
-  exampleCardMetaItem: {
-    fontSize: 12, color: Colors.textSecondary,
-  },
-  exampleCardMetaDot: {
-    fontSize: 12, color: Colors.textMuted,
-  },
-  exampleCardFooter: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 12,
-    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
-  },
-  exampleCardFooterText: {
-    fontSize: 13, fontWeight: '700', color: Colors.primary, letterSpacing: -0.1,
-  },
 
-  // ===== EXAMPLE BANNER (on result screen) =====
-  exampleBanner: {
-    backgroundColor: '#FBF5E2',
-    borderBottomWidth: 1, borderBottomColor: Colors.primary,
-    paddingHorizontal: 20, paddingVertical: 16,
-  },
-  exampleBannerLabel: {
-    fontSize: 10, fontWeight: '800', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 4,
-  },
-  exampleBannerText: {
-    fontSize: 13, color: Colors.textPrimary, lineHeight: 18, marginBottom: 12,
-  },
-  exampleBannerBtn: {
-    backgroundColor: '#1A1A1A',
-    paddingVertical: 10, paddingHorizontal: 14,
-    borderRadius: 100, alignSelf: 'flex-start',
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-  },
-  exampleBannerBtnText: {
-    fontSize: 13, fontWeight: '600', color: Colors.white, letterSpacing: 0.1,
-  },
-
-  pastFilmsSection: { paddingHorizontal: 20 },
-  pastFilmsTitle: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5, marginBottom: 12, marginTop: 8,
-  },
-  pastFilmCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 14, padding: 14, marginBottom: 8,
-  },
-  pastFilmGrade: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#FBF5E2', borderWidth: 1.5, borderColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  pastFilmGradeText: {
-    fontSize: 16, fontWeight: '800', color: Colors.primary, letterSpacing: -0.3,
-  },
-  pastFilmDate: {
-    fontSize: 11, color: Colors.textMuted, marginBottom: 3, fontWeight: '600', letterSpacing: 0.5,
-  },
-  pastFilmSummary: {
-    fontSize: 13, color: Colors.textPrimary, lineHeight: 18,
-  },
-
-  loadingWrap: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  loadingPortrait: { width: 100, height: 100, marginBottom: 16 },
-  loadingTitle: {
-    fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.5, marginBottom: 6,
-  },
-  loadingSubtitle: {
-    fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginBottom: 24,
-  },
-  progressBarOuter: {
-    width: '100%', height: 6, backgroundColor: Colors.surfaceBorder,
-    borderRadius: 3, overflow: 'hidden', marginBottom: 32,
-  },
-  progressBarInner: {
-    height: '100%', backgroundColor: Colors.primary, borderRadius: 3,
-  },
-  loadingSteps: { width: '100%', gap: 12 },
-  loadingStep: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-  },
-  stepDot: {
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: Colors.surfaceBorder,
-  },
-  stepDotDone: { backgroundColor: Colors.primary },
-  stepLabel: {
-    fontSize: 14, color: Colors.textMuted, letterSpacing: -0.2,
-  },
-  stepLabelDone: { color: Colors.textPrimary, fontWeight: '600' },
-
-  resultHeader: {
-    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20,
-    borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
-  },
-  resultHeaderRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  resultPortrait: { width: 56, height: 56 },
-  gradeBadge: {
-    width: 60, height: 60, borderRadius: 30,
-    backgroundColor: '#FBF5E2', borderWidth: 2, borderColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  gradeBadgeText: {
-    fontSize: 22, fontWeight: '800', color: Colors.primary, letterSpacing: -0.5,
+  // ===== SUMMARY BOX =====
+  summaryBox: {
+    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8,
   },
   openingLine: {
     fontSize: 18, fontWeight: '700', color: Colors.textPrimary,
@@ -752,6 +713,7 @@ const styles = StyleSheet.create({
     fontSize: 14, color: Colors.textSecondary, lineHeight: 20,
   },
 
+  // ===== DRILLS =====
   section: {
     paddingHorizontal: 20, paddingTop: 20, paddingBottom: 4,
   },
@@ -759,16 +721,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: 11, fontWeight: '700', letterSpacing: 1.5,
-  },
-
-  itemCard: { paddingVertical: 10 },
-  itemSkill: {
-    fontSize: 14, fontWeight: '600', color: Colors.textPrimary,
-    letterSpacing: -0.2, marginBottom: 4,
-  },
-  itemDetail: {
-    fontSize: 13, color: Colors.textSecondary, lineHeight: 19,
+    fontSize: 11, fontWeight: '700', letterSpacing: 1.5, color: Colors.textMuted,
   },
 
   drillRecCard: {
@@ -808,6 +761,7 @@ const styles = StyleSheet.create({
     fontSize: 12, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
   },
 
+  // ===== COACH NOTE =====
   coachNote: {
     backgroundColor: '#FBF5E2',
     borderWidth: 1, borderColor: Colors.primary,
@@ -823,20 +777,90 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-  askBtn: {
-    backgroundColor: '#1A1A1A', marginHorizontal: 20, marginTop: 20,
-    borderRadius: 100, paddingVertical: 14,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  // ===== IDLE =====
+  idleHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20,
   },
-  askBtnText: {
-    fontSize: 14, fontWeight: '600', color: Colors.white, letterSpacing: 0.1,
+  idleHeaderPortrait: { width: 56, height: 56 },
+  idleHeaderLabel: {
+    fontSize: 10, fontWeight: '700', color: Colors.primary,
+    letterSpacing: 1.5, marginBottom: 4,
+  },
+  idleHeaderText: {
+    fontSize: 20, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.5, lineHeight: 26,
   },
 
-  doneBtn: {
-    marginHorizontal: 20, marginTop: 12,
-    paddingVertical: 14, alignItems: 'center',
+  uploadCard: {
+    backgroundColor: '#1A1A1A', marginHorizontal: 20,
+    borderRadius: 100, paddingVertical: 18,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
-  doneBtnText: {
-    fontSize: 14, fontWeight: '600', color: Colors.textMuted, letterSpacing: 0.1,
+  uploadCardText: {
+    fontSize: 15, fontWeight: '600', color: Colors.white, letterSpacing: 0.2,
   },
+  uploadHint: {
+    fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginTop: 10, marginBottom: 24,
+  },
+
+  pastFilmsSection: { paddingHorizontal: 20 },
+  pastFilmsTitle: {
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
+    letterSpacing: 1.5, marginBottom: 12, marginTop: 8,
+  },
+  pastFilmCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    borderRadius: 14, padding: 14, marginBottom: 8,
+  },
+  pastFilmGrade: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#FBF5E2', borderWidth: 1.5, borderColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pastFilmGradeText: {
+    fontSize: 16, fontWeight: '800', color: Colors.primary, letterSpacing: -0.3,
+  },
+  pastFilmDate: {
+    fontSize: 11, color: Colors.textMuted, marginBottom: 3, fontWeight: '600', letterSpacing: 0.5,
+  },
+  pastFilmSummary: {
+    fontSize: 13, color: Colors.textPrimary, lineHeight: 18,
+  },
+
+  // ===== LOADING =====
+  loadingWrap: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 32,
+  },
+  loadingPortrait: { width: 100, height: 100, marginBottom: 16 },
+  loadingTitle: {
+    fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.5, marginBottom: 6,
+  },
+  loadingSubtitle: {
+    fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginBottom: 24,
+  },
+  progressBarOuter: {
+    width: '100%', height: 6, backgroundColor: Colors.surfaceBorder,
+    borderRadius: 3, overflow: 'hidden', marginBottom: 32,
+  },
+  progressBarInner: {
+    height: '100%', backgroundColor: Colors.primary, borderRadius: 3,
+  },
+  loadingSteps: { width: '100%', gap: 12 },
+  loadingStep: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+  },
+  stepDot: {
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: Colors.surfaceBorder,
+  },
+  stepDotDone: { backgroundColor: Colors.primary },
+  stepLabel: {
+    fontSize: 14, color: Colors.textMuted, letterSpacing: -0.2,
+  },
+  stepLabelDone: { color: Colors.textPrimary, fontWeight: '600' },
 });
