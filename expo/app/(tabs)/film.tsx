@@ -45,6 +45,22 @@ interface FilmAnalysis {
   coachNote: string;
 }
 
+// Small thumbnail component that shows the first frame of a video
+function PastFilmThumbnail({ videoUrl }: { videoUrl: string }) {
+  const thumbPlayer = useVideoPlayer(videoUrl, p => {
+    p.muted = true;
+    p.pause();
+  });
+  return (
+    <VideoView
+      style={styles.pastFilmThumb}
+      player={thumbPlayer}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+}
+
 export default function FilmTab() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -320,7 +336,7 @@ export default function FilmTab() {
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
-          {/* ===== Top bar with back + grade ===== */}
+          {/* ===== Top bar with back ===== */}
           <View style={styles.topBar}>
             <TouchableOpacity
               onPress={() => { setState('idle'); setCurrentAnalysis(null); player?.pause(); }}
@@ -330,9 +346,6 @@ export default function FilmTab() {
               <ChevronLeft size={22} color={Colors.textPrimary} />
               <Text style={styles.backBtnText}>Back</Text>
             </TouchableOpacity>
-            <View style={styles.gradeBadgeSmall}>
-              <Text style={styles.gradeBadgeSmallText}>{currentAnalysis.overallGrade}</Text>
-            </View>
           </View>
 
           {/* ===== VIDEO PLAYER ===== */}
@@ -448,15 +461,25 @@ export default function FilmTab() {
             </View>
           )}
 
-          {/* ===== OPENING LINE / SUMMARY ===== */}
+          {/* ===== COACH X PEEKS OUT — opening line + summary + grade ===== */}
           {(currentAnalysis.openingLine || currentAnalysis.summary) && (
-            <View style={styles.summaryBox}>
-              {currentAnalysis.openingLine ? (
-                <Text style={styles.openingLine}>{currentAnalysis.openingLine}</Text>
-              ) : null}
-              {currentAnalysis.summary ? (
-                <Text style={styles.summaryText}>{currentAnalysis.summary}</Text>
-              ) : null}
+            <View style={styles.coachSpeakWrap}>
+              <Image source={COACH_X_PORTRAIT} style={styles.coachSpeakPortrait} resizeMode="contain" />
+              <View style={styles.coachSpeakBubble}>
+                <View style={styles.coachSpeakArrow} />
+                <View style={styles.coachSpeakHeader}>
+                  <Text style={styles.coachSpeakLabel}>COACH X · OVERALL</Text>
+                  <View style={styles.coachSpeakGrade}>
+                    <Text style={styles.coachSpeakGradeText}>{currentAnalysis.overallGrade}</Text>
+                  </View>
+                </View>
+                {currentAnalysis.openingLine ? (
+                  <Text style={styles.coachSpeakOpening}>"{currentAnalysis.openingLine}"</Text>
+                ) : null}
+                {currentAnalysis.summary ? (
+                  <Text style={styles.coachSpeakSummary}>{currentAnalysis.summary}</Text>
+                ) : null}
+              </View>
             </View>
           )}
 
@@ -472,7 +495,14 @@ export default function FilmTab() {
                 const isSaved = savedDrills.has(rec.drillId);
                 return (
                   <View key={i} style={styles.drillRecCard}>
-                    <View style={styles.drillRecMain}>
+                    <TouchableOpacity
+                      style={styles.drillRecMain}
+                      onPress={() => {
+                        if (Platform.OS !== 'web') void Haptics.selectionAsync();
+                        router.push(`/drill/${rec.drillId}`);
+                      }}
+                      activeOpacity={0.7}
+                    >
                       <View style={{ flex: 1 }}>
                         <Text style={styles.drillRecName}>{drill.name}</Text>
                         <Text style={styles.drillRecMeta}>
@@ -480,7 +510,8 @@ export default function FilmTab() {
                         </Text>
                         <Text style={styles.drillRecReason}>"{rec.reason}"</Text>
                       </View>
-                    </View>
+                      <ChevronRight size={18} color={Colors.textMuted} />
+                    </TouchableOpacity>
                     <View style={styles.drillRecActions}>
                       <TouchableOpacity
                         style={styles.drillActionBtn}
@@ -511,13 +542,7 @@ export default function FilmTab() {
             </View>
           )}
 
-          {/* ===== COACH NOTE ===== */}
-          {currentAnalysis.coachNote ? (
-            <View style={styles.coachNote}>
-              <Text style={styles.coachNoteLabel}>COACH X SAYS</Text>
-              <Text style={styles.coachNoteText}>"{currentAnalysis.coachNote}"</Text>
-            </View>
-          ) : null}
+          {/* COACH X SAYS box removed — opening line + speech bubble already serves this role */}
         </ScrollView>
       </View>
     );
@@ -553,8 +578,17 @@ export default function FilmTab() {
                 onPress={() => { setActiveMomentIndex(0); setCurrentAnalysis(f); setState('result'); }}
                 activeOpacity={0.7}
               >
-                <View style={styles.pastFilmGrade}>
-                  <Text style={styles.pastFilmGradeText}>{f.overallGrade}</Text>
+                <View style={styles.pastFilmThumbWrap}>
+                  {f.videoUrl ? (
+                    <PastFilmThumbnail videoUrl={f.videoUrl} />
+                  ) : (
+                    <View style={[styles.pastFilmThumb, styles.pastFilmThumbFallback]}>
+                      <Play size={20} color={Colors.textMuted} />
+                    </View>
+                  )}
+                  <View style={styles.pastFilmThumbGradeOverlay}>
+                    <Text style={styles.pastFilmThumbGradeText}>{f.overallGrade}</Text>
+                  </View>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.pastFilmDate}>
@@ -588,14 +622,6 @@ const styles = StyleSheet.create({
   },
   backBtnText: {
     fontSize: 15, color: Colors.textPrimary, fontWeight: '500',
-  },
-  gradeBadgeSmall: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#FBF5E2', borderWidth: 2, borderColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  gradeBadgeSmallText: {
-    fontSize: 16, fontWeight: '800', color: Colors.primary, letterSpacing: -0.3,
   },
 
   // ===== VIDEO PLAYER =====
@@ -701,16 +727,59 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-  // ===== SUMMARY BOX =====
-  summaryBox: {
-    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8,
+  // ===== COACH X SPEECH BUBBLE (opening line + summary) =====
+  coachSpeakWrap: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8,
+    gap: 0,
   },
-  openingLine: {
-    fontSize: 18, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.4, lineHeight: 24, marginBottom: 8,
+  coachSpeakPortrait: {
+    width: 56, height: 56,
+    marginTop: 8,
+    marginRight: -8,
+    zIndex: 2,
   },
-  summaryText: {
-    fontSize: 14, color: Colors.textSecondary, lineHeight: 20,
+  coachSpeakBubble: {
+    flex: 1,
+    backgroundColor: '#FBF5E2',
+    borderWidth: 1, borderColor: Colors.primary,
+    borderRadius: 16,
+    paddingHorizontal: 18, paddingVertical: 16,
+    paddingLeft: 24,
+    position: 'relative',
+  },
+  coachSpeakHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  coachSpeakLabel: {
+    fontSize: 10, fontWeight: '800', color: Colors.primary,
+    letterSpacing: 1.5,
+  },
+  coachSpeakGrade: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 10, paddingVertical: 3,
+    borderRadius: 100,
+  },
+  coachSpeakGradeText: {
+    fontSize: 12, fontWeight: '800', color: Colors.white, letterSpacing: -0.2,
+  },
+  coachSpeakArrow: {
+    position: 'absolute',
+    left: -7, top: 18,
+    width: 14, height: 14,
+    backgroundColor: '#FBF5E2',
+    borderTopWidth: 1, borderLeftWidth: 1,
+    borderTopColor: Colors.primary, borderLeftColor: Colors.primary,
+    transform: [{ rotate: '-45deg' }],
+  },
+  coachSpeakOpening: {
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.3, lineHeight: 22, marginBottom: 8,
+    fontStyle: 'italic',
+  },
+  coachSpeakSummary: {
+    fontSize: 13, color: Colors.textSecondary, lineHeight: 19,
   },
 
   // ===== DRILLS =====
@@ -761,22 +830,6 @@ const styles = StyleSheet.create({
     fontSize: 12, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
   },
 
-  // ===== COACH NOTE =====
-  coachNote: {
-    backgroundColor: '#FBF5E2',
-    borderWidth: 1, borderColor: Colors.primary,
-    borderRadius: 14,
-    marginHorizontal: 20, marginTop: 20, padding: 16,
-  },
-  coachNoteLabel: {
-    fontSize: 10, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 6,
-  },
-  coachNoteText: {
-    fontSize: 14, color: Colors.textPrimary, lineHeight: 20,
-    fontStyle: 'italic',
-  },
-
   // ===== IDLE =====
   idleHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -815,13 +868,26 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 14, padding: 14, marginBottom: 8,
   },
-  pastFilmGrade: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: '#FBF5E2', borderWidth: 1.5, borderColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center',
+  pastFilmThumbWrap: {
+    width: 76, height: 56, borderRadius: 8,
+    overflow: 'hidden', position: 'relative',
+    backgroundColor: '#000',
   },
-  pastFilmGradeText: {
-    fontSize: 16, fontWeight: '800', color: Colors.primary, letterSpacing: -0.3,
+  pastFilmThumb: {
+    width: '100%', height: '100%',
+  },
+  pastFilmThumbFallback: {
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.surface,
+  },
+  pastFilmThumbGradeOverlay: {
+    position: 'absolute', bottom: 4, right: 4,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 6,
+  },
+  pastFilmThumbGradeText: {
+    fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: -0.2,
   },
   pastFilmDate: {
     fontSize: 11, color: Colors.textMuted, marginBottom: 3, fontWeight: '600', letterSpacing: 0.5,
