@@ -19,7 +19,9 @@ import { DRILL_CATEGORIES, getDrillsByCategory, ALL_DRILLS } from '@/constants/d
 import type { Drill } from '@/constants/drillLibrary';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const VIDEO_HEIGHT = Math.round((SCREEN_W - 40) * 9 / 16);
+// Vertical 9:16 frame — sized to ~60% of screen width to fit nicely on phones
+const VIDEO_WIDTH = Math.round(SCREEN_W * 0.6);
+const VIDEO_HEIGHT = Math.round(VIDEO_WIDTH * 16 / 9);
 
 const DIFFICULTY_COLORS = {
   beginner: '#8B9A6B',
@@ -56,7 +58,6 @@ export default function LibraryScreen() {
     }
   };
 
-  // Search results
   const searchResults = searchQuery.length > 1
     ? ALL_DRILLS.filter(d =>
         d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -64,14 +65,12 @@ export default function LibraryScreen() {
       )
     : [];
 
-  // Drill detail view
   if (selectedDrill) {
     const diffColor = DIFFICULTY_COLORS[selectedDrill.difficulty];
     const youtubeId = (selectedDrill as any).youtubeId || '';
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {/* Header */}
           <View style={styles.detailHeader}>
             <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
               <ArrowLeft size={22} color={Colors.textSecondary} />
@@ -80,7 +79,6 @@ export default function LibraryScreen() {
             <View style={{ width: 40 }} />
           </View>
 
-          {/* Drill info */}
           <Text style={styles.detailName}>{selectedDrill.name}</Text>
 
           <View style={styles.detailMeta}>
@@ -95,11 +93,11 @@ export default function LibraryScreen() {
 
           <Text style={styles.detailSummary}>{selectedDrill.summary}</Text>
 
-          {/* Video */}
           {youtubeId ? (
             <View style={styles.videoBox}>
               <YoutubePlayer
                 height={VIDEO_HEIGHT}
+                width={VIDEO_WIDTH}
                 videoId={youtubeId}
                 webViewProps={{
                   allowsInlineMediaPlayback: true,
@@ -114,7 +112,6 @@ export default function LibraryScreen() {
             </View>
           ) : null}
 
-          {/* Steps */}
           <View style={styles.detailSection}>
             <Text style={styles.detailSectionTitle}>HOW TO DO IT</Text>
             {selectedDrill.steps.map((step, i) => (
@@ -127,7 +124,6 @@ export default function LibraryScreen() {
             ))}
           </View>
 
-          {/* Coaching points */}
           <View style={styles.detailSection}>
             <Text style={styles.detailSectionTitle}>COACHING POINTS</Text>
             {selectedDrill.coachingPoints.map((point, i) => (
@@ -138,7 +134,6 @@ export default function LibraryScreen() {
             ))}
           </View>
 
-          {/* Common mistakes */}
           <View style={styles.detailSection}>
             <Text style={styles.detailSectionTitle}>COMMON MISTAKES</Text>
             {selectedDrill.commonMistakes.map((mistake, i) => (
@@ -149,7 +144,6 @@ export default function LibraryScreen() {
             ))}
           </View>
 
-          {/* Variations */}
           {selectedDrill.variations && selectedDrill.variations.length > 0 && (
             <View style={styles.detailSection}>
               <Text style={styles.detailSectionTitle}>VARIATIONS</Text>
@@ -168,7 +162,6 @@ export default function LibraryScreen() {
     );
   }
 
-  // Category drill list view
   if (selectedCategory) {
     const drills = getDrillsByCategory(selectedCategory);
     const catColor = DRILL_CATEGORIES.find(c => c.name === selectedCategory)?.color || Colors.primary;
@@ -221,13 +214,11 @@ export default function LibraryScreen() {
     );
   }
 
-  // Main category list view
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.headerTitle}>Drill Library</Text>
 
-        {/* Search bar */}
         <View style={styles.searchBar}>
           <Search size={16} color={Colors.textMuted} />
           <TextInput
@@ -239,7 +230,6 @@ export default function LibraryScreen() {
           />
         </View>
 
-        {/* Search results */}
         {searchQuery.length > 1 ? (
           <View style={styles.drillList}>
             {searchResults.length === 0 ? (
@@ -275,7 +265,6 @@ export default function LibraryScreen() {
             )}
           </View>
         ) : (
-          /* Category list */
           <View style={styles.categoryList}>
             {DRILL_CATEGORIES.map((cat, i) => (
               <TouchableOpacity
@@ -328,7 +317,6 @@ const styles = StyleSheet.create({
   categoryName: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
   categoryCount: { fontSize: 12, color: Colors.textMuted },
   categoryDesc: { fontSize: 12, color: Colors.textSecondary },
-  // Drill list
   drillList: { gap: 10 },
   drillCard: {
     flexDirection: 'row', alignItems: 'center',
@@ -347,14 +335,12 @@ const styles = StyleSheet.create({
   smallBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   categoryDrillCount: { fontSize: 14, color: Colors.textSecondary, marginBottom: 20 },
   noResults: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', paddingTop: 40 },
-  // Detail header
   detailHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingTop: 8, paddingBottom: 16,
   },
   backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   detailHeaderTitle: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
-  // Detail view
   detailName: { fontSize: 26, fontWeight: '800', color: Colors.textPrimary, marginBottom: 14, lineHeight: 34 },
   detailMeta: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
   diffBadge: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
@@ -362,7 +348,10 @@ const styles = StyleSheet.create({
   detailDuration: { fontSize: 13, color: Colors.textSecondary },
   detailEquip: { fontSize: 13, color: Colors.textMuted },
   detailSummary: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 24 },
-  videoBox: { borderRadius: 14, overflow: 'hidden', backgroundColor: '#000', marginBottom: 24 },
+  videoBox: {
+    borderRadius: 14, overflow: 'hidden', backgroundColor: '#000',
+    marginBottom: 24, alignSelf: 'center',
+  },
   detailSection: {
     backgroundColor: Colors.surface, borderRadius: 16,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
