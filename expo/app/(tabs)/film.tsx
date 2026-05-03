@@ -16,6 +16,7 @@ import CoachXPill from '@/components/CoachXPill';
 import { supabase } from '@/constants/supabase';
 import { usePlanStore } from '@/store/planStore';
 import { getDrillById } from '@/constants/drillLibrary';
+import { EXAMPLE_ANALYSIS } from '@/constants/exampleAnalysis';
 
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
 const BACKEND_URL = 'https://collectiq-xi.vercel.app';
@@ -34,6 +35,7 @@ interface FilmAnalysis {
   weaknesses: { skill: string; detail: string }[];
   drillRecommendations: { drillId: string; reason: string }[];
   coachNote: string;
+  isExample?: boolean;
 }
 
 export default function FilmTab() {
@@ -195,7 +197,26 @@ export default function FilmTab() {
     }
   };
 
+  // ===== Open the example breakdown =====
+  const handleOpenExample = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCurrentAnalysis({
+      id: 'example',
+      videoUrl: '',
+      date: new Date().toISOString(),
+      ...EXAMPLE_ANALYSIS,
+    });
+    setState('result');
+  };
+
   const handleAddDrillToToday = (drillId: string) => {
+    if (currentAnalysis?.isExample) {
+      Alert.alert(
+        "This is an example",
+        "Upload your own film to get personalized drill recommendations Coach X picks for you."
+      );
+      return;
+    }
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (!plan) return;
     const drill = getDrillById(drillId);
@@ -210,6 +231,13 @@ export default function FilmTab() {
   };
 
   const handleSaveDrill = (drillId: string) => {
+    if (currentAnalysis?.isExample) {
+      Alert.alert(
+        "This is an example",
+        "Upload your own film to save drills Coach X picks for you."
+      );
+      return;
+    }
     if (Platform.OS !== 'web') void Haptics.selectionAsync();
     setSavedDrills(prev => {
       const next = new Set(prev);
@@ -220,6 +248,13 @@ export default function FilmTab() {
   };
 
   const handleAskCoach = () => {
+    if (currentAnalysis?.isExample) {
+      Alert.alert(
+        "This is an example",
+        "Upload your own film and you'll be able to ask Coach X questions about it."
+      );
+      return;
+    }
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     Alert.alert('Coming soon', 'Ask Coach X about this film — coming in next update.');
   };
@@ -267,10 +302,29 @@ export default function FilmTab() {
 
   // ===== RESULT SCREEN =====
   if (state === 'result' && currentAnalysis) {
+    const isExample = !!currentAnalysis.isExample;
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <CoachXPill />
         <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
+
+          {/* Example banner — only shown for example breakdown */}
+          {isExample && (
+            <View style={styles.exampleBanner}>
+              <Text style={styles.exampleBannerLabel}>EXAMPLE BREAKDOWN</Text>
+              <Text style={styles.exampleBannerText}>
+                This is what Coach X's analysis looks like. Upload your film to get yours.
+              </Text>
+              <TouchableOpacity
+                style={styles.exampleBannerBtn}
+                onPress={() => { setState('idle'); setCurrentAnalysis(null); setTimeout(handleUploadFilm, 100); }}
+                activeOpacity={0.85}
+              >
+                <Upload size={14} color={Colors.white} />
+                <Text style={styles.exampleBannerBtnText}>Upload my film</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <View style={styles.resultHeader}>
             <View style={styles.resultHeaderRow}>
@@ -376,7 +430,9 @@ export default function FilmTab() {
 
           <TouchableOpacity style={styles.askBtn} onPress={handleAskCoach} activeOpacity={0.85}>
             <MessageCircle size={16} color={Colors.white} />
-            <Text style={styles.askBtnText}>Ask Coach X about this film</Text>
+            <Text style={styles.askBtnText}>
+              {isExample ? 'Upload my film to ask Coach X' : 'Ask Coach X about this film'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -384,7 +440,7 @@ export default function FilmTab() {
             onPress={() => { setState('idle'); setCurrentAnalysis(null); }}
             activeOpacity={0.7}
           >
-            <Text style={styles.doneBtnText}>Done</Text>
+            <Text style={styles.doneBtnText}>{isExample ? 'Back' : 'Done'}</Text>
           </TouchableOpacity>
         </ScrollView>
       </View>
@@ -412,13 +468,55 @@ export default function FilmTab() {
         <Text style={styles.uploadHint}>Up to 60 seconds. Game footage works best.</Text>
 
         {pastFilms.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Play size={32} color={Colors.textMuted} />
-            <Text style={styles.emptyStateTitle}>No films yet</Text>
-            <Text style={styles.emptyStateText}>
-              Upload a clip and Coach X will break down your game.
-            </Text>
-          </View>
+          <>
+            {/* ===== Example breakdown card — shown only when no real films exist ===== */}
+            <View style={styles.exampleSectionLabel}>
+              <Text style={styles.exampleSectionLabelText}>SEE WHAT YOU'LL GET</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.exampleCard}
+              onPress={handleOpenExample}
+              activeOpacity={0.7}
+            >
+              <View style={styles.exampleCardHeader}>
+                <Image source={COACH_X_PORTRAIT} style={styles.exampleCardPortrait} resizeMode="contain" />
+                <View style={{ flex: 1 }}>
+                  <View style={styles.exampleCardLabelRow}>
+                    <View style={styles.exampleTag}>
+                      <Text style={styles.exampleTagText}>EXAMPLE</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.exampleCardTitle}>Sample Player · Point Guard</Text>
+                </View>
+                <View style={styles.exampleCardGrade}>
+                  <Text style={styles.exampleCardGradeText}>{EXAMPLE_ANALYSIS.overallGrade}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.exampleCardLine}>
+                "{EXAMPLE_ANALYSIS.openingLine}"
+              </Text>
+
+              <View style={styles.exampleCardMeta}>
+                <Text style={styles.exampleCardMetaItem}>
+                  {EXAMPLE_ANALYSIS.strengths.length} strengths
+                </Text>
+                <Text style={styles.exampleCardMetaDot}>·</Text>
+                <Text style={styles.exampleCardMetaItem}>
+                  {EXAMPLE_ANALYSIS.weaknesses.length} to work on
+                </Text>
+                <Text style={styles.exampleCardMetaDot}>·</Text>
+                <Text style={styles.exampleCardMetaItem}>
+                  {EXAMPLE_ANALYSIS.drillRecommendations.length} drills
+                </Text>
+              </View>
+
+              <View style={styles.exampleCardFooter}>
+                <Text style={styles.exampleCardFooterText}>See full breakdown</Text>
+                <ChevronRight size={16} color={Colors.primary} />
+              </View>
+            </TouchableOpacity>
+          </>
         ) : (
           <View style={styles.pastFilmsSection}>
             <Text style={styles.pastFilmsTitle}>YOUR FILM</Text>
@@ -479,16 +577,95 @@ const styles = StyleSheet.create({
     fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginTop: 10, marginBottom: 24,
   },
 
-  emptyState: {
-    marginHorizontal: 20, paddingVertical: 32, alignItems: 'center',
+  // ===== EXAMPLE CARD =====
+  exampleSectionLabel: {
+    paddingHorizontal: 20, marginBottom: 10,
+  },
+  exampleSectionLabelText: {
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
+    letterSpacing: 1.5,
+  },
+  exampleCard: {
+    backgroundColor: Colors.surface,
+    marginHorizontal: 20,
+    borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 16,
+  },
+  exampleCardHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginBottom: 14,
+  },
+  exampleCardPortrait: { width: 44, height: 44 },
+  exampleCardLabelRow: {
+    flexDirection: 'row', marginBottom: 4,
+  },
+  exampleTag: {
+    backgroundColor: '#FBF5E2',
+    borderWidth: 1, borderColor: Colors.primary,
+    paddingHorizontal: 7, paddingVertical: 2,
+    borderRadius: 100,
+  },
+  exampleTagText: {
+    fontSize: 9, fontWeight: '800', color: Colors.primary, letterSpacing: 1,
+  },
+  exampleCardTitle: {
+    fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2,
+  },
+  exampleCardGrade: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#FBF5E2',
+    borderWidth: 1.5, borderColor: Colors.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  exampleCardGradeText: {
+    fontSize: 16, fontWeight: '800', color: Colors.primary, letterSpacing: -0.3,
+  },
+  exampleCardLine: {
+    fontSize: 14, fontWeight: '600', color: Colors.textPrimary,
+    letterSpacing: -0.2, lineHeight: 20, marginBottom: 12,
+    fontStyle: 'italic',
+  },
+  exampleCardMeta: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginBottom: 14,
+  },
+  exampleCardMetaItem: {
+    fontSize: 12, color: Colors.textSecondary,
+  },
+  exampleCardMetaDot: {
+    fontSize: 12, color: Colors.textMuted,
+  },
+  exampleCardFooter: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 12,
     borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
   },
-  emptyStateTitle: {
-    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
-    marginTop: 12, marginBottom: 4, letterSpacing: -0.3,
+  exampleCardFooterText: {
+    fontSize: 13, fontWeight: '700', color: Colors.primary, letterSpacing: -0.1,
   },
-  emptyStateText: {
-    fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 18,
+
+  // ===== EXAMPLE BANNER (on result screen) =====
+  exampleBanner: {
+    backgroundColor: '#FBF5E2',
+    borderBottomWidth: 1, borderBottomColor: Colors.primary,
+    paddingHorizontal: 20, paddingVertical: 16,
+  },
+  exampleBannerLabel: {
+    fontSize: 10, fontWeight: '800', color: Colors.primary,
+    letterSpacing: 1.5, marginBottom: 4,
+  },
+  exampleBannerText: {
+    fontSize: 13, color: Colors.textPrimary, lineHeight: 18, marginBottom: 12,
+  },
+  exampleBannerBtn: {
+    backgroundColor: '#1A1A1A',
+    paddingVertical: 10, paddingHorizontal: 14,
+    borderRadius: 100, alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+  },
+  exampleBannerBtnText: {
+    fontSize: 13, fontWeight: '600', color: Colors.white, letterSpacing: 0.1,
   },
 
   pastFilmsSection: { paddingHorizontal: 20 },
@@ -551,7 +728,7 @@ const styles = StyleSheet.create({
   stepLabelDone: { color: Colors.textPrimary, fontWeight: '600' },
 
   resultHeader: {
-    paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20,
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20,
     borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
   },
   resultHeaderRow: {
