@@ -19,9 +19,7 @@ import { DRILL_CATEGORIES, getDrillsByCategory, ALL_DRILLS } from '@/constants/d
 import type { Drill } from '@/constants/drillLibrary';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-// Vertical 9:16 frame — sized to ~60% of screen width to fit nicely on phones
-const VIDEO_WIDTH = Math.round(SCREEN_W * 0.6);
-const VIDEO_HEIGHT = Math.round(VIDEO_WIDTH * 16 / 9);
+const VIDEO_HEIGHT = Math.round((SCREEN_W - 40) * 9 / 16);
 
 const DIFFICULTY_COLORS = {
   beginner: '#8B9A6B',
@@ -97,7 +95,6 @@ export default function LibraryScreen() {
             <View style={styles.videoBox}>
               <YoutubePlayer
                 height={VIDEO_HEIGHT}
-                width={VIDEO_WIDTH}
                 videoId={youtubeId}
                 webViewProps={{
                   allowsInlineMediaPlayback: true,
@@ -348,10 +345,7 @@ const styles = StyleSheet.create({
   detailDuration: { fontSize: 13, color: Colors.textSecondary },
   detailEquip: { fontSize: 13, color: Colors.textMuted },
   detailSummary: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 24 },
-  videoBox: {
-    borderRadius: 14, overflow: 'hidden', backgroundColor: '#000',
-    marginBottom: 24, alignSelf: 'center',
-  },
+  videoBox: { borderRadius: 14, overflow: 'hidden', backgroundColor: '#000', marginBottom: 24 },
   detailSection: {
     backgroundColor: Colors.surface, borderRadius: 16,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
