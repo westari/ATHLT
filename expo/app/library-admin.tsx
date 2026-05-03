@@ -1,171 +1,293 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView, TextInput,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  TextInput,
+  Platform,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft, Search, X, CheckCircle2, Circle, Filter } from 'lucide-react-native';
+import { ChevronRight, Search, ArrowLeft } from 'lucide-react-native';
+import YoutubePlayer from 'react-native-youtube-iframe';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { ALL_DRILLS, DRILL_CATEGORIES, type Drill } from '@/constants/drillLibrary';
+import { DRILL_CATEGORIES, getDrillsByCategory, ALL_DRILLS } from '@/constants/drillLibrary';
+import type { Drill } from '@/constants/drillLibrary';
 
-type VideoFilter = 'all' | 'has-video' | 'no-video';
+const { width: SCREEN_W } = Dimensions.get('window');
+// Vertical 9:16 frame — sized to ~60% of screen width to fit nicely on phones
+const VIDEO_WIDTH = Math.round(SCREEN_W * 0.6);
+const VIDEO_HEIGHT = Math.round(VIDEO_WIDTH * 16 / 9);
 
-export default function DrillLibraryScreen() {
+const DIFFICULTY_COLORS = {
+  beginner: '#8B9A6B',
+  intermediate: '#C4A46C',
+  advanced: '#C47A6C',
+};
+
+export default function LibraryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedDrill, setSelectedDrill] = useState<Drill | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All');
-  const [videoFilter, setVideoFilter] = useState<VideoFilter>('all');
 
-  const filtered = useMemo(() => {
-    let drills: Drill[] = ALL_DRILLS;
+  const handleCategoryPress = (name: string) => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedCategory(name);
+    setSelectedDrill(null);
+  };
 
-    if (selectedCategory !== 'All') {
-      drills = drills.filter(d => d.category === selectedCategory);
-    }
-    if (videoFilter === 'has-video') {
-      drills = drills.filter(d => !!d.videoUrl);
-    } else if (videoFilter === 'no-video') {
-      drills = drills.filter(d => !d.videoUrl);
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      drills = drills.filter(d =>
-        d.name.toLowerCase().includes(q) ||
-        d.id.toLowerCase().includes(q) ||
-        d.summary.toLowerCase().includes(q)
-      );
-    }
-    return drills;
-  }, [searchQuery, selectedCategory, videoFilter]);
+  const handleDrillPress = (drill: Drill) => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedDrill(drill);
+  };
 
-  const totalCount = ALL_DRILLS.length;
-  const withVideoCount = ALL_DRILLS.filter(d => !!d.videoUrl).length;
+  const handleBack = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (selectedDrill) {
+      setSelectedDrill(null);
+    } else {
+      setSelectedCategory(null);
+      setSearchQuery('');
+    }
+  };
+
+  const searchResults = searchQuery.length > 1
+    ? ALL_DRILLS.filter(d =>
+        d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        d.category.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : [];
+
+  if (selectedDrill) {
+    const diffColor = DIFFICULTY_COLORS[selectedDrill.difficulty];
+    const youtubeId = (selectedDrill as any).youtubeId || '';
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.detailHeader}>
+            <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
+              <ArrowLeft size={22} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <Text style={styles.detailHeaderTitle}>{selectedDrill.category}</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <Text style={styles.detailName}>{selectedDrill.name}</Text>
+
+          <View style={styles.detailMeta}>
+            <View style={[styles.diffBadge, { backgroundColor: diffColor + '20' }]}>
+              <Text style={[styles.diffBadgeText, { color: diffColor }]}>
+                {selectedDrill.difficulty.toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.detailDuration}>{selectedDrill.duration} min</Text>
+            <Text style={styles.detailEquip}>{selectedDrill.equipment.join(' · ')}</Text>
+          </View>
+
+          <Text style={styles.detailSummary}>{selectedDrill.summary}</Text>
+
+          {youtubeId ? (
+            <View style={styles.videoBox}>
+              <YoutubePlayer
+                height={VIDEO_HEIGHT}
+                width={VIDEO_WIDTH}
+                videoId={youtubeId}
+                webViewProps={{
+                  allowsInlineMediaPlayback: true,
+                  mediaPlaybackRequiresUserAction: false,
+                }}
+                initialPlayerParams={{
+                  modestbranding: true,
+                  rel: false,
+                  controls: true,
+                }}
+              />
+            </View>
+          ) : null}
+
+          <View style={styles.detailSection}>
+            <Text style={styles.detailSectionTitle}>HOW TO DO IT</Text>
+            {selectedDrill.steps.map((step, i) => (
+              <View key={i} style={styles.stepRow}>
+                <View style={styles.stepNumber}>
+                  <Text style={styles.stepNumberText}>{i + 1}</Text>
+                </View>
+                <Text style={styles.stepText}>{step}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.detailSection}>
+            <Text style={styles.detailSectionTitle}>COACHING POINTS</Text>
+            {selectedDrill.coachingPoints.map((point, i) => (
+              <View key={i} style={styles.bulletRow}>
+                <View style={[styles.bulletDot, { backgroundColor: Colors.primary }]} />
+                <Text style={styles.bulletText}>{point}</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.detailSection}>
+            <Text style={styles.detailSectionTitle}>COMMON MISTAKES</Text>
+            {selectedDrill.commonMistakes.map((mistake, i) => (
+              <View key={i} style={styles.bulletRow}>
+                <View style={[styles.bulletDot, { backgroundColor: '#C47A6C' }]} />
+                <Text style={styles.bulletText}>{mistake}</Text>
+              </View>
+            ))}
+          </View>
+
+          {selectedDrill.variations && selectedDrill.variations.length > 0 && (
+            <View style={styles.detailSection}>
+              <Text style={styles.detailSectionTitle}>VARIATIONS</Text>
+              {selectedDrill.variations.map((v, i) => (
+                <View key={i} style={styles.bulletRow}>
+                  <View style={[styles.bulletDot, { backgroundColor: Colors.textMuted }]} />
+                  <Text style={styles.bulletText}>{v}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (selectedCategory) {
+    const drills = getDrillsByCategory(selectedCategory);
+    const catColor = DRILL_CATEGORIES.find(c => c.name === selectedCategory)?.color || Colors.primary;
+
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.detailHeader}>
+            <TouchableOpacity onPress={handleBack} style={styles.backButton} activeOpacity={0.7}>
+              <ArrowLeft size={22} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <Text style={styles.detailHeaderTitle}>{selectedCategory}</Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <Text style={styles.categoryDrillCount}>{drills.length} drills</Text>
+
+          <View style={styles.drillList}>
+            {drills.map((drill, i) => {
+              const diffColor = DIFFICULTY_COLORS[drill.difficulty];
+              return (
+                <TouchableOpacity
+                  key={drill.id}
+                  style={styles.drillCard}
+                  onPress={() => handleDrillPress(drill)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.drillAccent, { backgroundColor: catColor }]} />
+                  <View style={styles.drillCardContent}>
+                    <Text style={styles.drillCardName}>{drill.name}</Text>
+                    <Text style={styles.drillCardSummary} numberOfLines={2}>{drill.summary}</Text>
+                    <View style={styles.drillCardMeta}>
+                      <View style={[styles.smallBadge, { backgroundColor: diffColor + '20' }]}>
+                        <Text style={[styles.smallBadgeText, { color: diffColor }]}>
+                          {drill.difficulty.toUpperCase()}
+                        </Text>
+                      </View>
+                      <Text style={styles.drillCardDuration}>{drill.duration} min</Text>
+                    </View>
+                  </View>
+                  <ChevronRight size={16} color={Colors.textMuted} />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={{ height: 30 }} />
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <ArrowLeft size={22} color={Colors.textPrimary} />
-        </TouchableOpacity>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.headerTitle}>Drill Library</Text>
-        <View style={{ width: 40 }} />
-      </View>
 
-      {/* Stats bar */}
-      <View style={styles.statsBar}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{totalCount}</Text>
-          <Text style={styles.statLabel}>Total drills</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{withVideoCount}</Text>
-          <Text style={styles.statLabel}>With video</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{totalCount - withVideoCount}</Text>
-          <Text style={styles.statLabel}>Need video</Text>
-        </View>
-      </View>
-
-      {/* Search */}
-      <View style={styles.searchWrap}>
-        <Search size={16} color={Colors.textMuted} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search by name or ID..."
-          placeholderTextColor={Colors.textMuted}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <X size={16} color={Colors.textMuted} />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      {/* Video filter pills */}
-      <View style={styles.videoFilterRow}>
-        {(['all', 'has-video', 'no-video'] as VideoFilter[]).map(f => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.videoFilterChip, videoFilter === f && styles.videoFilterActive]}
-            onPress={() => setVideoFilter(f)}
-          >
-            <Text style={[styles.videoFilterText, videoFilter === f && styles.videoFilterTextActive]}>
-              {f === 'all' ? 'All' : f === 'has-video' ? 'Has video' : 'Needs video'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Category filter */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={{ marginBottom: 12 }}
-        contentContainerStyle={{ paddingHorizontal: 20, gap: 8 }}
-      >
-        <TouchableOpacity
-          style={[styles.catChip, selectedCategory === 'All' && styles.catChipActive]}
-          onPress={() => setSelectedCategory('All')}
-        >
-          <Text style={[styles.catChipText, selectedCategory === 'All' && styles.catChipTextActive]}>
-            All
-          </Text>
-        </TouchableOpacity>
-        {DRILL_CATEGORIES.map(cat => (
-          <TouchableOpacity
-            key={cat.name}
-            style={[styles.catChip, selectedCategory === cat.name && styles.catChipActive]}
-            onPress={() => setSelectedCategory(cat.name)}
-          >
-            <Text style={[styles.catChipText, selectedCategory === cat.name && styles.catChipTextActive]}>
-              {cat.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Drill list */}
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
-        <View style={styles.resultCount}>
-          <Text style={styles.resultCountText}>{filtered.length} drills</Text>
+        <View style={styles.searchBar}>
+          <Search size={16} color={Colors.textMuted} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search drills..."
+            placeholderTextColor={Colors.textMuted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
         </View>
 
-        {filtered.map(drill => {
-          const hasVideo = !!drill.videoUrl;
-          return (
-            <View key={drill.id} style={styles.drillCard}>
-              <View style={styles.drillCardLeft}>
-                {hasVideo ? (
-                  <CheckCircle2 size={18} color={Colors.primary} />
-                ) : (
-                  <Circle size={18} color={Colors.surfaceBorder} />
-                )}
-              </View>
-              <View style={styles.drillCardMid}>
-                <View style={styles.drillNameRow}>
-                  <Text style={styles.drillName} numberOfLines={1}>{drill.name}</Text>
-                  <Text style={styles.drillId}>{drill.id}</Text>
+        {searchQuery.length > 1 ? (
+          <View style={styles.drillList}>
+            {searchResults.length === 0 ? (
+              <Text style={styles.noResults}>No drills found for "{searchQuery}"</Text>
+            ) : (
+              searchResults.map((drill) => {
+                const diffColor = DIFFICULTY_COLORS[drill.difficulty];
+                const catColor = DRILL_CATEGORIES.find(c => c.name === drill.category)?.color || Colors.primary;
+                return (
+                  <TouchableOpacity
+                    key={drill.id}
+                    style={styles.drillCard}
+                    onPress={() => handleDrillPress(drill)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.drillAccent, { backgroundColor: catColor }]} />
+                    <View style={styles.drillCardContent}>
+                      <Text style={styles.drillCardName}>{drill.name}</Text>
+                      <View style={styles.drillCardMeta}>
+                        <Text style={styles.drillCardCategory}>{drill.category}</Text>
+                        <View style={[styles.smallBadge, { backgroundColor: diffColor + '20' }]}>
+                          <Text style={[styles.smallBadgeText, { color: diffColor }]}>
+                            {drill.difficulty.toUpperCase()}
+                          </Text>
+                        </View>
+                        <Text style={styles.drillCardDuration}>{drill.duration} min</Text>
+                      </View>
+                    </View>
+                    <ChevronRight size={16} color={Colors.textMuted} />
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
+        ) : (
+          <View style={styles.categoryList}>
+            {DRILL_CATEGORIES.map((cat, i) => (
+              <TouchableOpacity
+                key={i}
+                style={styles.categoryCard}
+                onPress={() => handleCategoryPress(cat.name)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.categoryAccent, { backgroundColor: cat.color }]} />
+                <View style={styles.categoryContent}>
+                  <View style={styles.categoryTop}>
+                    <Text style={styles.categoryName}>{cat.name}</Text>
+                    <Text style={styles.categoryCount}>{cat.drills.length} drills</Text>
+                  </View>
+                  <Text style={styles.categoryDesc}>{cat.description}</Text>
                 </View>
-                <Text style={styles.drillMeta}>
-                  {drill.category} · {drill.duration}min · {drill.difficulty}
-                </Text>
-                {drill.summary ? (
-                  <Text style={styles.drillSummary} numberOfLines={2}>
-                    {drill.summary}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          );
-        })}
+                <ChevronRight size={16} color={Colors.textMuted} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: 30 }} />
       </ScrollView>
     </View>
   );
@@ -173,111 +295,81 @@ export default function DrillLibraryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 8,
-    justifyContent: 'space-between',
+  scrollContent: { paddingHorizontal: 20 },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, paddingTop: 16, marginBottom: 16 },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: Colors.surface, borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 20,
   },
-  backBtn: {
-    width: 40, height: 40, borderRadius: 20,
+  searchInput: { flex: 1, fontSize: 15, color: Colors.textPrimary },
+  categoryList: { gap: 10 },
+  categoryCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 16, gap: 14,
+  },
+  categoryAccent: { width: 4, height: 40, borderRadius: 2 },
+  categoryContent: { flex: 1 },
+  categoryTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  categoryName: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary },
+  categoryCount: { fontSize: 12, color: Colors.textMuted },
+  categoryDesc: { fontSize: 12, color: Colors.textSecondary },
+  drillList: { gap: 10 },
+  drillCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 16, gap: 12,
+  },
+  drillAccent: { width: 3, height: 36, borderRadius: 2 },
+  drillCardContent: { flex: 1 },
+  drillCardName: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 4 },
+  drillCardSummary: { fontSize: 12, color: Colors.textSecondary, lineHeight: 17, marginBottom: 8 },
+  drillCardMeta: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  drillCardCategory: { fontSize: 11, color: Colors.textMuted },
+  drillCardDuration: { fontSize: 11, color: Colors.textMuted },
+  smallBadge: { borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
+  smallBadgeText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  categoryDrillCount: { fontSize: 14, color: Colors.textSecondary, marginBottom: 20 },
+  noResults: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', paddingTop: 40 },
+  detailHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingTop: 8, paddingBottom: 16,
+  },
+  backButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  detailHeaderTitle: { fontSize: 15, fontWeight: '600', color: Colors.textSecondary },
+  detailName: { fontSize: 26, fontWeight: '800', color: Colors.textPrimary, marginBottom: 14, lineHeight: 34 },
+  detailMeta: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 },
+  diffBadge: { borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
+  diffBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  detailDuration: { fontSize: 13, color: Colors.textSecondary },
+  detailEquip: { fontSize: 13, color: Colors.textMuted },
+  detailSummary: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 24 },
+  videoBox: {
+    borderRadius: 14, overflow: 'hidden', backgroundColor: '#000',
+    marginBottom: 24, alignSelf: 'center',
+  },
+  detailSection: {
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    padding: 20, marginBottom: 14,
+  },
+  detailSectionTitle: {
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
+    letterSpacing: 1.5, marginBottom: 16,
+  },
+  stepRow: { flexDirection: 'row', gap: 14, marginBottom: 16 },
+  stepNumber: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: Colors.primary + '20',
     alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: {
-    fontSize: 17, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3,
-  },
-
-  statsBar: {
-    flexDirection: 'row', backgroundColor: Colors.surface,
-    borderRadius: 16, marginHorizontal: 20, marginBottom: 16,
-    paddingVertical: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-  },
-  statItem: { flex: 1, alignItems: 'center' },
-  statValue: {
-    fontSize: 20, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.5,
-  },
-  statLabel: {
-    fontSize: 11, color: Colors.textMuted, marginTop: 2,
-  },
-  statDivider: { width: 1, backgroundColor: Colors.surfaceBorder, marginVertical: 4 },
-
-  searchWrap: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginHorizontal: 20, marginBottom: 12,
-    backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
-  },
-  searchInput: {
-    flex: 1, fontSize: 14, color: Colors.textPrimary, padding: 0,
-  },
-
-  videoFilterRow: {
-    flexDirection: 'row', gap: 6, paddingHorizontal: 20, marginBottom: 10,
-  },
-  videoFilterChip: {
-    flex: 1, height: 40, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 100,
-  },
-  videoFilterActive: {
-    backgroundColor: '#FBF5E2', borderColor: Colors.primary,
-  },
-  videoFilterText: {
-    fontSize: 13, fontWeight: '600', color: Colors.textSecondary, letterSpacing: -0.1,
-    lineHeight: 20,
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
-  videoFilterTextActive: { color: Colors.primary },
-
-  catChip: {
-    paddingHorizontal: 14, paddingVertical: 0,
-    backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 100,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  catChipActive: {
-    backgroundColor: '#1A1A1A', borderColor: '#1A1A1A',
-  },
-  catChipText: {
-    fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.1,
-    lineHeight: 20,
-    includeFontPadding: false,
-    textAlignVertical: 'center',
-  },
-  catChipTextActive: { color: Colors.white },
-
-  resultCount: { paddingHorizontal: 20, paddingVertical: 8 },
-  resultCountText: {
-    fontSize: 11, color: Colors.textMuted, fontWeight: '600', letterSpacing: 1,
-  },
-
-  drillCard: {
-    flexDirection: 'row', gap: 12,
-    paddingHorizontal: 20, paddingVertical: 12,
-    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
-  },
-  drillCardLeft: {
-    paddingTop: 2,
-  },
-  drillCardMid: { flex: 1 },
-  drillNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
-  drillName: {
-    flex: 1, fontSize: 14, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2,
-  },
-  drillId: {
-    fontSize: 10, color: Colors.textMuted, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    backgroundColor: Colors.surface, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4,
-  },
-  drillMeta: {
-    fontSize: 11, color: Colors.textMuted, textTransform: 'capitalize',
-  },
-  drillSummary: {
-    fontSize: 12, color: Colors.textSecondary, marginTop: 4, lineHeight: 17,
-  },
+  stepNumberText: { fontSize: 12, fontWeight: '800', color: Colors.primary },
+  stepText: { flex: 1, fontSize: 14, color: Colors.textPrimary, lineHeight: 21 },
+  bulletRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  bulletDot: { width: 6, height: 6, borderRadius: 3, marginTop: 7 },
+  bulletText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 21 },
 });
