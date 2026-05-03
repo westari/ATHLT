@@ -7,14 +7,19 @@ import {
   ScrollView,
   TextInput,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { ChevronRight, Search, ArrowLeft } from 'lucide-react-native';
+import YoutubePlayer from 'react-native-youtube-iframe';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { DRILL_CATEGORIES, getDrillsByCategory, ALL_DRILLS } from '@/constants/drillLibrary';
 import type { Drill } from '@/constants/drillLibrary';
+
+const { width: SCREEN_W } = Dimensions.get('window');
+const VIDEO_HEIGHT = Math.round((SCREEN_W - 40) * 9 / 16);
 
 const DIFFICULTY_COLORS = {
   beginner: '#8B9A6B',
@@ -62,6 +67,7 @@ export default function LibraryScreen() {
   // Drill detail view
   if (selectedDrill) {
     const diffColor = DIFFICULTY_COLORS[selectedDrill.difficulty];
+    const youtubeId = (selectedDrill as any).youtubeId || '';
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -88,6 +94,25 @@ export default function LibraryScreen() {
           </View>
 
           <Text style={styles.detailSummary}>{selectedDrill.summary}</Text>
+
+          {/* Video */}
+          {youtubeId ? (
+            <View style={styles.videoBox}>
+              <YoutubePlayer
+                height={VIDEO_HEIGHT}
+                videoId={youtubeId}
+                webViewProps={{
+                  allowsInlineMediaPlayback: true,
+                  mediaPlaybackRequiresUserAction: false,
+                }}
+                initialPlayerParams={{
+                  modestbranding: true,
+                  rel: false,
+                  controls: true,
+                }}
+              />
+            </View>
+          ) : null}
 
           {/* Steps */}
           <View style={styles.detailSection}>
@@ -336,7 +361,8 @@ const styles = StyleSheet.create({
   diffBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
   detailDuration: { fontSize: 13, color: Colors.textSecondary },
   detailEquip: { fontSize: 13, color: Colors.textMuted },
-  detailSummary: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 28 },
+  detailSummary: { fontSize: 15, color: Colors.textSecondary, lineHeight: 22, marginBottom: 24 },
+  videoBox: { borderRadius: 14, overflow: 'hidden', backgroundColor: '#000', marginBottom: 24 },
   detailSection: {
     backgroundColor: Colors.surface, borderRadius: 16,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
