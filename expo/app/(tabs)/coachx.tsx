@@ -14,7 +14,7 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Send, Film, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Send, Film } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import Colors from '@/constants/colors';
@@ -28,63 +28,6 @@ interface ChatMessage {
   filmData?: any;
 }
 
-// Pull a smart opening greeting based on the user's recent activity.
-// Falls back to a default if there's no memory yet (e.g., new user).
-async function buildOpeningGreeting(): Promise<string> {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return "What's good. I'm Coach X — your AI trainer. Sign in so I can pull up your training history.";
-    }
-
-    // Pull last session + weakest skill in parallel
-    const [sessionsRes, skillsRes] = await Promise.all([
-      supabase
-        .from('sessions')
-        .select('date, completed_drills_count, skills_worked, overall_feedback')
-        .eq('user_id', user.id)
-        .order('date', { ascending: false })
-        .limit(1),
-      supabase
-        .from('skill_state')
-        .select('skill_category, current_level')
-        .eq('user_id', user.id)
-        .order('current_level', { ascending: true })
-        .limit(1),
-    ]);
-
-    const lastSession = sessionsRes.data?.[0];
-    const weakestSkill = skillsRes.data?.[0];
-
-    const SKILL_LABELS: Record<string, string> = {
-      ballHandling: 'ball handling', shooting: 'shooting', shotForm: 'shot form',
-      finishing: 'finishing', weakHand: 'weak hand', defense: 'defense',
-      iq: 'basketball IQ', athleticism: 'athleticism', creativity: 'creativity',
-      touch: 'touch', courtVision: 'court vision', decisionMaking: 'decision making',
-    };
-
-    // Best case: we have both session history AND skill data
-    if (lastSession && weakestSkill) {
-      const skillName = SKILL_LABELS[weakestSkill.skill_category] || weakestSkill.skill_category;
-      const level = Number(weakestSkill.current_level).toFixed(1);
-      return `What's good. I just pulled up your training history — your ${skillName} is sitting at ${level}/10, that's the lowest. We'll keep hammering it. What's on your mind?`;
-    }
-
-    // Have skill data but no session history yet
-    if (weakestSkill) {
-      const skillName = SKILL_LABELS[weakestSkill.skill_category] || weakestSkill.skill_category;
-      const level = Number(weakestSkill.current_level).toFixed(1);
-      return `What's good. Based on your profile, ${skillName} is your weakest area at ${level}/10 — that's where we lock in. What's up?`;
-    }
-
-    // Have a plan but no memory yet (new user post-onboarding)
-    return "What's good. I built your plan based on what you told me. Run a session and I'll start tracking everything. What you wanna ask?";
-  } catch (e) {
-    console.error('buildOpeningGreeting failed:', e);
-    return "What's good. I'm Coach X — your AI trainer. Ask me anything about your game, or upload film and I'll break it down for you.";
-  }
-}
-
 export default function CoachXScreen() {
   const insets = useSafeAreaInsets();
   const { profile, plan } = usePlanStore();
@@ -94,16 +37,13 @@ export default function CoachXScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Build a smart memory-aware opening greeting on first mount
   useEffect(() => {
     if (messages.length === 0) {
-      buildOpeningGreeting().then(greeting => {
-        setMessages([{
-          role: 'assistant',
-          content: greeting,
-          type: 'text',
-        }]);
-      });
+      setMessages([{
+        role: 'assistant',
+        content: "What's good. I'm Coach X. I know your plan, your weaknesses, and your last film. What you wanna work on?",
+        type: 'text',
+      }]);
     }
   }, []);
 
@@ -124,32 +64,27 @@ export default function CoachXScreen() {
     scrollToBottom();
 
     try {
-      // Get the user's Supabase JWT so the backend can identify them and pull memory
-      const { data: { session } } = await supabase.auth.getSession();
-      const accessToken = session?.access_token || '';
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id || null;
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (accessToken) {
-        headers['Authorization'] = `Bearer ${accessToken}`;
-      }
+      const conversationMessages = newMsgs
+        .filter(m => m.type !== 'film-result' && m.content)
+        .slice(-10)
+        .map(m => ({ role: m.role, content: m.content }));
 
       const response = await fetch('https://collectiq-xi.vercel.app/api/coach-chat', {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: userMsg,
-          profile: profile,
-          plan: plan ? { weekTitle: plan.weekTitle, aiInsight: plan.aiInsight } : null,
-          chatHistory: newMsgs.slice(-10).map(m => ({ role: m.role, content: m.content })),
+          messages: conversationMessages,
+          userId: userId,
         }),
       });
 
       const data = await response.json();
 
-      if (response.ok && data.reply) {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.reply, type: 'text' }]);
+      if (response.ok && data.message) {
+        setMessages(prev => [...prev, { role: 'assistant', content: data.message, type: 'text' }]);
       } else {
         setMessages(prev => [...prev, { role: 'assistant', content: "My bad, having trouble right now. Try again.", type: 'text' }]);
       }
@@ -218,7 +153,6 @@ export default function CoachXScreen() {
 
       const videoUrl = supabaseUrl + '/storage/v1/object/public/films/' + fileName;
 
-      // Update the "watching" message
       setMessages(prev => {
         const updated = [...prev];
         updated[updated.length - 1] = { role: 'assistant', content: 'Watching your film... this takes about a minute.', type: 'text' };
@@ -235,7 +169,6 @@ export default function CoachXScreen() {
       const analysisData = await analysisRes.json();
 
       if (analysisRes.ok && analysisData.overallGrade) {
-        // Remove the "watching" message and add the result
         setMessages(prev => {
           const updated = prev.slice(0, -1);
           updated.push({
@@ -284,29 +217,14 @@ export default function CoachXScreen() {
           <Text style={s.filmCoachNote}>{data.coachNote}</Text>
         )}
 
-        {data.strengths && data.strengths.length > 0 && (
+        {data.moments && data.moments.length > 0 && (
           <View style={s.filmSection}>
-            <Text style={s.filmSectionTitle}>STRENGTHS</Text>
-            {data.strengths.map((item: any, i: number) => (
+            <Text style={s.filmSectionTitle}>KEY MOMENTS</Text>
+            {data.moments.map((item: any, i: number) => (
               <View key={i} style={s.filmItem}>
-                <View style={[s.filmDot, { backgroundColor: '#8B9A6B' }]} />
+                <View style={[s.filmDot, { backgroundColor: item.type === 'strength' ? '#8B9A6B' : '#C47A6C' }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={s.filmSkill}>{item.skill}</Text>
-                  <Text style={s.filmDetail}>{item.detail}</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {data.weaknesses && data.weaknesses.length > 0 && (
-          <View style={s.filmSection}>
-            <Text style={s.filmSectionTitle}>WORK ON</Text>
-            {data.weaknesses.map((item: any, i: number) => (
-              <View key={i} style={s.filmItem}>
-                <View style={[s.filmDot, { backgroundColor: '#C47A6C' }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.filmSkill}>{item.skill}</Text>
+                  <Text style={s.filmSkill}>{item.label}</Text>
                   <Text style={s.filmDetail}>{item.detail}</Text>
                 </View>
               </View>
@@ -321,7 +239,7 @@ export default function CoachXScreen() {
               <View key={i} style={s.filmItem}>
                 <View style={[s.filmDot, { backgroundColor: Colors.primary }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={s.filmSkill}>{item.name}</Text>
+                  <Text style={s.filmSkill}>{item.drillId || item.name}</Text>
                   <Text style={s.filmDetail}>{item.reason}</Text>
                 </View>
               </View>
@@ -334,7 +252,6 @@ export default function CoachXScreen() {
 
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
-      {/* Header */}
       <View style={s.header}>
         <Image source={require('@/assets/images/coach-x-small.png')} style={s.headerAvatar} resizeMode="cover" />
         <View style={s.headerInfo}>
@@ -343,14 +260,13 @@ export default function CoachXScreen() {
         </View>
       </View>
 
-      {/* Quick actions */}
       {messages.length <= 1 && (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.quickScroll} contentContainerStyle={s.quickContent}>
           {[
-            "What should I work on?",
+            "What should I work on today?",
             "Explain my plan",
             "I only have 20 min",
-            "How's my left hand?",
+            "How's my weak hand?",
           ].map((q, i) => (
             <TouchableOpacity key={i} style={s.quickBtn} onPress={() => setInputText(q)} activeOpacity={0.7}>
               <Text style={s.quickTxt}>{q}</Text>
@@ -359,7 +275,6 @@ export default function CoachXScreen() {
         </ScrollView>
       )}
 
-      {/* Messages */}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }} keyboardVerticalOffset={insets.top + 60}>
         <ScrollView
           ref={scrollRef}
@@ -392,7 +307,6 @@ export default function CoachXScreen() {
           )}
         </ScrollView>
 
-        {/* Input bar */}
         <View style={[s.inputBar, { paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }]}>
           <TouchableOpacity style={s.filmBtn} onPress={handleFilmUpload} activeOpacity={0.7} disabled={isUploading}>
             {isUploading ? (
@@ -427,7 +341,6 @@ export default function CoachXScreen() {
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  // Header
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 20, paddingVertical: 14,
@@ -437,7 +350,6 @@ const s = StyleSheet.create({
   headerInfo: { flex: 1 },
   headerName: { fontSize: 18, fontWeight: '800', color: Colors.primary },
   headerStatus: { fontSize: 12, color: Colors.textMuted },
-  // Quick actions
   quickScroll: { maxHeight: 50, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder },
   quickContent: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
   quickBtn: {
@@ -445,7 +357,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, marginRight: 8,
   },
   quickTxt: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
-  // Messages
   messageList: { flex: 1 },
   messageContent: { paddingHorizontal: 16, paddingVertical: 16, gap: 12 },
   msgRow: { flexDirection: 'row', gap: 8, maxWidth: '88%' },
@@ -458,7 +369,6 @@ const s = StyleSheet.create({
   msgText: { fontSize: 14, lineHeight: 20 },
   msgTextUser: { color: Colors.black, fontWeight: '500' },
   msgTextCoach: { color: Colors.textPrimary },
-  // Input
   inputBar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingHorizontal: 14, paddingTop: 12,
@@ -480,7 +390,6 @@ const s = StyleSheet.create({
     backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center',
   },
   sendBtnOff: { backgroundColor: Colors.surface },
-  // Film result
   filmResult: {
     backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder,
     padding: 16, maxWidth: '90%',
