@@ -24,9 +24,9 @@ interface OnboardingStep {
 }
 
 const INFO_IMAGES = {
-  dribble: require('@/assets/images/coach-x-dribble.png'),
-  pointing: require('@/assets/images/coach-x-pointing.png'),
-  clipboard: require('@/assets/images/coach-x-clipboard.png'),
+  dribble: require('@/assets/images/coach-x-small.png'),
+  pointing: require('@/assets/images/coach-x-small.png'),
+  clipboard: require('@/assets/images/coach-x-small.png'),
 };
 
 const AGE_OPTIONS = ['13 or under', '14', '15', '16', '17', '18+'];
