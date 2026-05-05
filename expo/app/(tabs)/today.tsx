@@ -304,6 +304,13 @@ export default function TodayScreen() {
   const [readbackFocus, setReadbackFocus] = useState('');
   const [readbackLoading, setReadbackLoading] = useState(false);
   const [chosenFocus, setChosenFocus] = useState('');
+  const [typedText, setTypedText] = useState('');
+  const [readbackLoadingMsgIdx, setReadbackLoadingMsgIdx] = useState(0);
+  const READBACK_LOADING_MSGS = [
+    'Reading your answers...',
+    'Sizing up your game...',
+    'Pulling it together...',
+  ];
 
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
   useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
@@ -318,6 +325,31 @@ export default function TodayScreen() {
   }, [plan, profile, appState, isReady]);
 
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
+
+  // Typewriter effect for readback text
+  useEffect(() => {
+    if (!readbackText || readbackLoading) {
+      setTypedText('');
+      return;
+    }
+    setTypedText('');
+    let i = 0;
+    const interval = setInterval(() => {
+      i++;
+      setTypedText(readbackText.slice(0, i));
+      if (i >= readbackText.length) clearInterval(interval);
+    }, 18);
+    return () => clearInterval(interval);
+  }, [readbackText, readbackLoading]);
+
+  // Cycle loading messages
+  useEffect(() => {
+    if (!readbackLoading) { setReadbackLoadingMsgIdx(0); return; }
+    const interval = setInterval(() => {
+      setReadbackLoadingMsgIdx(idx => (idx + 1) % READBACK_LOADING_MSGS.length);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [readbackLoading]);
 
   const visibleSteps = getVisibleSteps(answers);
   const currentStep = visibleSteps[stepIndex];
@@ -880,6 +912,17 @@ export default function TodayScreen() {
 
   // ===== NEW: READBACK SCREEN =====
   if (appState === 'readback') {
+    if (readbackLoading) {
+      return (
+        <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }]}>
+          <Image source={COACH_X_PORTRAIT} style={{ width: 140, height: 140, marginBottom: 28 }} resizeMode="contain" />
+          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5, marginBottom: 12 }}>COACH X</Text>
+          <Text style={{ fontSize: 18, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center', letterSpacing: -0.3, lineHeight: 26 }}>
+            {READBACK_LOADING_MSGS[readbackLoadingMsgIdx]}
+          </Text>
+        </View>
+      );
+    }
     return (
       <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
@@ -887,40 +930,31 @@ export default function TodayScreen() {
             <Image source={COACH_X_PORTRAIT} style={{ width: 56, height: 56 }} resizeMode="contain" />
             <View>
               <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5, marginBottom: 2 }}>COACH X</Text>
-              <Text style={{ fontSize: 13, color: Colors.textMuted }}>{readbackLoading ? 'Reading you...' : 'Sizing you up'}</Text>
+              <Text style={{ fontSize: 13, color: Colors.textMuted }}>Sizing you up</Text>
             </View>
           </View>
 
-          {readbackLoading ? (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 80 }}>
-              <ActivityIndicator size="large" color={Colors.primary} />
-              <Text style={{ fontSize: 14, color: Colors.textMuted, marginTop: 16 }}>Coach X is taking it all in...</Text>
-            </View>
-          ) : (
-            <>
-              <View style={{ backgroundColor: '#FBF5E2', borderRadius: 18, borderWidth: 1.5, borderColor: Colors.primary, padding: 22, marginBottom: 28 }}>
-                <Text style={{ fontSize: 17, color: Colors.textPrimary, lineHeight: 26, letterSpacing: -0.3 }}>{readbackText}</Text>
-              </View>
+          <Text style={{ fontSize: 17, fontWeight: '600', color: Colors.textPrimary, lineHeight: 26, letterSpacing: 0.2, marginBottom: 32 }}>
+            {typedText}
+          </Text>
 
-              <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 14, textAlign: 'center' }}>DID I READ YOU RIGHT?</Text>
+          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 14, textAlign: 'center' }}>DID I READ YOU RIGHT?</Text>
 
-              <TouchableOpacity
-                style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center', marginBottom: 10 }}
-                onPress={handleReadbackYes}
-                activeOpacity={0.85}
-              >
-                <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Yes, that's me</Text>
-              </TouchableOpacity>
+          <TouchableOpacity
+            style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center', marginBottom: 10 }}
+            onPress={handleReadbackYes}
+            activeOpacity={0.85}
+          >
+            <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Yes, that's me</Text>
+          </TouchableOpacity>
 
-              <TouchableOpacity
-                style={{ backgroundColor: 'transparent', borderRadius: 100, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: Colors.surfaceBorder }}
-                onPress={handleReadbackNo}
-                activeOpacity={0.85}
-              >
-                <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.textPrimary, letterSpacing: 0.2 }}>Not quite</Text>
-              </TouchableOpacity>
-            </>
-          )}
+          <TouchableOpacity
+            style={{ backgroundColor: 'transparent', borderRadius: 100, paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: Colors.surfaceBorder }}
+            onPress={handleReadbackNo}
+            activeOpacity={0.85}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '600', color: Colors.textPrimary, letterSpacing: 0.2 }}>Not quite</Text>
+          </TouchableOpacity>
         </ScrollView>
       </View>
     );
@@ -939,13 +973,11 @@ export default function TodayScreen() {
             </View>
           </View>
 
-          <View style={{ backgroundColor: '#FBF5E2', borderRadius: 18, borderWidth: 1.5, borderColor: Colors.primary, padding: 22, marginBottom: 24 }}>
-            <Text style={{ fontSize: 17, color: Colors.textPrimary, lineHeight: 26, letterSpacing: -0.3 }}>
-              {chosenFocus
-                ? "Alright. I'm thinking we start with " + chosenFocus.toLowerCase() + ". Lock that down and the rest of your game opens up. Sound good?"
-                : "Alright, you tell me. What do you want to start with?"}
-            </Text>
-          </View>
+          <Text style={{ fontSize: 17, fontWeight: '600', color: Colors.textPrimary, lineHeight: 26, letterSpacing: 0.2, marginBottom: 32 }}>
+            {chosenFocus
+              ? "Alright. I'm thinking we start with " + chosenFocus.toLowerCase() + ". Lock that down and the rest of your game opens up. Sound good?"
+              : "Alright, you tell me. What do you want to start with?"}
+          </Text>
 
           <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 }}>{chosenFocus ? 'OR PICK SOMETHING ELSE' : 'PICK YOUR STARTING FOCUS'}</Text>
 
