@@ -5,257 +5,124 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import {
-  Play, Check, GraduationCap, Users, Award, Trophy, Target, BarChart3,
-  MapPin, Calendar, Clock, Dumbbell, User as UserIcon, Zap, Brain,
-} from 'lucide-react-native';
+import { Play, Flame, Clock, Dumbbell, Target, Zap, Wind, Activity, Upload, Check, X, ChevronRight } from 'lucide-react-native';
+import { Picker } from '@react-native-picker/picker';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
-import CoachXPill from '@/components/CoachXPill';
-import CoachXClimax from '@/components/CoachXClimax';
-import TodayHome from '@/components/TodayHome';
 import { usePlanStore } from '@/store/planStore';
-import { supabase } from '@/constants/supabase';
-
-const FONT_HEAVY = Platform.OS === 'ios' ? 'System' : 'sans-serif';
-
-const IMG_WHERE_YOU_PLAY = require('@/assets/images/where-you-play.png');
-const IMG_STATS_LOCKED = require('@/assets/images/stats-locked.png');
-const IMG_SHOT_MAPPED = require('@/assets/images/shot-mapped.png');
-const IMG_SCOUTING_READY = require('@/assets/images/scouting-ready.png');
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-const SECTION_ICONS: Record<string, any> = {
-  'About You': UserIcon,
-  'Where You Play': MapPin,
-  'Your Role': Users,
-  'Your Stats': BarChart3,
-  'Your Game': Target,
-  'Your Schedule': Calendar,
-  'Scouting Report': Award,
-};
-
-interface OptionDef {
-  label: string;
-  subtitle?: string;
-  disabled?: boolean;
-  icon?: any;
+interface OnboardingStep {
+  type: 'question' | 'info' | 'text' | 'age' | 'height' | 'weight';
+  id?: string; question?: string; subtitle?: string; placeholder?: string;
+  selectType?: 'select' | 'multiselect'; section?: string;
+  options?: { label: string; subtitle?: string; disabled?: boolean }[];
+  infoTitle?: string; infoBody?: string; infoImage?: any;
 }
 
-interface Step {
-  id: string;
-  section: string;
-  type: 'select' | 'multiselect' | 'text' | 'numberGrid' | 'statGrid' | 'interstitial';
-  question?: string;
-  subtitle?: string;
-  options?: OptionDef[];
-  placeholder?: string;
-  numberFields?: { id: string; label: string; max?: number }[];
-  statFields?: { id: string; label: string; placeholder?: string }[];
-  showIf?: (answers: Record<string, any>) => boolean;
-  dynamicOptions?: (answers: Record<string, any>) => OptionDef[];
-  interstitialTitle?: string;
-  interstitialBody?: string;
-  interstitialImage?: any;
-}
-
-const ANSWER_DEPENDENCIES: Record<string, string[]> = {
-  grade: ['schoolTeam', 'playsAAU', 'aauCircuit', 'aauStarter', 'starter', 'collegeLevel', 'adultPlay', 'role', 'stats'],
-  playsAAU: ['aauCircuit', 'aauStarter'],
-  schoolTeam: ['starter'],
-  collegeLevel: ['starter'],
-  adultPlay: ['role', 'stats'],
+const INFO_IMAGES = {
+  dribble: require('@/assets/images/coach-x-dribble.png'),
+  pointing: require('@/assets/images/coach-x-pointing.png'),
+  clipboard: require('@/assets/images/coach-x-clipboard.png'),
 };
 
-const STEPS: Step[] = [
-  { id: 'sport', section: 'About You', type: 'select', question: 'What sport do you play?', subtitle: "We'll tailor everything to your game.", options: [{ label: 'Basketball' }, { label: 'Soccer', subtitle: 'Coming soon', disabled: true }, { label: 'Baseball', subtitle: 'Coming soon', disabled: true }, { label: 'Football', subtitle: 'Coming soon', disabled: true }] },
-  { id: 'position', section: 'About You', type: 'select', question: 'What position do you play?', subtitle: 'This shapes your skill priorities.', options: [{ label: 'Point Guard' }, { label: 'Shooting Guard' }, { label: 'Small Forward' }, { label: 'Power Forward' }, { label: 'Center' }] },
-  { id: 'description', section: 'About You', type: 'text', question: 'Describe yourself.', subtitle: "Height, jersey color, hair, anything so Coach X knows who you are.", placeholder: 'e.g. 5\'10", red jersey #5, curly hair' },
-  { id: 'grade', section: 'Where You Play', type: 'select', question: 'What grade are you in?', options: [{ label: 'Middle school (6-8)' }, { label: 'High school (9-12)' }, { label: 'College' }, { label: 'Out of school / adult' }] },
-  { id: 'schoolTeam', section: 'Where You Play', type: 'select', question: 'Do you play on a school team?', dynamicOptions: (a) => { if (a.grade === 'Middle school (6-8)') { return [{ label: 'Middle school team' }, { label: 'No school team' }]; } return [{ label: 'Varsity' }, { label: 'JV' }, { label: 'Freshman team' }, { label: 'No school team' }]; }, showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)' },
-  { id: 'playsAAU', section: 'Where You Play', type: 'select', question: 'Do you play AAU or club ball?', options: [{ label: 'Yes' }, { label: 'No' }], showIf: (a) => a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)' },
-  { id: 'aauCircuit', section: 'Where You Play', type: 'select', question: 'What circuit?', subtitle: 'This helps us know your level of competition.', options: [{ label: 'Top shoe circuit', subtitle: 'Nike EYBL, Under Armour UAA, Adidas 3SSB' }, { label: 'Mid shoe circuit', subtitle: 'Puma Pro 16, New Balance, other shoe' }, { label: 'Independent circuit', subtitle: 'Made Hoops, AGame Hoops, other national' }, { label: 'Local circuit', subtitle: 'Regional/state tournaments only' }], showIf: (a) => a.playsAAU === 'Yes' },
-  { id: 'aauStarter', section: 'Where You Play', type: 'select', question: 'Are you a starter on your AAU team?', options: [{ label: 'Yes, starter' }, { label: '6th man' }, { label: 'Rotation player' }, { label: 'Bench' }], showIf: (a) => a.playsAAU === 'Yes' },
-  { id: 'collegeLevel', section: 'Where You Play', type: 'select', question: 'What level do you play at?', options: [{ label: 'D1' }, { label: 'D2' }, { label: 'D3' }, { label: 'JUCO' }, { label: 'NAIA' }, { label: 'Club / intramural' }, { label: 'No college team' }], showIf: (a) => a.grade === 'College' },
-  { id: 'starter', section: 'Where You Play', type: 'select', question: 'Are you a starter on the team?', options: [{ label: 'Yes, starter' }, { label: '6th man' }, { label: 'Rotation player' }, { label: 'Bench' }], showIf: (a) => { if (a.playsAAU === 'Yes') return false; const isSchoolTeamPlayer = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam); if (isSchoolTeamPlayer) return true; if (a.grade === 'College' && a.collegeLevel && a.collegeLevel !== 'No college team') return true; return false; } },
-  { id: 'adultPlay', section: 'Where You Play', type: 'select', question: 'Where do you play?', options: [{ label: 'Competitive rec league' }, { label: 'Casual rec league' }, { label: 'Pickup / open gym' }, { label: 'Mostly alone / driveway' }], showIf: (a) => a.grade === 'Out of school / adult' },
-  { id: 'int_where', section: 'Where You Play', type: 'interstitial', interstitialImage: IMG_WHERE_YOU_PLAY, interstitialTitle: "Every level reads stats differently. We'll weigh yours against the competition you actually face." },
-  { id: 'role', section: 'Your Role', type: 'select', question: "What's your role on the team?", subtitle: 'So Coach X knows what kind of player you are.', options: [{ label: 'Primary scorer', subtitle: 'Plays are run for you' }, { label: 'Secondary scorer', subtitle: "You score but aren't the first option" }, { label: 'Playmaker', subtitle: 'Pass-first, set others up' }, { label: 'Two-way wing', subtitle: 'Score + defend' }, { label: 'Defensive stopper', subtitle: 'Guard the best player' }, { label: 'Rebounder / rim protector', subtitle: 'Big-man role' }, { label: '3-and-D specialist', subtitle: 'Shoot + defend' }, { label: 'Energy off the bench', subtitle: 'Spark plug' }, { label: 'Still figuring out my role' }], showIf: (a) => playsOnTeam(a) },
-  { id: 'stats', section: 'Your Stats', type: 'statGrid', question: 'Estimate your stats per game.', subtitle: "It's fine if you don't know exactly. Leave blank if you don't track.", statFields: [{ id: 'minutes', label: 'Minutes per game', placeholder: '0' }, { id: 'ppg', label: 'Points per game', placeholder: '0' }, { id: 'apg', label: 'Assists per game', placeholder: '0' }, { id: 'rpg', label: 'Rebounds per game', placeholder: '0' }], showIf: (a) => playsOnTeam(a) },
-  { id: 'int_stats', section: 'Your Stats', type: 'interstitial', interstitialImage: IMG_STATS_LOCKED, interstitialTitle: "Raw numbers don't tell the whole story. Your role and level change what good looks like.", showIf: (a) => playsOnTeam(a) },
-  { id: 'shootingMakes', section: 'Your Game', type: 'numberGrid', question: 'Out of 10 wide open shots, how many do you make?', subtitle: 'Be honest. This shapes your plan.', numberFields: [{ id: 'layupStrong', label: 'Layups (strong hand)', max: 10 }, { id: 'layupWeak', label: 'Layups (weak hand)', max: 10 }, { id: 'freeThrows', label: 'Free throws', max: 10 }, { id: 'midRange', label: 'Mid-range', max: 10 }, { id: 'threes', label: '3-pointers', max: 10 }] },
-  { id: 'dribbling', section: 'Your Game', type: 'select', question: 'How\'s your dribbling?', options: [{ label: 'Strong with both hands' }, { label: 'Getting there' }, { label: 'Avoid using my weak hand' }, { label: 'Only use my right hand' }] },
-  { id: 'int_shot', section: 'Your Game', type: 'interstitial', interstitialImage: IMG_SHOT_MAPPED, interstitialTitle: "We know exactly what falls for you and what doesn't. Every drill gets chosen with that in mind." },
-  { id: 'goal', section: 'Your Game', type: 'text', question: 'What do you want to improve most?', subtitle: 'Keep it short — one sentence.', placeholder: 'e.g. be a better shooter off the dribble' },
-  { id: 'frequency', section: 'Your Schedule', type: 'select', question: 'How often can you train?', options: [{ label: 'Once or twice a week' }, { label: '3-4 times a week' }, { label: '5-6 times a week' }, { label: 'Every day' }] },
-  { id: 'duration', section: 'Your Schedule', type: 'select', question: 'How long per session?', options: [{ label: '20-30 minutes' }, { label: '30-45 minutes' }, { label: '45-60 minutes' }, { label: '60-90 minutes' }] },
-  { id: 'access', section: 'Your Schedule', type: 'multiselect', question: 'Where do you usually train?', subtitle: 'Pick all that apply.', options: [{ label: 'Full court with hoop' }, { label: 'Half court with hoop' }, { label: 'Driveway with hoop' }, { label: 'Gym with weights' }, { label: 'Open space (no hoop)' }] },
-  { id: 'int_plan', section: 'Scouting Report', type: 'interstitial', interstitialImage: IMG_SCOUTING_READY, interstitialTitle: "Coach X is ready to build the plan that actually fits how you play." },
+const AGE_OPTIONS = ['13 or under', '14', '15', '16', '17', '18+'];
+
+// Heights from 4'8" to 7'0"
+const HEIGHT_OPTIONS = (() => {
+  const arr: string[] = [];
+  for (let ft = 4; ft <= 7; ft++) {
+    const maxIn = ft === 7 ? 0 : 11;
+    const minIn = ft === 4 ? 8 : 0;
+    for (let inch = minIn; inch <= maxIn; inch++) {
+      arr.push(ft + "'" + inch + '"');
+    }
+  }
+  return arr;
+})();
+
+// Weights from 70 to 280 lbs in 5 lb increments
+const WEIGHT_OPTIONS = (() => {
+  const arr: string[] = [];
+  for (let w = 70; w <= 280; w += 5) arr.push(w + ' lbs');
+  return arr;
+})();
+
+const ONBOARDING_STEPS: OnboardingStep[] = [
+  { type:'question',id:'sport',section:'About You',question:'What sport do you play?',subtitle:"We'll tailor everything to your game.",selectType:'select',
+    options:[{label:'Basketball'},{label:'Soccer',subtitle:'Coming soon',disabled:true},{label:'Baseball',subtitle:'Coming soon',disabled:true},{label:'Football',subtitle:'Coming soon',disabled:true}] },
+  { type:'question',id:'position',section:'About You',question:'What position do you play?',subtitle:'This shapes your skill priorities.',selectType:'select',
+    options:[{label:'Point Guard'},{label:'Shooting Guard'},{label:'Small Forward'},{label:'Power Forward'},{label:'Center'}] },
+  { type:'question',id:'experience',section:'About You',question:'How long have you been playing?',subtitle:'So we match the right intensity.',selectType:'select',
+    options:[{label:'Less than a year'},{label:'1-2 years'},{label:'3-5 years'},{label:'6-10 years'},{label:'10+ years'}] },
+  { type:'age',id:'age',section:'About You',question:'How old are you?',subtitle:'Helps me pick the right intensity for you.' },
+  { type:'height',id:'height',section:'About You',question:'How tall are you?',subtitle:'Affects which finishing and defense moves fit your game.' },
+  { type:'weight',id:'weight',section:'About You',question:'How much do you weigh?',subtitle:'Helps me dial in conditioning and contact drills.' },
+  { type:'text',id:'description',section:'About You',question:'Describe yourself.',subtitle:"So Coach X knows who you are when watching your film. Jersey color, hair, anything.",placeholder:'e.g. red jersey #5, curly hair' },
+  { type:'info',infoImage:INFO_IMAGES.dribble,infoTitle:"Now let's see what you're made of.",infoBody:"The best players don't just practice what they're good at. They attack their weaknesses head on." },
+  { type:'question',id:'goal',section:'Your Goals',question:'What do you want to improve most?',selectType:'select',
+    options:[{label:'Become a better scorer'},{label:'Improve my defense'},{label:'Get faster and more athletic'},{label:'Become a more complete player'},{label:'Get recruited / play at the next level'}] },
+  { type:'question',id:'weakness',section:'Your Goals',question:'What part of your game needs the most work?',selectType:'select',
+    options:[{label:'Shooting'},{label:'Ball handling'},{label:'Defense'},{label:'Finishing at the rim'},{label:'Speed & agility'},{label:'Basketball IQ'}] },
+  { type:'info',infoImage:INFO_IMAGES.pointing,infoTitle:"Most players avoid what's hard. Not you.",infoBody:"Your plan will be different. We're going to push you exactly where it matters most." },
+  { type:'question',id:'driving',section:'How You Play',question:'When you drive to the basket, what usually happens?',selectType:'select',
+    options:[{label:'I usually score'},{label:'I get blocked or altered'},{label:'I pass it out'},{label:'I lose the ball'},{label:"I don't really drive"}] },
+  { type:'question',id:'leftHand',section:'How You Play',question:"How's your left hand?",selectType:'select',
+    options:[{label:'Strong - I finish with both hands'},{label:'Getting there - I use it sometimes'},{label:'Weak - I avoid it'},{label:'I only use my right hand'}] },
+  { type:'question',id:'pressure',section:'How You Play',question:"What happens when you're guarded tight?",selectType:'select',
+    options:[{label:'I can still create my shot'},{label:'I struggle but fight through'},{label:'I usually pass it away'},{label:'I turn it over'}] },
+  { type:'question',id:'goToMove',section:'How You Play',question:"What's your go-to move?",selectType:'select',
+    options:[{label:'Pull-up jumper'},{label:'Drive right'},{label:'Drive left'},{label:'Three pointer'},{label:'Post up'},{label:"I don't have one yet"}] },
+  { type:'question',id:'threeConfidence',section:'How You Play',question:'How confident are you shooting threes?',selectType:'select',
+    options:[{label:"Very - I'm a shooter"},{label:"Somewhat - I'll take open ones"},{label:'Not really - I prefer mid-range'},{label:"I don't shoot them"}] },
+  { type:'question',id:'freeThrow',section:'How You Play',question:"What's your free throw percentage?",selectType:'select',
+    options:[{label:'80% or higher'},{label:'60-80%'},{label:'40-60%'},{label:'Below 40%'},{label:'No idea'}] },
+  { type:'info',infoImage:INFO_IMAGES.clipboard,infoTitle:'Your plan is about to be built around your game.',infoBody:'Most apps give everyone the same plan. We just learned how you actually play - that changes everything.' },
+  { type:'question',id:'frequency',section:'Your Schedule',question:'How often can you train?',selectType:'select',
+    options:[{label:'Once or twice a week'},{label:'3-4 times a week'},{label:'5-6 times a week'},{label:'Every day'}] },
+  { type:'question',id:'duration',section:'Your Schedule',question:'How long do you want each session?',selectType:'select',
+    options:[{label:'20-30 minutes'},{label:'30-45 minutes'},{label:'45-60 minutes'},{label:'60-90 minutes'}] },
+  { type:'question',id:'access',section:'Your Schedule',question:'Where do you usually train?',subtitle:'Pick all that apply.',selectType:'multiselect',
+    options:[{label:'Full court with hoop'},{label:'Half court with hoop'},{label:'Driveway with hoop'},{label:'Gym with weights'},{label:'Open space (no hoop)'}] },
 ];
 
-function playsOnTeam(a: Record<string, any>): boolean {
-  if (a.grade === 'Middle school (6-8)' || a.grade === 'High school (9-12)') {
-    const hasSchool = ['Varsity', 'JV', 'Freshman team', 'Middle school team'].includes(a.schoolTeam);
-    return hasSchool || a.playsAAU === 'Yes';
-  }
-  if (a.grade === 'College') return a.collegeLevel && a.collegeLevel !== 'No college team';
-  if (a.grade === 'Out of school / adult') return a.adultPlay === 'Competitive rec league' || a.adultPlay === 'Casual rec league';
-  return false;
-}
-
-function getVisibleSteps(answers: Record<string, any>): Step[] {
-  return STEPS.filter(s => !s.showIf || s.showIf(answers));
-}
-
-function clearDependentAnswers(answers: Record<string, any>, changedKey: string): Record<string, any> {
-  const deps = ANSWER_DEPENDENCIES[changedKey];
-  if (!deps) return answers;
-  const next = { ...answers };
-  for (const d of deps) {
-    delete next[d];
-    const nested = ANSWER_DEPENDENCIES[d];
-    if (nested) for (const n of nested) delete next[n];
-  }
-  return next;
-}
-
-function computeSkills(a: Record<string, any>): Record<string, { level: number; label: string }> {
-  const skills: Record<string, number> = {
-    shooting: 5, shotForm: 5, finishing: 5, ballHandling: 5, weakHand: 5,
-    defense: 5, iq: 5, athleticism: 5, creativity: 5, touch: 5,
-    courtVision: 5, decisionMaking: 5,
-  };
-  const m = a.shootingMakes || {};
-  const layupStrong = parseInt(m.layupStrong || '') || 0;
-  const layupWeak = parseInt(m.layupWeak || '') || 0;
-  const ft = parseInt(m.freeThrows || '') || 0;
-  const midRange = parseInt(m.midRange || '') || 0;
-  const threes = parseInt(m.threes || '') || 0;
-
-  let tier = 5;
-  if (a.aauCircuit === 'Top shoe circuit' || a.collegeLevel === 'D1') tier = 9;
-  else if (a.aauCircuit === 'Mid shoe circuit' || a.aauCircuit === 'Independent circuit' || a.schoolTeam === 'Varsity' || a.collegeLevel === 'D2' || a.collegeLevel === 'D3') tier = 7;
-  else if (a.aauCircuit === 'Local circuit' || a.schoolTeam === 'JV' || a.collegeLevel === 'JUCO' || a.collegeLevel === 'NAIA' || a.adultPlay === 'Competitive rec league') tier = 6;
-  else if (a.schoolTeam === 'Freshman team' || a.schoolTeam === 'Middle school team' || a.collegeLevel === 'Club / intramural' || a.adultPlay === 'Casual rec league') tier = 5;
-  else if (a.adultPlay === 'Pickup / open gym') tier = 5;
-  else if (a.adultPlay === 'Mostly alone / driveway') tier = 4;
-
-  const tierCap = Math.min(10, 5 + (tier - 4) * 0.8);
-
-  if (midRange || threes || ft) {
-    const shootingAvg = (midRange + threes + ft) / 3;
-    skills.shooting = Math.max(1, Math.min(tierCap, shootingAvg * 0.9 + 1));
-    skills.shotForm = Math.max(1, Math.min(tierCap, (midRange + ft) / 2 * 0.9 + 1));
-    skills.touch = Math.max(1, Math.min(tierCap, (ft + midRange) / 2 * 0.9 + 1));
-  }
-
-  if (layupStrong || layupWeak) {
-    const layupAvg = (layupStrong + layupWeak) / 2;
-    const finishingBase = 3 + (layupAvg * 0.3) + (tier - 4) * 0.3;
-    skills.finishing = Math.max(1, Math.min(tierCap, finishingBase));
-    skills.weakHand = Math.max(1, Math.min(tierCap, layupWeak * 0.8 + 1));
-  }
-
-  const d = a.dribbling;
-  if (d === 'Strong with both hands') { skills.ballHandling = Math.min(tierCap, 7); skills.weakHand = Math.max(skills.weakHand, Math.min(tierCap, 6)); }
-  else if (d === 'Getting there') { skills.ballHandling = 5; skills.weakHand = Math.max(skills.weakHand, 4); }
-  else if (d === 'Avoid using my weak hand') { skills.ballHandling = 4; skills.weakHand = Math.min(skills.weakHand, 3); }
-  else if (d === 'Only use my right hand') { skills.ballHandling = 3; skills.weakHand = 2; }
-
-  const role = a.role;
-  if (role === 'Primary scorer') { skills.creativity += 1; skills.decisionMaking += 0.5; }
-  if (role === 'Playmaker') { skills.iq += 2; skills.courtVision += 2; skills.decisionMaking += 1.5; }
-  if (role === 'Defensive stopper') { skills.defense += 2.5; skills.athleticism += 1; skills.iq += 1; }
-  if (role === 'Rebounder / rim protector') { skills.finishing += 0.5; skills.athleticism += 1.5; skills.defense += 1.5; }
-  if (role === '3-and-D specialist') { skills.shooting += 0.5; skills.defense += 1.5; }
-  if (role === 'Two-way wing') { skills.defense += 1; skills.shooting += 0.3; skills.athleticism += 0.5; }
-  if (role === 'Energy off the bench') { skills.athleticism += 1.5; skills.defense += 0.5; }
-
-  const tierBump = (tier - 5) * 0.4;
-  skills.iq += tierBump;
-  skills.decisionMaking += tierBump;
-  skills.defense += tierBump * 0.5;
-  skills.athleticism += tierBump * 0.5;
-
-  if (a.starter === 'Yes, starter' || a.aauStarter === 'Yes, starter') { skills.iq += 0.5; skills.decisionMaking += 0.5; }
-  else if (a.starter === 'Bench' || a.aauStarter === 'Bench') { skills.iq -= 0.3; }
-
-  const s = a.stats || {};
-  const ppg = parseFloat(s.ppg) || 0;
-  const apg = parseFloat(s.apg) || 0;
-  const rpg = parseFloat(s.rpg) || 0;
-  const minutes = parseFloat(s.minutes) || 0;
-  const per30 = (stat: number) => (minutes > 0 ? (stat / minutes) * 30 : stat);
-  const ppg30 = per30(ppg);
-  const apg30 = per30(apg);
-  const rpg30 = per30(rpg);
-
-  if (ppg30 >= 18) skills.shooting += 1.5;
-  else if (ppg30 >= 12) skills.shooting += 0.8;
-  else if (ppg30 >= 6) skills.shooting += 0.3;
-
-  if (apg30 >= 5) { skills.courtVision += 2; skills.iq += 1; skills.decisionMaking += 1; }
-  else if (apg30 >= 3) { skills.courtVision += 1; skills.iq += 0.5; }
-
-  if (rpg30 >= 7) { skills.athleticism += 1.5; skills.finishing += 0.5; }
-  else if (rpg30 >= 4) { skills.athleticism += 0.8; }
-
-  if (a.position === 'Point Guard') { skills.courtVision += 0.5; skills.ballHandling += 0.5; }
-  if (a.position === 'Center') { skills.finishing += 0.3; skills.athleticism += 0.3; }
-
-  const result: Record<string, { level: number; label: string }> = {};
-  const labels: Record<string, string> = {
-    shooting: 'Shooting', shotForm: 'Shot Form', finishing: 'Finishing',
-    ballHandling: 'Ball Handling', weakHand: 'Weak Hand', defense: 'Defense',
-    iq: 'Basketball IQ', athleticism: 'Athleticism', creativity: 'Creativity',
-    touch: 'Touch', courtVision: 'Court Vision', decisionMaking: 'Decision Making',
-  };
-  for (const k of Object.keys(skills)) {
-    result[k] = {
-      level: Math.round(Math.max(1, Math.min(tierCap, skills[k])) * 10) / 10,
-      label: labels[k] || k,
-    };
-  }
-  return result;
-}
+const ASSESSMENT_CLIPS = [
+  { id:'one_on_one', clipType:'1on1', title:'One-on-One', instruction:'A possession of you playing 1-on-1', detail:'Half court is fine.' },
+  { id:'threes', clipType:'threes', title:'Open Threes', instruction:'2 open three pointers', detail:'No defender. Show me your form.' },
+  { id:'dribble', clipType:'dribble', title:'Dribble Combo', instruction:'Basic dribble combo moves', detail:'Crossover, between the legs, behind the back.' },
+  { id:'game', clipType:'game', title:'Game Footage', instruction:'Footage from a real game', detail:"No game footage? Film yourself finishing with each hand instead." },
+];
 
 const LOADING_STEPS = [
-  'Reading your answers',
-  'Analyzing your shot profile',
-  'Finding drills for your weaknesses',
-  'Building your 7-day plan',
-  "Writing Coach X's notes",
+  'Watching your one-on-one',
+  'Analyzing your shooting form',
+  'Reviewing your handle',
+  'Studying your game',
+  'Scoring your skills',
+  'Building your plan',
 ];
 
-function AnimatedOption({ index, children, style, onPress, activeOpacity, disabled }: { index: number; children: React.ReactNode; style: any; onPress: () => void; activeOpacity?: number; disabled?: boolean; }) {
-  const opacity = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(10)).current;
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(opacity, { toValue: 1, duration: 300, delay: index * 60, useNativeDriver: true }),
-      Animated.timing(translateY, { toValue: 0, duration: 300, delay: index * 60, useNativeDriver: true }),
-    ]).start();
-  }, []);
-  return (
-    <Animated.View style={{ opacity, transform: [{ translateY }] }}>
-      <TouchableOpacity style={style} onPress={onPress} activeOpacity={activeOpacity} disabled={disabled}>
-        {children}
-      </TouchableOpacity>
-    </Animated.View>
-  );
-}
+const FOCUS_OPTIONS = [
+  { id: 'Ball handling', label: 'Ball Handling' },
+  { id: 'Shooting', label: 'Shooting' },
+  { id: 'Defense', label: 'Defense' },
+  { id: 'Finishing at the rim', label: 'Finishing' },
+  { id: 'Speed & agility', label: 'Speed & Agility' },
+  { id: 'Basketball IQ', label: 'Basketball IQ' },
+];
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
+  const { plan, profile, completedDrills, currentDayIndex, currentStreak, loadFromStorage, setPlan, setProfile, setSkillLevels } = usePlanStore();
 
-  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'climax' | 'plan'>('loading');
+  const [appState, setAppState] = useState<'loading'|'welcome'|'onboarding'|'auth'|'readback'|'focuspick'|'assessment'|'analyzing'|'results'|'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
-  const [stepIndex, setStepIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [quizStep, setQuizStep] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, string|string[]>>({});
   const [textInput, setTextInput] = useState('');
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [currentLoadingStep, setCurrentLoadingStep] = useState(0);
@@ -263,219 +130,251 @@ export default function TodayScreen() {
   const slideAnim = useRef(new Animated.Value(0)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
 
+  // Readback / focus pick
+  const [readbackText, setReadbackText] = useState('');
+  const [readbackFocus, setReadbackFocus] = useState('');
+  const [readbackLoading, setReadbackLoading] = useState(false);
+  const [chosenFocus, setChosenFocus] = useState('');
+
+  // Assessment
+  const [clipUrls, setClipUrls] = useState<Record<string, string>>({});
+  const [uploadingClipId, setUploadingClipId] = useState<string | null>(null);
+  const [assessError, setAssessError] = useState('');
+
+  // Results
+  const [resultsSkills, setResultsSkills] = useState<Record<string, number>>({});
+  const [resultsCoachNote, setResultsCoachNote] = useState('');
+
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
-  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
-
-  useEffect(() => {
-    if (isReady && appState === 'plan' && (!plan || !profile)) {
-      setAppState('welcome');
-      setStepIndex(0);
-      setAnswers({});
-      setTextInput('');
-    }
-  }, [plan, profile, appState, isReady]);
-
+  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady, profile, plan]);
   useEffect(() => { if (appState === 'analyzing') Animated.timing(progressAnim, { toValue: loadingProgress, duration: 800, useNativeDriver: false }).start(); }, [loadingProgress, appState]);
 
-  const visibleSteps = getVisibleSteps(answers);
-  const currentStep = visibleSteps[stepIndex];
-  const progress = visibleSteps.length > 0 ? (stepIndex + 1) / visibleSteps.length : 0;
-
-  const animTrans = (dir: 'forward' | 'back', cb: () => void) => {
+  const animTrans = (dir: 'forward'|'back', cb: () => void) => {
     const o = dir === 'forward' ? -30 : 30, n = dir === 'forward' ? 30 : -30;
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: o, duration: 150, useNativeDriver: true }),
-    ]).start(() => {
+    Animated.parallel([Animated.timing(fadeAnim,{toValue:0,duration:150,useNativeDriver:true}),Animated.timing(slideAnim,{toValue:o,duration:150,useNativeDriver:true})]).start(() => {
       cb(); slideAnim.setValue(n);
-      Animated.parallel([
-        Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-        Animated.spring(slideAnim, { toValue: 0, friction: 8, tension: 60, useNativeDriver: true }),
-      ]).start();
+      Animated.parallel([Animated.timing(fadeAnim,{toValue:1,duration:200,useNativeDriver:true}),Animated.spring(slideAnim,{toValue:0,friction:8,tension:60,useNativeDriver:true})]).start();
     });
-  };
-
-  const goNext = () => {
-    const updatedVisible = getVisibleSteps(answers);
-    if (stepIndex < updatedVisible.length - 1) {
-      const next = updatedVisible[stepIndex + 1];
-      if (next.type === 'text') setTextInput((answers[next.id] as string) || '');
-      animTrans('forward', () => setStepIndex(stepIndex + 1));
-    } else {
-      setAppState('auth');
-    }
-  };
-
-  const goBack = () => {
-    if (stepIndex > 0) {
-      const prev = visibleSteps[stepIndex - 1];
-      if (prev.type === 'text') setTextInput((answers[prev.id] as string) || '');
-      animTrans('back', () => setStepIndex(stepIndex - 1));
-    } else {
-      setAppState('welcome');
-    }
   };
 
   const handleSelect = (opt: string) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const st = currentStep; if (!st) return;
-    if (st.type === 'multiselect') {
-      const c = (answers[st.id] as string[]) || [];
-      setAnswers({ ...answers, [st.id]: c.includes(opt) ? c.filter(o => o !== opt) : [...c, opt] });
+    const st = ONBOARDING_STEPS[quizStep]; if (!st.id) return;
+    if (st.selectType === 'multiselect') {
+      const c = (answers[st.id] as string[])||[];
+      setAnswers({...answers,[st.id]:c.includes(opt)?c.filter(o=>o!==opt):[...c,opt]});
     } else {
-      const oldValue = answers[st.id];
-      let nextAnswers = { ...answers, [st.id]: opt };
-      if (oldValue !== undefined && oldValue !== opt) {
-        nextAnswers = clearDependentAnswers(nextAnswers, st.id);
-        nextAnswers[st.id] = opt;
-      }
-      setAnswers(nextAnswers);
+      setAnswers({...answers,[st.id]:opt});
       setTimeout(() => goNext(), 300);
     }
   };
 
   const handleTextSubmit = () => {
-    const st = currentStep; if (!st) return;
-    if (!textInput.trim()) return;
-    setAnswers({ ...answers, [st.id]: textInput.trim() });
+    const st = ONBOARDING_STEPS[quizStep];
+    if (!st.id || !textInput.trim()) return;
+    setAnswers({...answers, [st.id]: textInput.trim()});
     setTextInput('');
     goNext();
   };
 
-  const handleNumberChange = (fieldId: string, value: string) => {
-    const st = currentStep; if (!st) return;
-    const current = (answers[st.id] as Record<string, any>) || {};
-    setAnswers({ ...answers, [st.id]: { ...current, [fieldId]: value } });
+  const handlePickerChange = (id: string, value: string) => {
+    setAnswers({ ...answers, [id]: value });
   };
 
-  // ===== DEBUG: instantly jump to the climax screen with fake data =====
-  // Remove this whole function before launch
-  const debugJumpToClimax = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    usePlanStore.getState().setPlan({
-      weekTitle: 'Week 1: Test Plan',
-      aiInsight: 'Fake insight for testing.',
-      coachSummary: {
-        greeting: "Alright, I just finished going through everything you told me. Took a hard look at your game — your strengths, your weaknesses, where you fit in. Here's what I came back with.",
-        assessment: "You're a guard with a tight handle on your strong hand but your weak hand is leaving points on the table. Your shooting form is solid, you just need more reps under pressure. Defense is your sleeper strength — most guys your age don't take it serious. You do.",
-        planOverview: "We're hammering weak hand for the next 4 weeks. Every session has at least one left-hand drill, sometimes two. Shooting stays in the rotation but we're taking your form work to the next level — pull-ups off the bounce, contested reps. By week 4 you'll feel different.",
-        motivation: "Look, the work is the work. Show up. Don't skip the boring drills. The reps you don't want to do are the reps that change your game. I'll be watching. Let's get it.",
-      },
-      days: [
-        { day: 'Mon', date: '', focus: 'Test', duration: '30 min', isRest: false, drills: [] },
-        { day: 'Tue', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
-        { day: 'Wed', date: '', focus: 'Test', duration: '30 min', isRest: false, drills: [] },
-        { day: 'Thu', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
-        { day: 'Fri', date: '', focus: 'Test', duration: '30 min', isRest: false, drills: [] },
-        { day: 'Sat', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
-        { day: 'Sun', date: '', focus: 'Rest', duration: '---', isRest: true, drills: [] },
-      ],
-    } as any);
-    usePlanStore.getState().setProfile({
-      sport: 'Basketball',
-      position: 'Point Guard',
-      experience: '3-5 years',
-      goal: 'Become a better all-around scorer',
-      weakness: 'Weak hand finishing',
-      frequency: '3-4 times a week',
-      duration: '30-45 minutes',
-      access: ['Half court with hoop'],
-      driving: 'not specified',
-      leftHand: 'Weak - I avoid it',
-      pressure: 'not specified',
-      goToMove: 'not specified',
-      threeConfidence: 'Somewhat',
-      freeThrow: '60-80%',
-    } as any);
-    setAppState('climax');
-  };
-  // ===== END DEBUG =====
-
-  const buildPayloadFromAnswers = (a: Record<string, any>) => {
-    let experience = '';
-    if (a.grade === 'Middle school (6-8)') experience = '1-2 years';
-    else if (a.grade === 'High school (9-12)') experience = '3-5 years';
-    else if (a.grade === 'College') experience = '6-10 years';
-    else if (a.grade === 'Out of school / adult') experience = '10+ years';
-
-    const leftHandMap: Record<string, string> = {
-      'Strong with both hands': 'Strong - I finish with both hands',
-      'Getting there': 'Getting there - I use it sometimes',
-      'Avoid using my weak hand': 'Weak - I avoid it',
-      'Only use my right hand': 'I only use my right hand',
-    };
-
-    const threes = parseInt(a.shootingMakes?.threes || '0');
-    let threeConfidence = "I don't shoot them";
-    if (threes >= 5) threeConfidence = "Very - I'm a shooter";
-    else if (threes >= 3) threeConfidence = "Somewhat - I'll take open ones";
-    else if (threes >= 1) threeConfidence = "Not really - I prefer mid-range";
-
-    const ft = parseInt(a.shootingMakes?.freeThrows || '0');
-    let freeThrow = 'No idea';
-    if (ft >= 8) freeThrow = '80% or higher';
-    else if (ft >= 6) freeThrow = '60-80%';
-    else if (ft >= 4) freeThrow = '40-60%';
-    else freeThrow = 'Below 40%';
-
-    let weakness = a.goal || 'overall game';
-    const makes = a.shootingMakes || {};
-    const makeEntries = Object.entries(makes).map(([k, v]) => [k, parseInt(v as string) || 0]) as [string, number][];
-    if (makeEntries.length > 0) {
-      makeEntries.sort((x, y) => x[1] - y[1]);
-      const worst = makeEntries[0];
-      const worstLabels: Record<string, string> = {
-        layupStrong: 'Finishing at the rim', layupWeak: 'Weak hand finishing',
-        freeThrows: 'Free throw shooting', midRange: 'Mid-range shooting', threes: 'Three-point shooting',
-      };
-      if (worst[1] <= 3) weakness = worstLabels[worst[0]] || weakness;
+  const goNext = () => {
+    if (quizStep < ONBOARDING_STEPS.length-1) {
+      const next = ONBOARDING_STEPS[quizStep+1];
+      if (next.type === 'text' && next.id) setTextInput((answers[next.id] as string) || '');
+      animTrans('forward',()=>setQuizStep(quizStep+1));
+    } else {
+      // Last question done - go to readback
+      startReadback();
     }
-    if (a.dribbling === 'Avoid using my weak hand' || a.dribbling === 'Only use my right hand') weakness = 'Weak hand ball handling';
-
-    const computed = computeSkills(a);
-    const skillLevels: Record<string, number> = {};
-    for (const k of Object.keys(computed)) skillLevels[k] = computed[k].level;
-
-    return {
-      sport: a.sport, position: a.position, experience,
-      goal: a.goal || 'Become a more complete player',
-      weakness,
-      driving: 'not specified',
-      leftHand: leftHandMap[a.dribbling] || 'not specified',
-      pressure: 'not specified', goToMove: 'not specified',
-      threeConfidence, freeThrow,
-      frequency: a.frequency, duration: a.duration, access: a.access,
-      description: a.description || '',
-      grade: a.grade, schoolTeam: a.schoolTeam,
-      playsAAU: a.playsAAU, aauCircuit: a.aauCircuit, aauStarter: a.aauStarter,
-      starter: a.starter, collegeLevel: a.collegeLevel, adultPlay: a.adultPlay,
-      role: a.role, stats: a.stats,
-      shootingMakes: a.shootingMakes, dribbling: a.dribbling,
-      skillLevels,
-    };
+  };
+  const goBack = () => {
+    if (quizStep > 0) {
+      const prev = ONBOARDING_STEPS[quizStep-1];
+      if (prev.type === 'text' && prev.id) setTextInput((answers[prev.id] as string) || '');
+      animTrans('back',()=>setQuizStep(quizStep-1));
+    } else {
+      setAppState('welcome');
+    }
   };
 
-  const generatePlanFromOnboarding = async () => {
+  // ============ READBACK FLOW ============
+  const startReadback = async () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setAppState('readback');
+    setReadbackLoading(true);
+    setReadbackText('');
+    setReadbackFocus('');
+    try {
+      const r = await fetch('https://collectiq-xi.vercel.app/api/readback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answers),
+      });
+      const data = await r.json();
+      if (r.ok && data.readback) {
+        setReadbackText(data.readback);
+        setReadbackFocus(data.suggestedFocus || (answers.weakness as string) || '');
+      } else {
+        // Fallback if backend fails
+        setReadbackText(buildFallbackReadback());
+        setReadbackFocus((answers.weakness as string) || 'Ball handling');
+      }
+    } catch (e) {
+      setReadbackText(buildFallbackReadback());
+      setReadbackFocus((answers.weakness as string) || 'Ball handling');
+    }
+    setReadbackLoading(false);
+  };
+
+  const buildFallbackReadback = () => {
+    const age = answers.age || '';
+    const pos = answers.position || '';
+    const exp = answers.experience || '';
+    const weak = answers.weakness || '';
+    return 'Alright. ' + age + ' year old ' + pos + ', ' + exp + ' playing. You told me your weakness is ' + (weak as string).toLowerCase() + '. Sound right?';
+  };
+
+  const handleReadbackYes = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setChosenFocus(readbackFocus);
+    setAppState('focuspick');
+  };
+
+  const handleReadbackNo = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Skip readback agreement, let them pick the focus themselves
+    setChosenFocus('');
+    setAppState('focuspick');
+  };
+
+  const handleFocusConfirm = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    // Update weakness in answers to match chosen focus, then go to auth
+    const updatedAnswers = { ...answers, weakness: chosenFocus };
+    setAnswers(updatedAnswers);
+    setAppState('auth');
+  };
+
+  // ============ ASSESSMENT ============
+
+  const uploadClip = async (clipId: string, uri: string) => {
+    setUploadingClipId(clipId);
+    setAssessError('');
+    try {
+      const fileName = 'assess_' + clipId + '_' + Date.now() + '.mp4';
+      const formData = new FormData();
+      formData.append('file', { uri: uri, type: 'video/mp4', name: fileName } as any);
+      const supabaseUrl = 'https://tvtojlwdpipntkktguck.supabase.co';
+      const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2dG9qbHdkcGlwbnRra3RndWNrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU0ODMxNDYsImV4cCI6MjA5MTA1OTE0Nn0.9GiDMwjhdZNotoJT_mFlxvxgns0I0pgjVNmM1oyPqFY';
+      const uploadRes = await fetch(supabaseUrl + '/storage/v1/object/films/' + fileName, {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + supabaseKey, 'apikey': supabaseKey },
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        setAssessError('Upload failed. Try a shorter clip.');
+        setUploadingClipId(null);
+        return;
+      }
+      const videoUrl = supabaseUrl + '/storage/v1/object/public/films/' + fileName;
+      setClipUrls(prev => ({ ...prev, [clipId]: videoUrl }));
+    } catch (e) {
+      setAssessError('Something went wrong. Try again.');
+    }
+    setUploadingClipId(null);
+  };
+
+  const pickClip = async (clipId: string) => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== 'granted') { Alert.alert('Permission needed', 'We need camera roll access.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], allowsEditing: true, videoMaxDuration: 30, quality: 0.3 });
+    if (result.canceled || !result.assets[0]?.uri) return;
+    await uploadClip(clipId, result.assets[0].uri);
+  };
+
+  const removeClip = (clipId: string) => {
+    setClipUrls(prev => {
+      const newUrls = { ...prev };
+      delete newUrls[clipId];
+      return newUrls;
+    });
+  };
+
+  const buildProfileFromAnswers = () => ({
+    sport: answers.sport as string, position: answers.position as string,
+    experience: answers.experience as string, goal: answers.goal as string,
+    weakness: answers.weakness as string, frequency: answers.frequency as string,
+    duration: answers.duration as string, access: answers.access,
+    driving: answers.driving as string, leftHand: answers.leftHand as string,
+    pressure: answers.pressure as string, goToMove: answers.goToMove as string,
+    threeConfidence: answers.threeConfidence as string, freeThrow: answers.freeThrow as string,
+    age: answers.age as string, height: answers.height as string, weight: answers.weight as string,
+  });
+
+  const analyzeAllAndGenerate = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setAppState('analyzing');
     setLoadingProgress(0);
     setCurrentLoadingStep(0);
 
-    let stepIdx = 0;
+    let stepIndex = 0;
     const stepInterval = setInterval(() => {
-      stepIdx++;
-      if (stepIdx < LOADING_STEPS.length) {
-        setCurrentLoadingStep(stepIdx);
-        setLoadingProgress(Math.round((stepIdx / LOADING_STEPS.length) * 90));
+      stepIndex++;
+      if (stepIndex < LOADING_STEPS.length) {
+        setCurrentLoadingStep(stepIndex);
+        setLoadingProgress(Math.round((stepIndex / LOADING_STEPS.length) * 90));
       }
-    }, 3000);
+    }, 8000);
 
     try {
-      const payload = buildPayloadFromAnswers(answers);
+      const playerDescription = answers.description as string || '';
+      const analyzePromises = ASSESSMENT_CLIPS.map(clip => {
+        if (!clipUrls[clip.id]) return Promise.resolve(null);
+        return fetch('https://collectiq-xi.vercel.app/api/assess-clip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoUrl: clipUrls[clip.id],
+            clipType: clip.clipType,
+            playerDescription: playerDescription,
+          }),
+        }).then(r => r.json()).catch(() => null);
+      });
+
+      const results = await Promise.all(analyzePromises);
+
+      const skillTotals: Record<string, { sum: number; count: number }> = {};
+      results.forEach((a: any) => {
+        if (!a) return;
+        Object.keys(a).forEach((key) => {
+          if (typeof a[key] === 'number' && key !== 'clipType') {
+            if (!skillTotals[key]) skillTotals[key] = { sum: 0, count: 0 };
+            skillTotals[key].sum += a[key];
+            skillTotals[key].count += 1;
+          }
+        });
+      });
+
+      const finalSkills: Record<string, number> = {};
+      Object.keys(skillTotals).forEach((skill) => {
+        finalSkills[skill] = Math.round(skillTotals[skill].sum / skillTotals[skill].count);
+      });
+
+      setSkillLevels(finalSkills);
+      setResultsSkills(finalSkills);
+
+      setCurrentLoadingStep(LOADING_STEPS.length - 1);
+      setLoadingProgress(95);
+
       const r = await fetch('https://collectiq-xi.vercel.app/api/generate-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...answers, skillLevels: finalSkills }),
       });
 
       clearInterval(stepInterval);
@@ -485,373 +384,684 @@ export default function TodayScreen() {
 
       if (r.ok && planData.days) {
         setPlan(planData);
-        setProfile({
-          sport: payload.sport, position: payload.position, experience: payload.experience,
-          goal: payload.goal, weakness: payload.weakness,
-          frequency: payload.frequency, duration: payload.duration, access: payload.access,
-          driving: payload.driving, leftHand: payload.leftHand, pressure: payload.pressure,
-          goToMove: payload.goToMove, threeConfidence: payload.threeConfidence, freeThrow: payload.freeThrow,
-        });
-        if (payload.description) setDescription(payload.description);
-        setSkillLevels(payload.skillLevels);
-
-        try {
-          const { data: userData } = await supabase.auth.getUser();
-          if (userData.user) {
-            const user = userData.user;
-            await supabase.from('weekly_plans').update({ is_current: false }).eq('user_id', user.id);
-            await supabase.from('weekly_plans').insert({
-              user_id: user.id,
-              plan_data: planData,
-              week_title: planData.weekTitle || 'Week 1',
-              is_current: true,
-            });
-            await supabase.from('user_onboarding').upsert({
-              user_id: user.id,
-              answers: { ...payload, description: payload.description || '' },
-              completed_at: new Date().toISOString(),
-            }, { onConflict: 'user_id' });
-          }
-        } catch (saveErr) {
-          console.error('Supabase sync failed:', saveErr);
-        }
-
-        setAppState('climax');
+        setProfile(buildProfileFromAnswers() as any);
+        setResultsCoachNote(planData.coachSummary?.assessment || '');
+        setAppState('results');
       } else {
-        Alert.alert('Plan generation failed', 'Please try again.');
         setAppState('welcome');
       }
     } catch (e) {
       clearInterval(stepInterval);
-      Alert.alert('Something went wrong', 'Please check your connection and try again.');
       setAppState('welcome');
     }
   };
+
+  const skipAssessment = async () => {
+    Alert.alert('Skip Assessment?', "Without seeing you play, your plan will be more generic.", [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Skip', style: 'destructive', onPress: async () => {
+        setAppState('analyzing');
+        const r = await fetch('https://collectiq-xi.vercel.app/api/generate-plan', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(answers),
+        });
+        const planData = await r.json();
+        if (r.ok && planData.days) {
+          setPlan(planData);
+          setProfile(buildProfileFromAnswers() as any);
+          setAppState('plan');
+        } else { setAppState('welcome'); }
+      }},
+    ]);
+  };
+
+  // ============ RENDER STATES ============
 
   if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
   if (appState === 'welcome') return (
     <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={{ position: 'absolute', width: 300, height: 300, opacity: 0, top: -500, left: -500 }} pointerEvents="none">
-        <Image source={IMG_WHERE_YOU_PLAY} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
-        <Image source={IMG_STATS_LOCKED} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
-        <Image source={IMG_SHOT_MAPPED} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
-        <Image source={IMG_SCOUTING_READY} style={{ width: 300, height: 300, position: 'absolute' }} resizeMode="contain" fadeDuration={0} />
-      </View>
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 20 }} showsVerticalScrollIndicator={false}>
         <View style={{ paddingTop: 16, paddingBottom: 24, alignItems: 'center' }}>
           <Image source={require('@/assets/images/logo.png')} style={{ width: 180, height: 50 }} resizeMode="contain" />
         </View>
-        <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', lineHeight: 34, marginBottom: 12, marginTop: 40, letterSpacing: -0.8 }}>
-          Training built for your game.
-        </Text>
-        <Text style={{ fontSize: 15, color: Colors.textSecondary, textAlign: 'center', marginBottom: 40, lineHeight: 22 }}>
-          Answer a few questions. Get a plan that matches your level, role, and goals — not generic drills.
-        </Text>
-        <TouchableOpacity
-          style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center' }}
-          onPress={() => {
-            if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setStepIndex(0);
-            setAppState('onboarding');
-          }}
-          activeOpacity={0.85}
-        >
-          <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 }}>Build my plan</Text>
+        <Text style={{ fontSize: 28, fontWeight: '900', color: Colors.textPrimary, textAlign: 'center', lineHeight: 36, marginBottom: 12, marginTop: 40 }}>Training plans that know how you play.</Text>
+        <Text style={{ fontSize: 15, color: Colors.textSecondary, textAlign: 'center', marginBottom: 40, lineHeight: 22 }}>Coach X watches you play, scores your skills, and builds a plan around your game.</Text>
+        <TouchableOpacity style={{ backgroundColor: Colors.primary, borderRadius: 16, paddingVertical: 20, alignItems: 'center' }} onPress={() => { if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setAppState('onboarding'); }} activeOpacity={0.85}>
+          <Text style={{ fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 }}>GET STARTED</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={{ paddingVertical: 16, alignItems: 'center', marginTop: 8, flexDirection: 'row', justifyContent: 'center' }}
-          onPress={() => {
-            if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            setAppState('signin');
-          }}
-          activeOpacity={0.7}
-        >
-          <Text style={{ fontSize: 15, color: Colors.textSecondary, letterSpacing: -0.2 }}>Already have an account? </Text>
-          <Text style={{ fontSize: 15, color: Colors.textPrimary, fontWeight: '600', letterSpacing: -0.2 }}>Sign in</Text>
-        </TouchableOpacity>
-
-        {/* ===== DEBUG: test climax screen instantly. Remove before launch. ===== */}
-        <TouchableOpacity
-          style={{
-            marginTop: 32,
-            paddingVertical: 14,
-            paddingHorizontal: 16,
-            backgroundColor: '#FBF5E2',
-            borderRadius: 12,
-            borderWidth: 1,
-            borderColor: Colors.primary,
-            alignItems: 'center',
-          }}
-          onPress={debugJumpToClimax}
-          activeOpacity={0.7}
-        >
-          <Text style={{ fontSize: 13, color: Colors.primary, fontWeight: '700', letterSpacing: 0.5 }}>
-            🔧 TEST CLIMAX SCREEN
-          </Text>
-        </TouchableOpacity>
-        {/* ===== END DEBUG ===== */}
       </ScrollView>
     </View>
   );
 
-  if (appState === 'onboarding' && currentStep) {
-    const st = currentStep;
-    const SectionIcon = SECTION_ICONS[st.section] || UserIcon;
-    const opts = st.dynamicOptions ? st.dynamicOptions(answers) : (st.options || []);
+  if (appState === 'onboarding') {
+    const st = ONBOARDING_STEPS[quizStep];
+    const tq = ONBOARDING_STEPS.filter(x => x.type === 'question' || x.type === 'text' || x.type === 'age' || x.type === 'height' || x.type === 'weight').length;
+    const cq = ONBOARDING_STEPS.slice(0, quizStep + 1).filter(x => x.type === 'question' || x.type === 'text' || x.type === 'age' || x.type === 'height' || x.type === 'weight').length;
+    const pr = (quizStep + 1) / ONBOARDING_STEPS.length;
+    const isSel = (o: string) => { if (!st.id) return false; const a = answers[st.id]; return Array.isArray(a) ? a.includes(o) : a === o; };
+    const canGo = () => { if (!st.id) return true; const a = answers[st.id]; if (!a) return false; if (Array.isArray(a) && a.length === 0) return false; return true; };
 
-    if (st.type === 'interstitial') {
+    if (st.type === 'info') return (
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={s.qh}>
+          <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+          <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (pr * 100) + '%' }]} /></View></View>
+          <View style={{ width: 60 }} />
+        </View>
+        <Animated.View style={[s.is, { opacity: fadeAnim, transform: [{ translateX: slideAnim }] }]}>
+          {st.infoImage && <Image source={st.infoImage} style={s.ii} resizeMode="contain" />}
+          <Text style={s.it}>{st.infoTitle}</Text>
+          <Text style={s.ib}>{st.infoBody}</Text>
+        </Animated.View>
+        <View style={s.bn}>
+          <TouchableOpacity style={s.cb} onPress={goNext} activeOpacity={0.85}><Text style={s.ct}>CONTINUE</Text></TouchableOpacity>
+        </View>
+      </View>
+    );
+
+    if (st.type === 'text') return (
+      <KeyboardAvoidingView style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={s.qh}>
+          <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+          <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (pr * 100) + '%' }]} /></View></View>
+          <Text style={s.st}>{cq}/{tq}</Text>
+        </View>
+        {st.section && <Text style={s.sl}>{st.section}</Text>}
+        <ScrollView contentContainerStyle={s.qc} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Text style={s.q}>{st.question}</Text>
+          {st.subtitle && <Text style={s.qs}>{st.subtitle}</Text>}
+          <TextInput
+            style={{
+              backgroundColor: Colors.surface,
+              borderRadius: 14,
+              borderWidth: 1.5,
+              borderColor: textInput ? Colors.primary : Colors.surfaceBorder,
+              padding: 18,
+              fontSize: 16,
+              color: Colors.textPrimary,
+              minHeight: 100,
+              textAlignVertical: 'top',
+            }}
+            value={textInput}
+            onChangeText={setTextInput}
+            placeholder={st.placeholder}
+            placeholderTextColor={Colors.textMuted}
+            multiline
+            maxLength={200}
+            autoFocus
+          />
+          <Text style={{ fontSize: 11, color: Colors.textMuted, textAlign: 'right', marginTop: 8 }}>{textInput.length}/200</Text>
+        </ScrollView>
+        <View style={s.bn}>
+          <TouchableOpacity
+            style={[s.cb, !textInput.trim() && s.cd]}
+            onPress={handleTextSubmit}
+            activeOpacity={0.85}
+            disabled={!textInput.trim()}
+          >
+            <Text style={[s.ct, !textInput.trim() && { color: Colors.textMuted }]}>CONTINUE</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    );
+
+    // PICKER WHEEL screens (age / height / weight)
+    if (st.type === 'age' || st.type === 'height' || st.type === 'weight') {
+      const opts = st.type === 'age' ? AGE_OPTIONS : st.type === 'height' ? HEIGHT_OPTIONS : WEIGHT_OPTIONS;
+      const defaultIdx = st.type === 'age' ? 1 : st.type === 'height' ? HEIGHT_OPTIONS.indexOf("5'8\"") : WEIGHT_OPTIONS.indexOf('140 lbs');
+      const currentVal = (st.id && answers[st.id] as string) || opts[defaultIdx >= 0 ? defaultIdx : 0];
+
       return (
         <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={s.qh}>
             <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
-            <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
-            <View style={{ width: 60 }} />
+            <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (pr * 100) + '%' }]} /></View></View>
+            <Text style={s.st}>{cq}/{tq}</Text>
           </View>
-          <Animated.View style={{ flex: 1, paddingHorizontal: 28, opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              {st.interstitialImage && (
-                <View style={{ width: 300, height: 300, marginBottom: 40, backgroundColor: Colors.background, alignItems: 'center', justifyContent: 'center', borderRadius: 150, overflow: 'hidden' }}>
-                  <Image source={st.interstitialImage} style={{ width: 300, height: 300 }} resizeMode="contain" fadeDuration={0} />
-                </View>
-              )}
-              <Text style={{ fontSize: 22, fontWeight: '600', color: Colors.textPrimary, textAlign: 'center', lineHeight: 30, letterSpacing: -0.5 }}>
-                {st.interstitialTitle}
-              </Text>
+          {st.section && <Text style={s.sl}>{st.section}</Text>}
+          <View style={s.qc}>
+            <Text style={s.q}>{st.question}</Text>
+            {st.subtitle && <Text style={s.qs}>{st.subtitle}</Text>}
+            <View style={{ backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, marginTop: 12, overflow: 'hidden' }}>
+              <Picker
+                selectedValue={currentVal}
+                onValueChange={(v) => st.id && handlePickerChange(st.id, v as string)}
+                style={Platform.OS === 'ios' ? { height: 220 } : { color: Colors.textPrimary, height: 220, backgroundColor: Colors.surface }}
+                itemStyle={{ color: Colors.textPrimary, fontSize: 22, fontWeight: '700' }}
+                dropdownIconColor={Colors.primary}
+              >
+                {opts.map(o => <Picker.Item key={o} label={o} value={o} color={Platform.OS === 'android' ? '#000' : Colors.textPrimary} />)}
+              </Picker>
             </View>
-          </Animated.View>
+          </View>
           <View style={s.bn}>
-            <TouchableOpacity style={s.cb} onPress={goNext} activeOpacity={0.85}>
-              <Text style={s.ct}>Continue</Text>
+            <TouchableOpacity
+              style={[s.cb, !canGo() && s.cd]}
+              onPress={() => {
+                // If no value chosen yet, set default
+                if (st.id && !answers[st.id]) {
+                  setAnswers({ ...answers, [st.id]: currentVal });
+                  setTimeout(() => goNext(), 50);
+                } else {
+                  goNext();
+                }
+              }}
+              activeOpacity={0.85}
+            >
+              <Text style={s.ct}>CONTINUE</Text>
             </TouchableOpacity>
           </View>
         </View>
       );
     }
 
-    const isSel = (o: string) => {
-      const a = answers[st.id];
-      return Array.isArray(a) ? a.includes(o) : a === o;
-    };
-    const canGo = () => {
-      const a = answers[st.id];
-      if (st.type === 'text') return textInput.trim().length > 0;
-      if (st.type === 'multiselect') return Array.isArray(a) && a.length > 0;
-      if (st.type === 'statGrid') return true;
-      if (st.type === 'numberGrid') {
-        const grid = (a as Record<string, string>) || {};
-        return st.numberFields!.every(f => grid[f.id] !== undefined && grid[f.id] !== '');
-      }
-      return !!a;
-    };
-
     return (
-      <KeyboardAvoidingView style={s.c} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
-        <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-          <View style={s.qh}>
-            <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
-            <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
-            <View style={{ width: 60 }} />
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={s.qh}>
+          <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+          <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (pr * 100) + '%' }]} /></View></View>
+          <Text style={s.st}>{cq}/{tq}</Text>
+        </View>
+        {st.section && <Animated.Text style={[s.sl, { opacity: fadeAnim, transform: [{ translateX: slideAnim }] }]}>{st.section}</Animated.Text>}
+        <ScrollView contentContainerStyle={s.qc} showsVerticalScrollIndicator={false}>
+          <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
+            <Text style={s.q}>{st.question}</Text>
+            {st.subtitle && <Text style={s.qs}>{st.subtitle}</Text>}
+            <View style={{ gap: 10 }}>
+              {st.options?.map((o, i) => {
+                const sel = isSel(o.label);
+                const d = o.disabled;
+                return (
+                  <TouchableOpacity key={i} style={[s.oc, sel && s.os, d && s.od]} onPress={() => !d && handleSelect(o.label)} activeOpacity={d ? 1 : 0.7}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[s.ol, sel && s.ols, d && { color: Colors.textMuted }]}>{o.label}</Text>
+                      {o.subtitle && <Text style={[s.osu, d && { fontStyle: 'italic' }]}>{o.subtitle}</Text>}
+                    </View>
+                    <View style={[st.selectType === 'multiselect' ? s.ck : s.rd, sel && (st.selectType === 'multiselect' ? s.cks : s.rds)]}>
+                      {sel && <View style={st.selectType === 'multiselect' ? s.cki : s.rdi} />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Animated.View>
+        </ScrollView>
+        {st.selectType === 'multiselect' && (
+          <View style={s.bn}>
+            <TouchableOpacity style={[s.cb, !canGo() && s.cd]} onPress={goNext} activeOpacity={0.85} disabled={!canGo()}>
+              <Text style={[s.ct, !canGo() && { color: Colors.textMuted }]}>{quizStep === ONBOARDING_STEPS.length - 1 ? 'CONTINUE' : 'NEXT'}</Text>
+            </TouchableOpacity>
           </View>
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            <Animated.View style={{ opacity: fadeAnim, transform: [{ translateX: slideAnim }] }}>
-              <View style={s.sectionRow}>
-                <View style={s.sectionIconWrap}>
-                  <SectionIcon size={14} color={Colors.primary} />
-                </View>
-                <Text style={s.qs}>{st.section.toUpperCase()}</Text>
-              </View>
-              <Text style={s.qq}>{st.question}</Text>
-              {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
+        )}
+      </View>
+    );
+  }
 
-              {(st.type === 'select' || st.type === 'multiselect') && opts.map((o, i) => (
-                <AnimatedOption
-                  key={`${st.id}-${i}-${o.label}`}
-                  index={i}
-                  style={[s.opt, isSel(o.label) && s.optSel, o.disabled && s.optDisabled]}
-                  onPress={() => !o.disabled && handleSelect(o.label)}
-                  activeOpacity={o.disabled ? 1 : 0.7}
-                  disabled={o.disabled}
+  // READBACK SCREEN
+  if (appState === 'readback') {
+    return (
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 20, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+            <Image source={require('@/assets/images/coach-x-small.png')} style={{ width: 44, height: 44, borderRadius: 22 }} resizeMode="cover" />
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: Colors.primary }}>Coach X</Text>
+              <Text style={{ fontSize: 11, color: Colors.textMuted }}>{readbackLoading ? 'Reading you...' : 'Sizing you up'}</Text>
+            </View>
+          </View>
+
+          {readbackLoading ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 }}>
+              <ActivityIndicator size="large" color={Colors.primary} />
+              <Text style={{ fontSize: 13, color: Colors.textMuted, marginTop: 16 }}>Coach X is taking it all in...</Text>
+            </View>
+          ) : (
+            <>
+              {/* Speech bubble */}
+              <View style={{ backgroundColor: '#1F1A0A', borderRadius: 18, borderWidth: 1.5, borderColor: Colors.primary, padding: 22, marginBottom: 24 }}>
+                <Text style={{ fontSize: 17, color: Colors.textPrimary, lineHeight: 26 }}>{readbackText}</Text>
+              </View>
+
+              <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12, textAlign: 'center' }}>DID I READ YOU RIGHT?</Text>
+
+              <TouchableOpacity
+                style={{ backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18, alignItems: 'center', marginBottom: 10 }}
+                onPress={handleReadbackYes}
+                activeOpacity={0.85}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 1.5 }}>YES, THAT'S ME</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{ backgroundColor: Colors.surface, borderRadius: 14, paddingVertical: 18, alignItems: 'center', borderWidth: 1, borderColor: Colors.surfaceBorder }}
+                onPress={handleReadbackNo}
+                activeOpacity={0.85}
+              >
+                <Text style={{ fontSize: 15, fontWeight: '700', color: Colors.textSecondary, letterSpacing: 1 }}>NOT QUITE</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // FOCUS PICK SCREEN
+  if (appState === 'focuspick') {
+    return (
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+            <Image source={require('@/assets/images/coach-x-small.png')} style={{ width: 44, height: 44, borderRadius: 22 }} resizeMode="cover" />
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: Colors.primary }}>Coach X</Text>
+              <Text style={{ fontSize: 11, color: Colors.textMuted }}>Picking your focus</Text>
+            </View>
+          </View>
+
+          <View style={{ backgroundColor: '#1F1A0A', borderRadius: 18, borderWidth: 1.5, borderColor: Colors.primary, padding: 22, marginBottom: 24 }}>
+            <Text style={{ fontSize: 17, color: Colors.textPrimary, lineHeight: 26 }}>
+              {chosenFocus
+                ? "Alright. I'm thinking we start with " + chosenFocus.toLowerCase() + ". Lock that down and the rest of your game opens up. Sound good?"
+                : "Alright, you tell me. What do you want to start with?"}
+            </Text>
+          </View>
+
+          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 12 }}>{chosenFocus ? 'OR PICK SOMETHING ELSE' : 'PICK YOUR STARTING FOCUS'}</Text>
+
+          <View style={{ gap: 10, marginBottom: 20 }}>
+            {FOCUS_OPTIONS.map(opt => {
+              const sel = chosenFocus === opt.id;
+              return (
+                <TouchableOpacity
+                  key={opt.id}
+                  style={[s.oc, sel && s.os]}
+                  onPress={() => {
+                    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setChosenFocus(opt.id);
+                  }}
+                  activeOpacity={0.7}
                 >
                   <View style={{ flex: 1 }}>
-                    <Text style={[s.optTxt, isSel(o.label) && s.optTxtSel, o.disabled && s.optTxtDisabled]}>{o.label}</Text>
-                    {o.subtitle ? <Text style={[s.optSub, o.disabled && s.optTxtDisabled]}>{o.subtitle}</Text> : null}
+                    <Text style={[s.ol, sel && s.ols]}>{opt.label}</Text>
                   </View>
-                  {isSel(o.label) && <Check size={18} color={Colors.primary} />}
-                </AnimatedOption>
-              ))}
-
-              {st.type === 'text' && (
-                <TextInput style={s.textIn} placeholder={st.placeholder} placeholderTextColor={Colors.textMuted} value={textInput} onChangeText={setTextInput} multiline maxLength={200} autoFocus />
-              )}
-
-              {st.type === 'numberGrid' && st.numberFields?.map((f, i) => {
-                const grid = (answers[st.id] as Record<string, string>) || {};
-                return (
-                  <View key={i} style={s.ngRow}>
-                    <Text style={s.ngLabel}>{f.label}</Text>
-                    <View style={s.ngInputWrap}>
-                      <TextInput
-                        style={s.ngInput}
-                        keyboardType="number-pad"
-                        maxLength={2}
-                        value={grid[f.id] || ''}
-                        onChangeText={(v) => {
-                          const n = v.replace(/[^0-9]/g, '');
-                          const num = parseInt(n || '0');
-                          if (num > (f.max || 10)) return;
-                          handleNumberChange(f.id, n);
-                        }}
-                        placeholder="0"
-                        placeholderTextColor={Colors.textMuted}
-                      />
-                      <Text style={s.ngMax}>/ {f.max || 10}</Text>
-                    </View>
+                  <View style={[s.rd, sel && s.rds]}>
+                    {sel && <View style={s.rdi} />}
                   </View>
-                );
-              })}
-
-              {st.type === 'statGrid' && st.statFields?.map((f, i) => {
-                const grid = (answers[st.id] as Record<string, string>) || {};
-                return (
-                  <View key={i} style={s.sgRow}>
-                    <Text style={s.sgLabel}>{f.label}</Text>
-                    <TextInput style={s.sgInput} keyboardType="decimal-pad" maxLength={5} value={grid[f.id] || ''} onChangeText={(v) => handleNumberChange(f.id, v.replace(/[^0-9.]/g, ''))} placeholder={f.placeholder || '0'} placeholderTextColor={Colors.textMuted} />
-                  </View>
-                );
-              })}
-            </Animated.View>
-          </ScrollView>
-
-          {(st.type === 'text' || st.type === 'numberGrid' || st.type === 'statGrid' || st.type === 'multiselect') && (
-            <View style={s.bn}>
-              <TouchableOpacity style={[s.cb, !canGo() && s.cbDisabled]} onPress={() => { if (st.type === 'text') handleTextSubmit(); else goNext(); }} activeOpacity={0.85} disabled={!canGo()}>
-                <Text style={[s.ct, !canGo() && s.ctDisabled]}>{st.type === 'statGrid' ? 'CONTINUE (SKIP OK)' : 'CONTINUE'}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </ScrollView>
+        <View style={s.bn}>
+          <TouchableOpacity
+            style={[s.cb, !chosenFocus && s.cd]}
+            onPress={handleFocusConfirm}
+            activeOpacity={0.85}
+            disabled={!chosenFocus}
+          >
+            <Text style={[s.ct, !chosenFocus && { color: Colors.textMuted }]}>LET'S GO</Text>
+          </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     );
   }
 
   if (appState === 'auth') {
-    return <AuthScreen onComplete={async () => { await generatePlanFromOnboarding(); }} onBack={() => setAppState('onboarding')} />;
+    return <AuthScreen onComplete={() => setAppState('assessment')} onBack={() => setAppState('focuspick')} />;
   }
 
-  if (appState === 'signin') {
+  // ASSESSMENT
+  if (appState === 'assessment') {
+    const uploadedCount = Object.keys(clipUrls).length;
+    const allUploaded = uploadedCount === ASSESSMENT_CLIPS.length;
+
     return (
-      <AuthScreen
-        mode="signin"
-        onComplete={async () => {
-          try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) { setAppState('welcome'); return; }
-            const { data: planRow } = await supabase.from('weekly_plans').select('plan_data, week_title').eq('user_id', user.id).eq('is_current', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
-            const { data: onboardingRow } = await supabase.from('user_onboarding').select('answers').eq('user_id', user.id).maybeSingle();
-            if (planRow?.plan_data) usePlanStore.getState().setPlan(planRow.plan_data);
-            if (onboardingRow?.answers) {
-              const a = onboardingRow.answers;
-              const prof = { sport: a.sport || 'Basketball', position: a.position || 'Player', experience: a.experience || '', goal: a.goal || '', weakness: a.weakness || '', frequency: a.frequency || '', duration: a.duration || '', access: a.access || '' };
-              usePlanStore.getState().setProfile(prof as any);
-            }
-            if (planRow?.plan_data) setAppState('plan'); else setAppState('welcome');
-          } catch (e) { console.error('Sign-in load failed:', e); setAppState('welcome'); }
-        }}
-        onBack={() => setAppState('welcome')}
-      />
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 20, marginBottom: 16 }}>
+            <Image source={require('@/assets/images/coach-x-small.png')} style={{ width: 36, height: 36, borderRadius: 18 }} resizeMode="cover" />
+            <Text style={{ fontSize: 15, fontWeight: '700', color: Colors.primary }}>Coach X</Text>
+          </View>
+
+          <Text style={{ fontSize: 26, fontWeight: '900', color: Colors.textPrimary, marginBottom: 8, lineHeight: 32 }}>Show me your game</Text>
+          <Text style={{ fontSize: 14, color: Colors.textSecondary, lineHeight: 20, marginBottom: 24 }}>Upload 4 short clips so I can score your skills and build a plan around how you actually play.</Text>
+
+          {assessError ? <Text style={{ fontSize: 13, color: '#C47A6C', backgroundColor: '#2A1515', borderRadius: 10, padding: 12, marginBottom: 16 }}>{assessError}</Text> : null}
+
+          <View style={{ gap: 10, marginBottom: 20 }}>
+            {ASSESSMENT_CLIPS.map((clip) => {
+              const uploaded = !!clipUrls[clip.id];
+              const uploading = uploadingClipId === clip.id;
+              return (
+                <TouchableOpacity
+                  key={clip.id}
+                  style={{
+                    backgroundColor: uploaded ? '#0F1A0F' : Colors.surface,
+                    borderRadius: 14,
+                    borderWidth: 1,
+                    borderColor: uploaded ? '#1A2D1A' : Colors.surfaceBorder,
+                    padding: 16,
+                  }}
+                  onPress={() => !uploading && pickClip(clip.id)}
+                  activeOpacity={0.7}
+                  disabled={uploading}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                    {uploaded ? (
+                      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: '#8B9A6B', alignItems: 'center', justifyContent: 'center' }}>
+                        <Check size={20} color={Colors.black} />
+                      </View>
+                    ) : uploading ? (
+                      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' }}>
+                        <ActivityIndicator size="small" color={Colors.primary} />
+                      </View>
+                    ) : (
+                      <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' }}>
+                        <Upload size={18} color={Colors.textMuted} />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 }}>{clip.title}</Text>
+                      <Text style={{ fontSize: 12, color: Colors.textMuted, lineHeight: 16 }}>{clip.instruction}</Text>
+                      {clip.detail && <Text style={{ fontSize: 11, color: Colors.textMuted, marginTop: 2, fontStyle: 'italic' }}>{clip.detail}</Text>}
+                    </View>
+                    {uploaded && (
+                      <TouchableOpacity onPress={(e) => { e.stopPropagation(); removeClip(clip.id); }} style={{ padding: 6 }}>
+                        <X size={16} color={Colors.textMuted} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={{ fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginBottom: 16 }}>{uploadedCount}/{ASSESSMENT_CLIPS.length} clips uploaded</Text>
+
+          <TouchableOpacity
+            style={{ backgroundColor: allUploaded ? Colors.primary : Colors.surface, borderRadius: 14, paddingVertical: 18, alignItems: 'center', marginBottom: 10, borderWidth: 1, borderColor: allUploaded ? Colors.primary : Colors.surfaceBorder }}
+            onPress={analyzeAllAndGenerate}
+            activeOpacity={0.85}
+            disabled={!allUploaded}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '900', color: allUploaded ? Colors.black : Colors.textMuted, letterSpacing: 1 }}>{allUploaded ? 'ANALYZE & BUILD MY PLAN' : 'UPLOAD ALL 4 CLIPS'}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={skipAssessment} style={{ paddingVertical: 12, alignItems: 'center' }}>
+            <Text style={{ fontSize: 13, color: Colors.textMuted, textDecorationLine: 'underline' }}>Skip assessment</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
     );
   }
 
+  // ANALYZING
   if (appState === 'analyzing') {
     return (
-      <View style={[s.c, { paddingTop: insets.top + 40, paddingBottom: insets.bottom, paddingHorizontal: 28 }]}>
-        <View style={{ marginBottom: 48 }}>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.textMuted, letterSpacing: 1.2 }}>BUILDING PLAN</Text>
-            <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.5 }}>{loadingProgress}%</Text>
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={s.ls}>
+          <Text style={s.lp}>{loadingProgress}%</Text>
+          <Text style={s.lt}>{LOADING_STEPS[currentLoadingStep]}</Text>
+          <View style={s.lbt}>
+            <Animated.View style={[s.lbf, { width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }]} />
           </View>
-          <View style={{ width: '100%', height: 6, backgroundColor: Colors.surfaceBorder, borderRadius: 3, overflow: 'hidden' }}>
-            <Animated.View style={{ height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
+          <Text style={s.lsu}>Coach X is studying your game...</Text>
+          <View style={s.lc}>
+            <Text style={s.lct}>What's happening</Text>
+            {LOADING_STEPS.map((step, i) => {
+              const done = i < currentLoadingStep;
+              const active = i === currentLoadingStep;
+              return (
+                <View key={i} style={s.lci}>
+                  <View style={[s.lcc, (done || active) && s.lcd]}>
+                    {done && <Text style={s.lcm}>✓</Text>}
+                  </View>
+                  <Text style={[s.lcx, (done || active) && s.lcxd]}>{step}</Text>
+                </View>
+              );
+            })}
           </View>
         </View>
-        <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.8 }}>Coach X is working</Text>
-        <Text style={{ fontSize: 15, color: Colors.textSecondary, marginBottom: 36, letterSpacing: -0.2, lineHeight: 22 }}>Analyzing your answers and building a plan around your game.</Text>
-        <View>
-          {LOADING_STEPS.map((step, i) => {
-            const isDone = i < currentLoadingStep;
-            const isCurrent = i === currentLoadingStep;
-            const isPending = i > currentLoadingStep;
-            return (
-              <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, opacity: isPending ? 0.35 : 1 }}>
-                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isDone ? '#1A1A1A' : 'transparent', borderWidth: isDone ? 0 : 1.5, borderColor: isCurrent ? '#1A1A1A' : Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
-                  {isDone && <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '700' }}>✓</Text>}
-                  {isCurrent && <ActivityIndicator size="small" color="#1A1A1A" />}
+      </View>
+    );
+  }
+
+  // RESULTS
+  if (appState === 'results') {
+    const SKILL_LABELS: Record<string, string> = {
+      ballHandling: 'Ball Handling', shooting: 'Shooting', shotForm: 'Shot Form',
+      finishing: 'Finishing', defense: 'Defense', iq: 'Basketball IQ',
+      athleticism: 'Athleticism', weakHand: 'Weak Hand', creativity: 'Creativity',
+      touch: 'Touch', courtVision: 'Court Vision', decisionMaking: 'Decision Making',
+    };
+    const skillEntries = Object.entries(resultsSkills).sort((a, b) => b[1] - a[1]);
+    const avgLevel = skillEntries.length > 0 ? skillEntries.reduce((sum, e) => sum + e[1], 0) / skillEntries.length : 0;
+
+    return (
+      <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 30 }} showsVerticalScrollIndicator={false}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20, marginBottom: 20 }}>
+            <Image source={require('@/assets/images/coach-x-small.png')} style={{ width: 44, height: 44, borderRadius: 22 }} resizeMode="cover" />
+            <View>
+              <Text style={{ fontSize: 16, fontWeight: '800', color: Colors.primary }}>Coach X</Text>
+              <Text style={{ fontSize: 11, color: Colors.textMuted }}>Just finished watching you</Text>
+            </View>
+          </View>
+
+          {resultsCoachNote && (
+            <View style={{ backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 18, marginBottom: 16 }}>
+              <Text style={{ fontSize: 15, color: Colors.textPrimary, lineHeight: 22 }}>{resultsCoachNote}</Text>
+            </View>
+          )}
+
+          <View style={{ backgroundColor: Colors.surface, borderRadius: 18, borderWidth: 2, borderColor: Colors.primary, padding: 22, alignItems: 'center', marginBottom: 16 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 8 }}>YOUR OVERALL RATING</Text>
+            <Text style={{ fontSize: 52, fontWeight: '900', color: Colors.primary, lineHeight: 58 }}>{avgLevel.toFixed(1)}<Text style={{ fontSize: 22, color: Colors.textMuted, fontWeight: '700' }}>/10</Text></Text>
+            <Text style={{ fontSize: 12, color: Colors.textMuted, marginTop: 4 }}>This will go up as you train</Text>
+          </View>
+
+          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 10, marginLeft: 4 }}>SKILL BREAKDOWN</Text>
+          <View style={{ gap: 8, marginBottom: 20 }}>
+            {skillEntries.map((entry) => {
+              const skillKey = entry[0];
+              const level = entry[1];
+              const label = SKILL_LABELS[skillKey] || skillKey;
+              const color = level >= 7 ? '#8B9A6B' : level >= 5 ? Colors.primary : level >= 3 ? '#B08D57' : '#C47A6C';
+              return (
+                <View key={skillKey} style={{ backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 14 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: Colors.textPrimary }}>{label}</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '900', color: color }}>{level}/10</Text>
+                  </View>
+                  <View style={{ height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, overflow: 'hidden' }}>
+                    <View style={{ height: 6, borderRadius: 3, width: (level * 10) + '%', backgroundColor: color }} />
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 16, fontWeight: isCurrent ? '600' : '500', color: isDone ? Colors.textPrimary : isCurrent ? Colors.textPrimary : Colors.textMuted, letterSpacing: -0.2 }}>{step}</Text>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18 }}
+            onPress={() => setAppState('plan')}
+            activeOpacity={0.85}
+          >
+            <Text style={{ fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 1 }}>SEE MY PLAN</Text>
+            <ChevronRight size={18} color={Colors.black} />
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  // PLAN VIEW
+  if (!plan || !profile) return <View style={[s.c, { paddingTop: insets.top }]}><Text style={{ color: Colors.textMuted, textAlign: 'center', marginTop: 100 }}>Complete onboarding to start training.</Text></View>;
+
+  const todayDay = plan.days[currentDayIndex];
+  const todayDrills = todayDay?.drills || [];
+  const totalMinutes = todayDrills.reduce((sum, d) => sum + (d.duration || 5), 0);
+  const doneCount = todayDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length;
+  const firstName = (profile as any).name ? (profile as any).name.split(' ')[0] : 'Player';
+
+  const handleStart = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.push('/session');
+  };
+
+  const getDrillIcon = (type: string) => {
+    switch (type) {
+      case 'warmup': return Wind;
+      case 'shooting': return Target;
+      case 'skill': return Dumbbell;
+      case 'conditioning': return Activity;
+      default: return Zap;
+    }
+  };
+
+  const getDrillColor = (type: string) => {
+    switch (type) {
+      case 'warmup': return '#8B9A6B';
+      case 'shooting': return '#B08D57';
+      case 'skill': return Colors.primary;
+      case 'conditioning': return '#C47A6C';
+      default: return Colors.textMuted;
+    }
+  };
+
+  return (
+    <View style={[s.c, { paddingTop: insets.top }]}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 20 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <View>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: Colors.textPrimary }}>Hey {firstName}</Text>
+            <Text style={{ fontSize: 12, color: Colors.textMuted, marginTop: 2 }}>{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#1A1210', borderRadius: 12, borderWidth: 1, borderColor: '#3A2018', paddingHorizontal: 10, paddingVertical: 6 }}>
+            <Flame size={14} color="#C47A6C" />
+            <Text style={{ fontSize: 13, fontWeight: '800', color: '#C47A6C' }}>{currentStreak}</Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 }}>
+          {plan.days.map((d, i) => {
+            const isToday = i === currentDayIndex;
+            const dayDrills = d.drills || [];
+            const dayDone = dayDrills.filter((_, di) => completedDrills[i + '-' + di]).length;
+            const isComplete = dayDrills.length > 0 && dayDone === dayDrills.length;
+            return (
+              <View key={i} style={{ alignItems: 'center', gap: 6, flex: 1 }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: isToday ? Colors.primary : Colors.textMuted, letterSpacing: 0.5 }}>{DAYS_SHORT[i]}</Text>
+                <View style={[
+                  { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center' },
+                  isToday && { borderColor: Colors.primary, borderWidth: 2 },
+                  isComplete && { backgroundColor: '#8B9A6B', borderColor: '#8B9A6B' },
+                  d.isRest && { borderColor: '#2A2A2A', borderStyle: 'dashed' as any },
+                ]}>
+                  {isComplete && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.black }} />}
                 </View>
               </View>
             );
           })}
         </View>
-      </View>
-    );
-  }
 
-  if (appState === 'climax' && plan?.coachSummary) {
-    return (
-      <CoachXClimax
-        coachSummary={plan.coachSummary}
-        onComplete={() => setAppState('plan')}
-      />
-    );
-  }
+        {todayDay?.isRest ? (
+          <View style={{ backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20, alignItems: 'center', marginBottom: 14 }}>
+            <Text style={{ fontSize: 13, fontWeight: '800', color: Colors.primary, letterSpacing: 1.5, marginBottom: 6 }}>REST DAY</Text>
+            <Text style={{ fontSize: 13, color: Colors.textSecondary, textAlign: 'center' }}>Recovery is part of the work. Get some sleep.</Text>
+          </View>
+        ) : (
+          <View style={{ backgroundColor: Colors.surface, borderRadius: 16, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginBottom: 4 }}>TODAY'S FOCUS</Text>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: Colors.textPrimary }} numberOfLines={2}>{todayDay?.focus || 'Training'}</Text>
+              </View>
+              <View style={{ gap: 4, marginLeft: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Clock size={12} color={Colors.textMuted} />
+                  <Text style={{ fontSize: 11, color: Colors.textMuted, fontWeight: '600' }}>{totalMinutes}m</Text>
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Dumbbell size={12} color={Colors.textMuted} />
+                  <Text style={{ fontSize: 11, color: Colors.textMuted, fontWeight: '600' }}>{todayDrills.length}</Text>
+                </View>
+              </View>
+            </View>
+            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.primary, borderRadius: 12, paddingVertical: 13 }} onPress={handleStart} activeOpacity={0.85}>
+              <Play size={16} color={Colors.black} fill={Colors.black} />
+              <Text style={{ fontSize: 14, fontWeight: '800', color: Colors.black, letterSpacing: 0.5 }}>{doneCount > 0 ? 'CONTINUE SESSION' : 'START SESSION'}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
-  if (appState === 'plan' && plan) {
-    return (
-      <View style={[s.c, { paddingTop: insets.top }]}>
-        <CoachXPill />
-        <TodayHome />
-      </View>
-    );
-  }
-
-  return <View style={[s.c, { paddingTop: insets.top }]} />;
+        {!todayDay?.isRest && (
+          <View style={{ gap: 8 }}>
+            {todayDrills.map((drill, i) => {
+              const done = completedDrills[currentDayIndex + '-' + i];
+              const Icon = getDrillIcon(drill.type);
+              const color = getDrillColor(drill.type);
+              return (
+                <View key={i} style={[{ flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.surface, borderRadius: 12, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 12, paddingVertical: 10 }, done && { opacity: 0.5 }]}>
+                  <View style={{ width: 32, height: 32, borderRadius: 8, borderWidth: 1, backgroundColor: color + '20', borderColor: color, alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon size={14} color={color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[{ fontSize: 13, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 }, done && { textDecorationLine: 'line-through' }]} numberOfLines={1}>{drill.name}</Text>
+                    <Text style={{ fontSize: 11, color: Colors.textMuted }}>{drill.time || ((drill.duration || 5) + 'min')}</Text>
+                  </View>
+                  {done && <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#8B9A6B', alignItems: 'center', justifyContent: 'center' }}><Text style={{ fontSize: 12, fontWeight: '900', color: Colors.black }}>✓</Text></View>}
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
 }
 
 const s = StyleSheet.create({
   c: { flex: 1, backgroundColor: Colors.background },
-  qh: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 12 },
-  bb: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  qh: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, gap: 14 },
+  bb: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   bt: { fontSize: 22, color: Colors.textSecondary },
-  pc: { flex: 1, paddingHorizontal: 12 },
-  pt: { height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden' },
+  pc: { flex: 1 }, pt: { height: 4, backgroundColor: Colors.surface, borderRadius: 2, overflow: 'hidden' },
   pf: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
-  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  sectionIconWrap: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FBF5E2', borderWidth: 1, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
-  qs: { fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5 },
-  qq: { fontSize: 26, fontWeight: '700', color: Colors.textPrimary, lineHeight: 32, marginBottom: 8, letterSpacing: -0.8 },
-  qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20, letterSpacing: -0.1 },
-  opt: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 16, marginBottom: 10 },
-  optSel: { borderColor: Colors.primary, backgroundColor: '#FBF5E2' },
-  optDisabled: { opacity: 0.4 },
-  optTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2 },
-  optTxtSel: { color: Colors.primary },
-  optTxtDisabled: { color: Colors.textMuted },
-  optSub: { fontSize: 12, color: Colors.textMuted, marginTop: 4, letterSpacing: -0.1 },
-  textIn: { backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 16, fontSize: 16, color: Colors.textPrimary, minHeight: 100, textAlignVertical: 'top', letterSpacing: -0.2 },
-  ngRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
-  ngLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1, letterSpacing: -0.2 },
-  ngInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  ngInput: { width: 48, textAlign: 'center', fontSize: 18, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder, letterSpacing: -0.3 },
-  ngMax: { fontSize: 13, color: Colors.textMuted },
-  sgRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 14, marginBottom: 10 },
-  sgLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1, letterSpacing: -0.2 },
-  sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder, letterSpacing: -0.3 },
-  bn: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 24, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
-  cb: { backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center' },
-  cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
-  ct: { fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 },
-  ctDisabled: { color: Colors.textMuted },
+  st: { fontSize: 13, color: Colors.textMuted, fontWeight: '600', minWidth: 36, textAlign: 'right' },
+  sl: { fontSize: 12, fontWeight: '700', color: Colors.primary, textTransform: 'uppercase', letterSpacing: 1.5, paddingHorizontal: 24, marginBottom: 4 },
+  qc: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40 },
+  q: { fontSize: 26, fontWeight: '800', color: Colors.textPrimary, lineHeight: 34, marginBottom: 8 },
+  qs: { fontSize: 15, color: Colors.textSecondary, marginBottom: 28, lineHeight: 21 },
+  oc: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1.5, borderColor: Colors.surfaceBorder, paddingVertical: 18, paddingHorizontal: 20 },
+  os: { borderColor: Colors.primary, backgroundColor: '#1A1708' }, od: { opacity: 0.4 },
+  ol: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary }, ols: { color: Colors.primary },
+  osu: { fontSize: 13, color: Colors.textMuted, marginTop: 2 },
+  rd: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
+  rds: { borderColor: Colors.primary }, rdi: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.primary },
+  ck: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
+  cks: { borderColor: Colors.primary, backgroundColor: Colors.primary }, cki: { width: 12, height: 12, borderRadius: 2, backgroundColor: Colors.black },
+  bn: { paddingHorizontal: 24, paddingBottom: 16 },
+  cb: { backgroundColor: Colors.primary, borderRadius: 14, paddingVertical: 18, alignItems: 'center' },
+  cd: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
+  ct: { fontSize: 15, fontWeight: '800', color: Colors.black, letterSpacing: 2 },
+  is: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 36 },
+  ii: { width: 280, height: 280, marginBottom: 32 },
+  it: { fontSize: 24, fontWeight: '800', color: Colors.primary, textAlign: 'center', lineHeight: 32, marginBottom: 16 },
+  ib: { fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24 },
+  ls: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32, paddingTop: 20 },
+  lp: { fontSize: 48, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
+  lt: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, marginBottom: 18 },
+  lbt: { width: '100%', height: 6, backgroundColor: Colors.surface, borderRadius: 3, overflow: 'hidden', marginBottom: 12 },
+  lbf: { height: 6, backgroundColor: Colors.primary, borderRadius: 3 },
+  lsu: { fontSize: 13, color: Colors.textSecondary, marginBottom: 24 },
+  lc: { width: '100%', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 18 },
+  lct: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary, marginBottom: 12 },
+  lci: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  lcc: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center' },
+  lcd: { borderColor: Colors.primary, backgroundColor: Colors.primary },
+  lcm: { fontSize: 11, color: Colors.black, fontWeight: '800' },
+  lcx: { fontSize: 12, color: Colors.textMuted, flex: 1 },
+  lcxd: { color: Colors.textPrimary },
 });
