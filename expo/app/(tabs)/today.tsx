@@ -1014,7 +1014,29 @@ export default function TodayScreen() {
   }
 
   if (appState === 'auth') {
-    return <AuthScreen onComplete={async () => { await generatePlanFromOnboarding(); }} onBack={() => setAppState('focuspick')} />;
+    return <AuthScreen onComplete={async () => {
+      // Check if this user already has a plan (i.e., they signed IN instead of signing UP)
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: planRow } = await supabase.from('weekly_plans').select('plan_data, week_title').eq('user_id', user.id).eq('is_current', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
+          if (planRow?.plan_data) {
+            // Existing user signed in - load their existing plan, don't generate
+            const { data: onboardingRow } = await supabase.from('user_onboarding').select('answers').eq('user_id', user.id).maybeSingle();
+            usePlanStore.getState().setPlan(planRow.plan_data);
+            if (onboardingRow?.answers) {
+              const a = onboardingRow.answers;
+              const prof = { sport: a.sport || 'Basketball', position: a.position || 'Player', experience: a.experience || '', goal: a.goal || '', weakness: a.weakness || '', frequency: a.frequency || '', duration: a.duration || '', access: a.access || '' };
+              usePlanStore.getState().setProfile(prof as any);
+            }
+            setAppState('plan');
+            return;
+          }
+        }
+      } catch (e) { console.error('Existing plan check failed:', e); }
+      // No existing plan - generate one from onboarding answers
+      await generatePlanFromOnboarding();
+    }} onBack={() => setAppState('focuspick')} />;
   }
 
   if (appState === 'signin') {
