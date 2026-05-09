@@ -1110,7 +1110,7 @@ export default function TodayScreen() {
 
   if (appState === 'plan' && plan) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#3D2A0E', paddingTop: insets.top }}>
+     <View style={[s.c, { paddingTop: insets.top }]}>
         <TodayHome />
       </View>
     );
