@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Play, Edit3, ChevronRight, Flame, Clock, CheckCircle2 } from 'lucide-react-native';
+import { Play, Edit3, Flame, CheckCircle2, Settings } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
@@ -13,7 +13,6 @@ import { resolvePlanDrill } from '@/lib/resolveDrill';
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const COACH_X_IMAGE = require('@/assets/images/coach-x-small.png');
 
-// Daily Coach X lines — rotates by day index
 const COACH_X_DAILY_LINES = [
   "Here's today. Let's go.",
   "Lock in. We've got work.",
@@ -43,7 +42,6 @@ export default function TodayHome() {
     ? Math.round((resolvedDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / resolvedDrills.length) * 100)
     : 0;
 
-  // Yesterday's session recap
   const yesterdayIdx = currentDayIndex > 0 ? currentDayIndex - 1 : 6;
   const yesterdayDay = plan.days?.[yesterdayIdx];
   const yesterdayDrills = useMemo(
@@ -52,7 +50,6 @@ export default function TodayHome() {
   );
   const yesterdayDoneCount = yesterdayDrills.filter((_, i) => completedDrills[yesterdayIdx + '-' + i]).length;
 
-  // This Week stats
   const weekStats = useMemo(() => {
     let sessionsCompleted = 0;
     let totalMinutes = 0;
@@ -72,7 +69,6 @@ export default function TodayHome() {
       }
     });
 
-    // Simple streak: count consecutive completed days going back from today
     for (let i = currentDayIndex; i >= 0; i--) {
       const drills = (plan.days[i]?.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
       const doneCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
@@ -101,13 +97,26 @@ export default function TodayHome() {
     router.push('/edit-workout');
   };
 
+  const onMore = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push('/more');
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 40, paddingHorizontal: 16 }}
+        contentContainerStyle={{ paddingBottom: 110, paddingHorizontal: 16, paddingTop: 8 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== Day strip — letter + date, Cal AI style ===== */}
+        {/* ===== Top row: settings icon ===== */}
+        <View style={styles.topRow}>
+          <View style={{ flex: 1 }} />
+          <TouchableOpacity onPress={onMore} style={styles.settingsBtn} activeOpacity={0.7}>
+            <Settings size={20} color={Colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        {/* ===== Day strip ===== */}
         <View style={styles.dayStripWrap}>
           {plan.days.map((d, i) => {
             const isCur = i === currentDayIndex;
@@ -124,21 +133,12 @@ export default function TodayHome() {
                 }}
                 activeOpacity={0.7}
               >
-                <View style={[
-                  styles.dayCircle,
-                  isCur && styles.dayCircleActive,
-                ]}>
-                  <Text style={[
-                    styles.dayLetter,
-                    isCur && styles.dayLetterActive,
-                  ]}>
+                <View style={[styles.dayCircle, isCur && styles.dayCircleActive]}>
+                  <Text style={[styles.dayLetter, isCur && styles.dayLetterActive]}>
                     {DAYS_SHORT[i]}
                   </Text>
                 </View>
-                <Text style={[
-                  styles.dayDate,
-                  isCur && styles.dayDateActive,
-                ]}>
+                <Text style={[styles.dayDate, isCur && styles.dayDateActive]}>
                   {dateNum}
                 </Text>
               </TouchableOpacity>
@@ -228,7 +228,7 @@ export default function TodayHome() {
           )}
         </View>
 
-        {/* ===== Yesterday's session widget ===== */}
+        {/* ===== Yesterday widget ===== */}
         {yesterdayDrills.length > 0 && (
           <View style={styles.widget}>
             <View style={styles.widgetHeader}>
@@ -301,11 +301,26 @@ export default function TodayHome() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
-  // ===== Day strip — Cal AI style =====
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingBottom: 8,
+  },
+  settingsBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   dayStripWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 12,
+    paddingTop: 4,
     paddingBottom: 16,
     paddingHorizontal: 4,
   },
@@ -345,7 +360,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // ===== Widget base =====
   widget: {
     backgroundColor: Colors.surface,
     borderRadius: 16,
@@ -387,7 +401,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // ===== Coach X widget =====
   coachRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -413,7 +426,6 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
 
-  // ===== Today's workout =====
   progressTrack: {
     height: 3,
     backgroundColor: Colors.surfaceBorder,
@@ -510,7 +522,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ===== Yesterday widget =====
   yesterdayList: {
     gap: 6,
   },
@@ -537,7 +548,6 @@ const styles = StyleSheet.create({
     marginLeft: 26,
   },
 
-  // ===== This Week widget =====
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
