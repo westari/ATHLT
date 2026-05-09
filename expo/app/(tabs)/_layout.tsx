@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Tabs } from 'expo-router';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Platform, Image,
+  View, Text, TouchableOpacity, StyleSheet, Platform,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import {
@@ -9,12 +9,11 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Colors from '@/constants/colors';
 import PlusActionSheet from '@/components/PlusActionSheet';
 
 const GOLD = '#D4AF37';
 
-function CustomTabBar({ state, descriptors, navigation }: any) {
+function CustomTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
   const [plusOpen, setPlusOpen] = useState(false);
 
@@ -27,56 +26,60 @@ function CustomTabBar({ state, descriptors, navigation }: any) {
 
   return (
     <>
-      <View style={[styles.barWrap, { paddingBottom: insets.bottom + 8 }]}>
-        {/* Pill container with blur */}
-        <BlurView
-          intensity={Platform.OS === 'ios' ? 80 : 100}
-          tint="dark"
-          style={styles.pill}
-        >
-          {tabs.map((tab) => {
-            const route = state.routes.find((r: any) => r.name === tab.name);
-            if (!route) return null;
-            const isFocused = state.routes[state.index]?.name === tab.name;
-            const { Icon } = tab;
+      <View style={[styles.barWrap, { paddingBottom: insets.bottom + 10 }]}>
+        {/* Pill container — strong frost glass */}
+        <View style={styles.pillOuter}>
+          <BlurView
+            intensity={Platform.OS === 'ios' ? 100 : 120}
+            tint="systemUltraThinMaterialLight"
+            style={styles.pillBlur}
+          >
+            <View style={styles.pillInner}>
+              {tabs.map((tab) => {
+                const route = state.routes.find((r: any) => r.name === tab.name);
+                if (!route) return null;
+                const isFocused = state.routes[state.index]?.name === tab.name;
+                const { Icon } = tab;
 
-            const onPress = () => {
-              if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              const event = navigation.emit({
-                type: 'tabPress',
-                target: route.key,
-                canPreventDefault: true,
-              });
-              if (!isFocused && !event.defaultPrevented) {
-                navigation.navigate(route.name);
-              }
-            };
+                const onPress = () => {
+                  if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  const event = navigation.emit({
+                    type: 'tabPress',
+                    target: route.key,
+                    canPreventDefault: true,
+                  });
+                  if (!isFocused && !event.defaultPrevented) {
+                    navigation.navigate(route.name);
+                  }
+                };
 
-            return (
-              <TouchableOpacity
-                key={tab.name}
-                onPress={onPress}
-                activeOpacity={0.7}
-                style={styles.tab}
-              >
-                <Icon
-                  size={22}
-                  color={isFocused ? GOLD : '#9A9A9A'}
-                  strokeWidth={isFocused ? 2.5 : 2}
-                />
-                <Text style={[
-                  styles.tabLabel,
-                  { color: isFocused ? GOLD : '#9A9A9A' },
-                  isFocused && { fontWeight: '700' },
-                ]}>
-                  {tab.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </BlurView>
+                return (
+                  <TouchableOpacity
+                    key={tab.name}
+                    onPress={onPress}
+                    activeOpacity={0.7}
+                    style={styles.tab}
+                  >
+                    <Icon
+                      size={22}
+                      color={isFocused ? GOLD : 'rgba(255,255,255,0.55)'}
+                      strokeWidth={isFocused ? 2.5 : 2}
+                    />
+                    <Text style={[
+                      styles.tabLabel,
+                      { color: isFocused ? GOLD : 'rgba(255,255,255,0.55)' },
+                      isFocused && { fontWeight: '700' },
+                    ]}>
+                      {tab.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </BlurView>
+        </View>
 
-        {/* Plus button — separate, gold */}
+        {/* Plus button — gold */}
         <TouchableOpacity
           style={styles.plusBtn}
           onPress={() => {
@@ -104,7 +107,6 @@ export default function TabsLayout() {
       <Tabs.Screen name="film" />
       <Tabs.Screen name="library" />
       <Tabs.Screen name="progress" />
-      {/* hide unused legacy screens */}
       <Tabs.Screen name="more" options={{ href: null }} />
       <Tabs.Screen name="coachx" options={{ href: null }} />
       <Tabs.Screen name="_layout" options={{ href: null }} />
@@ -120,20 +122,31 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     paddingTop: 8,
-    gap: 12,
+    gap: 10,
     backgroundColor: 'transparent',
   },
-  pill: {
+  pillOuter: {
     flex: 1,
-    flexDirection: 'row',
     height: 64,
     borderRadius: 32,
     overflow: 'hidden',
-    backgroundColor: Platform.OS === 'android' ? 'rgba(20,20,20,0.92)' : 'rgba(20,20,20,0.5)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderColor: 'rgba(255,255,255,0.18)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  pillBlur: {
+    flex: 1,
+    backgroundColor: Platform.OS === 'android' ? 'rgba(30,30,30,0.78)' : 'rgba(40,35,28,0.55)',
+  },
+  pillInner: {
+    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
     paddingHorizontal: 8,
@@ -157,10 +170,10 @@ const styles = StyleSheet.create({
     backgroundColor: GOLD,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: GOLD,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
     elevation: 8,
   },
 });
