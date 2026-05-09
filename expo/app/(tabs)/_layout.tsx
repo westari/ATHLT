@@ -27,13 +27,15 @@ function CustomTabBar({ state, navigation }: any) {
   return (
     <>
       <View style={[styles.barWrap, { paddingBottom: insets.bottom + 10 }]}>
-        {/* Pill container — strong frost glass */}
+        {/* Pill — dark forced tint with subtle blur for depth */}
         <View style={styles.pillOuter}>
           <BlurView
-            intensity={Platform.OS === 'ios' ? 100 : 120}
-            tint="systemUltraThinMaterialLight"
+            intensity={Platform.OS === 'ios' ? 60 : 90}
+            tint="dark"
             style={styles.pillBlur}
           >
+            {/* Dark overlay forces tint regardless of what's behind */}
+            <View style={styles.darkOverlay} />
             <View style={styles.pillInner}>
               {tabs.map((tab) => {
                 const route = state.routes.find((r: any) => r.name === tab.name);
@@ -62,12 +64,12 @@ function CustomTabBar({ state, navigation }: any) {
                   >
                     <Icon
                       size={22}
-                      color={isFocused ? GOLD : 'rgba(255,255,255,0.55)'}
+                      color={isFocused ? GOLD : 'rgba(255,255,255,0.6)'}
                       strokeWidth={isFocused ? 2.5 : 2}
                     />
                     <Text style={[
                       styles.tabLabel,
-                      { color: isFocused ? GOLD : 'rgba(255,255,255,0.55)' },
+                      { color: isFocused ? GOLD : 'rgba(255,255,255,0.6)' },
                       isFocused && { fontWeight: '700' },
                     ]}>
                       {tab.label}
@@ -79,7 +81,7 @@ function CustomTabBar({ state, navigation }: any) {
           </BlurView>
         </View>
 
-        {/* Plus button — gold */}
+        {/* Plus button */}
         <TouchableOpacity
           style={styles.plusBtn}
           onPress={() => {
@@ -133,16 +135,19 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255,255,255,0.08)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 6,
   },
   pillBlur: {
     flex: 1,
-    backgroundColor: Platform.OS === 'android' ? 'rgba(30,30,30,0.78)' : 'rgba(40,35,28,0.55)',
+  },
+  darkOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 15, 15, 0.78)',
   },
   pillInner: {
     flex: 1,
@@ -172,7 +177,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     shadowColor: GOLD,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
   },
