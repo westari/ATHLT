@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Play, Edit3, Flame, CheckCircle2, Settings } from 'lucide-react-native';
+import { Play, Edit3, Flame, Settings, ChevronRight, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
@@ -22,6 +22,18 @@ const COACH_X_DAILY_LINES = [
   "Stay sharp. Don't slip.",
   "Recover hard. Come back harder.",
 ];
+
+// Example past workout — replace with real data once past sessions wired up
+const EXAMPLE_PAST_WORKOUT = {
+  focus: 'Shooting',
+  date: '2 days ago',
+  drills: [
+    { name: 'Form shooting', done: true },
+    { name: 'Pull-up jumpers', done: true },
+    { name: 'Catch & shoot', done: true },
+    { name: 'Free throws', done: false },
+  ],
+};
 
 export default function TodayHome() {
   const insets = useSafeAreaInsets();
@@ -42,31 +54,15 @@ export default function TodayHome() {
     ? Math.round((resolvedDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / resolvedDrills.length) * 100)
     : 0;
 
-  const yesterdayIdx = currentDayIndex > 0 ? currentDayIndex - 1 : 6;
-  const yesterdayDay = plan.days?.[yesterdayIdx];
-  const yesterdayDrills = useMemo(
-    () => (yesterdayDay?.drills || []).map(d => resolvePlanDrill(d)).filter((d): d is NonNullable<typeof d> => d !== null),
-    [yesterdayDay]
-  );
-  const yesterdayDoneCount = yesterdayDrills.filter((_, i) => completedDrills[yesterdayIdx + '-' + i]).length;
-
   const weekStats = useMemo(() => {
     let sessionsCompleted = 0;
-    let totalMinutes = 0;
     let streak = 0;
 
     plan.days.forEach((d, i) => {
       const drills = (d.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
       const doneCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
       const allDone = drills.length > 0 && doneCount === drills.length;
-      if (allDone) {
-        sessionsCompleted += 1;
-        const mins = drills.reduce((sum, dr) => {
-          const t = parseInt(dr.time || '0');
-          return sum + (isNaN(t) ? 0 : t);
-        }, 0);
-        totalMinutes += mins;
-      }
+      if (allDone) sessionsCompleted += 1;
     });
 
     for (let i = currentDayIndex; i >= 0; i--) {
@@ -78,11 +74,7 @@ export default function TodayHome() {
       else break;
     }
 
-    const hours = Math.floor(totalMinutes / 60);
-    const mins = totalMinutes % 60;
-    const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-
-    return { sessionsCompleted, timeStr, streak };
+    return { sessionsCompleted, streak };
   }, [plan, completedDrills, currentDayIndex]);
 
   const dailyLine = COACH_X_DAILY_LINES[currentDayIndex] || COACH_X_DAILY_LINES[0];
@@ -102,13 +94,18 @@ export default function TodayHome() {
     router.push('/more');
   };
 
+  const onViewPast = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // TODO: route to past workouts screen when built
+  };
+
   return (
     <View style={styles.container}>
       <ScrollView
         contentContainerStyle={{ paddingBottom: 110, paddingHorizontal: 16, paddingTop: 8 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== Top row: settings icon ===== */}
+        {/* ===== Top row: settings ===== */}
         <View style={styles.topRow}>
           <View style={{ flex: 1 }} />
           <TouchableOpacity onPress={onMore} style={styles.settingsBtn} activeOpacity={0.7}>
@@ -116,13 +113,10 @@ export default function TodayHome() {
           </TouchableOpacity>
         </View>
 
-        {/* ===== Day strip ===== */}
+        {/* ===== Day strip — letter on top, circle below ===== */}
         <View style={styles.dayStripWrap}>
           {plan.days.map((d, i) => {
             const isCur = i === currentDayIndex;
-            const dayDate = new Date();
-            dayDate.setDate(dayDate.getDate() + (i - currentDayIndex));
-            const dateNum = dayDate.getDate();
             return (
               <TouchableOpacity
                 key={i}
@@ -133,27 +127,28 @@ export default function TodayHome() {
                 }}
                 activeOpacity={0.7}
               >
-                <View style={[styles.dayCircle, isCur && styles.dayCircleActive]}>
-                  <Text style={[styles.dayLetter, isCur && styles.dayLetterActive]}>
-                    {DAYS_SHORT[i]}
-                  </Text>
-                </View>
-                <Text style={[styles.dayDate, isCur && styles.dayDateActive]}>
-                  {dateNum}
+                <Text style={[
+                  styles.dayLetter,
+                  isCur && styles.dayLetterActive,
+                ]}>
+                  {DAYS_SHORT[i]}
                 </Text>
+                <View style={[
+                  styles.dayCircle,
+                  isCur && styles.dayCircleActive,
+                  d.isRest && !isCur && styles.dayCircleRest,
+                ]} />
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* ===== Coach X widget ===== */}
-        <View style={styles.widget}>
-          <View style={styles.coachRow}>
-            <Image source={COACH_X_IMAGE} style={styles.coachImg} resizeMode="contain" />
-            <View style={styles.coachTextWrap}>
-              <Text style={styles.coachLabel}>COACH X</Text>
-              <Text style={styles.coachMessage}>{dailyLine}</Text>
-            </View>
+        {/* ===== Coach X — no card, floats above workout ===== */}
+        <View style={styles.coachBlock}>
+          <Image source={COACH_X_IMAGE} style={styles.coachImg} resizeMode="contain" />
+          <View style={styles.coachTextWrap}>
+            <Text style={styles.coachLabel}>COACH X</Text>
+            <Text style={styles.coachMessage}>{dailyLine}</Text>
           </View>
         </View>
 
@@ -228,70 +223,67 @@ export default function TodayHome() {
           )}
         </View>
 
-        {/* ===== Yesterday widget ===== */}
-        {yesterdayDrills.length > 0 && (
-          <View style={styles.widget}>
-            <View style={styles.widgetHeader}>
-              <Text style={styles.widgetLabel}>YESTERDAY</Text>
-              <Text style={styles.widgetMeta}>
-                {yesterdayDoneCount}/{yesterdayDrills.length} drills
-              </Text>
-            </View>
-            <Text style={styles.widgetTitleSmall}>{yesterdayDay?.focus || 'Session'}</Text>
+        {/* ===== Two square widgets side by side ===== */}
+        <View style={styles.squareRow}>
+          {/* LEFT: This Week — streak + sessions */}
+          <View style={styles.squareWidget}>
+            <Text style={styles.squareLabel}>THIS WEEK</Text>
 
-            <View style={styles.yesterdayList}>
-              {yesterdayDrills.slice(0, 5).map((d, i) => {
-                const done = completedDrills[yesterdayIdx + '-' + i];
-                return (
-                  <View key={i} style={styles.yesterdayRow}>
-                    <CheckCircle2
-                      size={16}
-                      color={done ? Colors.primary : Colors.surfaceBorder}
-                      fill={done ? Colors.primary : 'transparent'}
-                    />
-                    <Text
-                      style={[
-                        styles.yesterdayDrill,
-                        done ? styles.yesterdayDone : styles.yesterdayMissed,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {d.name}
-                    </Text>
+            <View style={styles.streakWrap}>
+              <Flame
+                size={70}
+                color="rgba(212, 175, 55, 0.18)"
+                fill="rgba(212, 175, 55, 0.18)"
+                style={styles.flameBg}
+              />
+              <Text style={styles.streakNum}>{weekStats.streak}</Text>
+            </View>
+            <Text style={styles.streakLabel}>Day streak</Text>
+
+            <View style={styles.divider} />
+
+            <View style={styles.sessionsRow}>
+              <Text style={styles.sessionsNum}>{weekStats.sessionsCompleted}</Text>
+              <Text style={styles.sessionsLabel}>Sessions</Text>
+            </View>
+          </View>
+
+          {/* RIGHT: Past workout preview */}
+          <TouchableOpacity
+            style={styles.squareWidget}
+            onPress={onViewPast}
+            activeOpacity={0.85}
+          >
+            <View style={styles.pastHeader}>
+              <Text style={styles.squareLabel}>RECENT</Text>
+              <ChevronRight size={14} color={Colors.textMuted} />
+            </View>
+
+            <Text style={styles.pastFocus}>{EXAMPLE_PAST_WORKOUT.focus}</Text>
+            <Text style={styles.pastDate}>{EXAMPLE_PAST_WORKOUT.date}</Text>
+
+            <View style={styles.pastDrillList}>
+              {EXAMPLE_PAST_WORKOUT.drills.map((d, i) => (
+                <View key={i} style={styles.pastDrillRow}>
+                  <View style={[
+                    styles.pastCheck,
+                    d.done && styles.pastCheckDone,
+                  ]}>
+                    {d.done && <Check size={9} color={Colors.white} strokeWidth={3} />}
                   </View>
-                );
-              })}
-              {yesterdayDrills.length > 5 && (
-                <Text style={styles.yesterdayMore}>
-                  + {yesterdayDrills.length - 5} more
-                </Text>
-              )}
+                  <Text
+                    style={[
+                      styles.pastDrillName,
+                      d.done && styles.pastDrillDone,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {d.name}
+                  </Text>
+                </View>
+              ))}
             </View>
-          </View>
-        )}
-
-        {/* ===== This Week widget ===== */}
-        <View style={styles.widget}>
-          <Text style={styles.widgetLabel}>THIS WEEK</Text>
-          <View style={styles.statsRow}>
-            <View style={styles.statBox}>
-              <Text style={styles.statNum}>{weekStats.sessionsCompleted}</Text>
-              <Text style={styles.statLabel}>Sessions</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statBox}>
-              <Text style={styles.statNum}>{weekStats.timeStr}</Text>
-              <Text style={styles.statLabel}>Trained</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statBox}>
-              <View style={styles.streakNumWrap}>
-                <Flame size={18} color={Colors.primary} fill={Colors.primary} />
-                <Text style={styles.statNum}>{weekStats.streak}</Text>
-              </View>
-              <Text style={styles.statLabel}>Day streak</Text>
-            </View>
-          </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </View>
@@ -304,7 +296,7 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 8,
+    paddingBottom: 4,
   },
   settingsBtn: {
     width: 36,
@@ -317,53 +309,76 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // ===== Day strip =====
   dayStripWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingTop: 4,
-    paddingBottom: 16,
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 24,
   },
   dayCol: {
     alignItems: 'center',
-    gap: 6,
-  },
-  dayCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayCircleActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+    gap: 8,
   },
   dayLetter: {
     fontSize: 13,
     fontWeight: '700',
     color: Colors.textMuted,
+    letterSpacing: 0.5,
   },
   dayLetterActive: {
-    color: Colors.white,
+    color: Colors.primary,
   },
-  dayDate: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: Colors.textMuted,
+  dayCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: 'transparent',
   },
-  dayDateActive: {
-    color: Colors.textPrimary,
-    fontWeight: '700',
+  dayCircleActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  dayCircleRest: {
+    borderStyle: 'dashed',
   },
 
+  // ===== Coach X — no card =====
+  coachBlock: {
+    flexDirection: 'row',
+    paddingHorizontal: 4,
+    paddingBottom: 24,
+    alignItems: 'center',
+    gap: 14,
+  },
+  coachImg: {
+    width: 64,
+    height: 64,
+  },
+  coachTextWrap: { flex: 1 },
+  coachLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.primary,
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  coachMessage: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    letterSpacing: -0.5,
+    lineHeight: 28,
+  },
+
+  // ===== Today's workout widget =====
   widget: {
     backgroundColor: Colors.surface,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 18,
+    padding: 18,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
@@ -376,7 +391,7 @@ const styles = StyleSheet.create({
   },
   widgetLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
     color: Colors.textMuted,
     letterSpacing: 1.2,
     marginBottom: 4,
@@ -384,46 +399,14 @@ const styles = StyleSheet.create({
   widgetMeta: {
     fontSize: 12,
     color: Colors.textMuted,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   widgetTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 24,
+    fontWeight: '800',
     color: Colors.textPrimary,
-    letterSpacing: -0.5,
-    marginBottom: 12,
-  },
-  widgetTitleSmall: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: -0.4,
-    marginBottom: 12,
-  },
-
-  coachRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-  },
-  coachImg: {
-    width: 60,
-    height: 60,
-  },
-  coachTextWrap: { flex: 1 },
-  coachLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 1.5,
-    marginBottom: 4,
-  },
-  coachMessage: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: -0.4,
-    lineHeight: 24,
+    letterSpacing: -0.6,
+    marginBottom: 14,
   },
 
   progressTrack: {
@@ -431,7 +414,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surfaceBorder,
     borderRadius: 2,
     overflow: 'hidden',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   progressFill: {
     height: 3,
@@ -468,8 +451,8 @@ const styles = StyleSheet.create({
   },
   drillName: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 14,
+    fontWeight: '600',
     color: Colors.textPrimary,
   },
   drillNameDone: {
@@ -477,15 +460,15 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   drillTime: {
-    fontSize: 11,
+    fontSize: 12,
     color: Colors.textMuted,
     flexShrink: 0,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   startBtn: {
     backgroundColor: '#1A1A1A',
     borderRadius: 100,
-    paddingVertical: 14,
+    paddingVertical: 15,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -493,8 +476,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   startBtnTxt: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '800',
     color: Colors.white,
     letterSpacing: 0.2,
   },
@@ -503,11 +486,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   editBtnTxt: {
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     color: Colors.textMuted,
   },
   emptyDrillsText: {
@@ -520,64 +503,127 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     lineHeight: 20,
-  },
-
-  yesterdayList: {
-    gap: 6,
-  },
-  yesterdayRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  yesterdayDrill: {
-    flex: 1,
-    fontSize: 13,
     fontWeight: '500',
   },
-  yesterdayDone: {
-    color: Colors.textPrimary,
+
+  // ===== Two square widgets row =====
+  squareRow: {
+    flexDirection: 'row',
+    gap: 12,
   },
-  yesterdayMissed: {
-    color: Colors.textMuted,
+  squareWidget: {
+    flex: 1,
+    aspectRatio: 1,
+    backgroundColor: Colors.surface,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
   },
-  yesterdayMore: {
-    fontSize: 12,
+  squareLabel: {
+    fontSize: 10,
+    fontWeight: '800',
     color: Colors.textMuted,
-    marginTop: 4,
-    marginLeft: 26,
+    letterSpacing: 1.2,
   },
 
-  statsRow: {
-    flexDirection: 'row',
+  // ===== Left: streak + sessions =====
+  streakWrap: {
     alignItems: 'center',
-    marginTop: 8,
+    justifyContent: 'center',
+    height: 80,
+    marginTop: 6,
+    position: 'relative',
   },
-  statBox: {
-    flex: 1,
-    alignItems: 'center',
+  flameBg: {
+    position: 'absolute',
   },
-  statDivider: {
-    width: 1,
-    height: 36,
-    backgroundColor: Colors.surfaceBorder,
-  },
-  statNum: {
-    fontSize: 22,
-    fontWeight: '700',
+  streakNum: {
+    fontSize: 44,
+    fontWeight: '900',
     color: Colors.textPrimary,
-    letterSpacing: -0.5,
-    marginBottom: 4,
+    letterSpacing: -1.5,
   },
-  statLabel: {
+  streakLabel: {
     fontSize: 11,
+    fontWeight: '700',
     color: Colors.textMuted,
-    fontWeight: '600',
+    textAlign: 'center',
     letterSpacing: 0.3,
   },
-  streakNumWrap: {
+  divider: {
+    height: 1,
+    backgroundColor: Colors.surfaceBorder,
+    marginVertical: 10,
+  },
+  sessionsRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  sessionsNum: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    letterSpacing: -0.4,
+  },
+  sessionsLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textMuted,
+  },
+
+  // ===== Right: past workout preview =====
+  pastHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  pastFocus: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Colors.textPrimary,
+    letterSpacing: -0.3,
+    marginTop: 2,
+  },
+  pastDate: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textMuted,
+    marginBottom: 10,
+  },
+  pastDrillList: {
+    gap: 6,
+  },
+  pastDrillRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 8,
+  },
+  pastCheck: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: Colors.surfaceBorder,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  pastCheckDone: {
+    borderColor: Colors.primary,
+    backgroundColor: Colors.primary,
+  },
+  pastDrillName: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  pastDrillDone: {
+    color: Colors.textMuted,
   },
 });
