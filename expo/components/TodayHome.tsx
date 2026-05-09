@@ -23,7 +23,6 @@ const COACH_X_DAILY_LINES = [
   "Recover hard. Come back harder.",
 ];
 
-// Example past workout — replace with real data once past sessions wired up
 const EXAMPLE_PAST_WORKOUT = {
   focus: 'Shooting',
   date: '2 days ago',
@@ -96,7 +95,6 @@ export default function TodayHome() {
 
   const onViewPast = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // TODO: route to past workouts screen when built
   };
 
   return (
@@ -105,7 +103,7 @@ export default function TodayHome() {
         contentContainerStyle={{ paddingBottom: 110, paddingHorizontal: 16, paddingTop: 8 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== Top row: settings ===== */}
+        {/* Top: settings */}
         <View style={styles.topRow}>
           <View style={{ flex: 1 }} />
           <TouchableOpacity onPress={onMore} style={styles.settingsBtn} activeOpacity={0.7}>
@@ -113,7 +111,7 @@ export default function TodayHome() {
           </TouchableOpacity>
         </View>
 
-        {/* ===== Day strip — letter on top, circle below ===== */}
+        {/* Day strip */}
         <View style={styles.dayStripWrap}>
           {plan.days.map((d, i) => {
             const isCur = i === currentDayIndex;
@@ -127,10 +125,7 @@ export default function TodayHome() {
                 }}
                 activeOpacity={0.7}
               >
-                <Text style={[
-                  styles.dayLetter,
-                  isCur && styles.dayLetterActive,
-                ]}>
+                <Text style={[styles.dayLetter, isCur && styles.dayLetterActive]}>
                   {DAYS_SHORT[i]}
                 </Text>
                 <View style={[
@@ -143,7 +138,7 @@ export default function TodayHome() {
           })}
         </View>
 
-        {/* ===== Coach X — no card, floats above workout ===== */}
+        {/* Coach X — no card */}
         <View style={styles.coachBlock}>
           <Image source={COACH_X_IMAGE} style={styles.coachImg} resizeMode="contain" />
           <View style={styles.coachTextWrap}>
@@ -152,7 +147,7 @@ export default function TodayHome() {
           </View>
         </View>
 
-        {/* ===== Today's workout widget ===== */}
+        {/* Today's workout */}
         <View style={styles.widget}>
           {day?.isRest ? (
             <>
@@ -223,9 +218,9 @@ export default function TodayHome() {
           )}
         </View>
 
-        {/* ===== Two square widgets side by side ===== */}
+        {/* Two square widgets */}
         <View style={styles.squareRow}>
-          {/* LEFT: This Week — streak + sessions */}
+          {/* LEFT: streak */}
           <View style={styles.squareWidget}>
             <Text style={styles.squareLabel}>THIS WEEK</Text>
 
@@ -248,7 +243,7 @@ export default function TodayHome() {
             </View>
           </View>
 
-          {/* RIGHT: Past workout preview */}
+          {/* RIGHT: past workout */}
           <TouchableOpacity
             style={styles.squareWidget}
             onPress={onViewPast}
@@ -265,17 +260,11 @@ export default function TodayHome() {
             <View style={styles.pastDrillList}>
               {EXAMPLE_PAST_WORKOUT.drills.map((d, i) => (
                 <View key={i} style={styles.pastDrillRow}>
-                  <View style={[
-                    styles.pastCheck,
-                    d.done && styles.pastCheckDone,
-                  ]}>
+                  <View style={[styles.pastCheck, d.done && styles.pastCheckDone]}>
                     {d.done && <Check size={9} color={Colors.white} strokeWidth={3} />}
                   </View>
                   <Text
-                    style={[
-                      styles.pastDrillName,
-                      d.done && styles.pastDrillDone,
-                    ]}
+                    style={[styles.pastDrillName, d.done && styles.pastDrillDone]}
                     numberOfLines={1}
                   >
                     {d.name}
@@ -309,7 +298,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // ===== Day strip =====
+  // Day strip
   dayStripWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -323,12 +312,13 @@ const styles = StyleSheet.create({
   },
   dayLetter: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
     color: Colors.textMuted,
     letterSpacing: 0.5,
   },
   dayLetterActive: {
     color: Colors.primary,
+    fontWeight: '700',
   },
   dayCircle: {
     width: 28,
@@ -346,7 +336,7 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
 
-  // ===== Coach X — no card =====
+  // Coach X — no card
   coachBlock: {
     flexDirection: 'row',
     paddingHorizontal: 4,
@@ -361,20 +351,20 @@ const styles = StyleSheet.create({
   coachTextWrap: { flex: 1 },
   coachLabel: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
     color: Colors.primary,
     letterSpacing: 1.5,
     marginBottom: 4,
   },
   coachMessage: {
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.5,
     lineHeight: 28,
   },
 
-  // ===== Today's workout widget =====
+  // Today's workout widget
   widget: {
     backgroundColor: Colors.surface,
     borderRadius: 18,
@@ -391,7 +381,7 @@ const styles = StyleSheet.create({
   },
   widgetLabel: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
     color: Colors.textMuted,
     letterSpacing: 1.2,
     marginBottom: 4,
@@ -399,11 +389,11 @@ const styles = StyleSheet.create({
   widgetMeta: {
     fontSize: 12,
     color: Colors.textMuted,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   widgetTitle: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.6,
     marginBottom: 14,
@@ -452,7 +442,7 @@ const styles = StyleSheet.create({
   drillName: {
     flex: 1,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '500',
     color: Colors.textPrimary,
   },
   drillNameDone: {
@@ -463,7 +453,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textMuted,
     flexShrink: 0,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   startBtn: {
     backgroundColor: '#1A1A1A',
@@ -477,7 +467,7 @@ const styles = StyleSheet.create({
   },
   startBtnTxt: {
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
     color: Colors.white,
     letterSpacing: 0.2,
   },
@@ -490,7 +480,7 @@ const styles = StyleSheet.create({
   },
   editBtnTxt: {
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
     color: Colors.textMuted,
   },
   emptyDrillsText: {
@@ -503,10 +493,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     lineHeight: 20,
-    fontWeight: '500',
   },
 
-  // ===== Two square widgets row =====
+  // Square widgets
   squareRow: {
     flexDirection: 'row',
     gap: 12,
@@ -522,12 +511,12 @@ const styles = StyleSheet.create({
   },
   squareLabel: {
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
     color: Colors.textMuted,
     letterSpacing: 1.2,
   },
 
-  // ===== Left: streak + sessions =====
+  // Left: streak
   streakWrap: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -540,13 +529,13 @@ const styles = StyleSheet.create({
   },
   streakNum: {
     fontSize: 44,
-    fontWeight: '900',
+    fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -1.5,
   },
   streakLabel: {
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
     color: Colors.textMuted,
     textAlign: 'center',
     letterSpacing: 0.3,
@@ -564,17 +553,17 @@ const styles = StyleSheet.create({
   },
   sessionsNum: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.4,
   },
   sessionsLabel: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '500',
     color: Colors.textMuted,
   },
 
-  // ===== Right: past workout preview =====
+  // Right: past workout
   pastHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -583,14 +572,14 @@ const styles = StyleSheet.create({
   },
   pastFocus: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.3,
     marginTop: 2,
   },
   pastDate: {
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '500',
     color: Colors.textMuted,
     marginBottom: 10,
   },
@@ -620,7 +609,7 @@ const styles = StyleSheet.create({
   pastDrillName: {
     flex: 1,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '500',
     color: Colors.textPrimary,
   },
   pastDrillDone: {
