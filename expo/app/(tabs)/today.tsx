@@ -1111,12 +1111,10 @@ export default function TodayScreen() {
   if (appState === 'plan' && plan) {
     return (
       <View style={[s.c, { paddingTop: insets.top }]}>
-        <CoachXPill />
         <TodayHome />
       </View>
     );
   }
-
   return <View style={[s.c, { paddingTop: insets.top }]} />;
 }
 
