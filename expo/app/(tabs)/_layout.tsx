@@ -1,62 +1,166 @@
-import { Tabs } from 'expo-router';
 import React, { useState, useEffect } from 'react';
-import { View } from 'react-native';
-import { Calendar, Film, BookOpen, BarChart3, Menu } from 'lucide-react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Tabs } from 'expo-router';
+import {
+  View, Text, TouchableOpacity, StyleSheet, Platform, Image,
+} from 'react-native';
+import { BlurView } from 'expo-blur';
+import {
+  Home, Video, BookOpen, BarChart3, Plus,
+} from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Colors from '@/constants/colors';
+import PlusActionSheet from '@/components/PlusActionSheet';
 
-export default function TabsLayout() {
-  const [hideTabBar, setHideTabBar] = useState(true);
+const GOLD = '#D4AF37';
 
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const raw = await AsyncStorage.getItem('athlt_plan_store');
-        if (raw) {
-          const d = JSON.parse(raw);
-          if (d.profile) setHideTabBar(false);
-        }
-      } catch (e) {}
-    };
-    check();
-    const interval = setInterval(check, 2000);
-    return () => clearInterval(interval);
-  }, []);
+function CustomTabBar({ state, descriptors, navigation }: any) {
+  const insets = useSafeAreaInsets();
+  const [plusOpen, setPlusOpen] = useState(false);
+
+  const tabs = [
+    { name: 'today', label: 'Today', Icon: Home },
+    { name: 'film', label: 'Film', Icon: Video },
+    { name: 'library', label: 'Library', Icon: BookOpen },
+    { name: 'progress', label: 'Progress', Icon: BarChart3 },
+  ];
 
   return (
-    <View style={{ flex: 1 }}>
-      <Tabs
-        screenOptions={{
-          headerShown: false,
-          tabBarStyle: hideTabBar ? { display: 'none' } : {
-           backgroundColor: '#000000',
-borderTopColor: '#2D2418',
-            borderTopWidth: 1,
-            height: 85,
-            paddingTop: 10,
-            paddingBottom: 28,
-          },
-          tabBarShowLabel: true,
-          tabBarLabelStyle: {
-            fontSize: 10,
-            fontWeight: '600',
-            letterSpacing: 0.3,
-            marginTop: 4,
-            fontFamily: 'Inter_600SemiBold',
-          },
-         tabBarActiveTintColor: '#D4AF37',
-tabBarInactiveTintColor: '#6A6155',
-        }}
-      >
-        <Tabs.Screen name="today" options={{ title: 'Today', tabBarIcon: ({ color }) => <Calendar size={20} color={color} /> }} />
-        <Tabs.Screen name="film" options={{ title: 'Film', tabBarIcon: ({ color }) => <Film size={20} color={color} /> }} />
-        <Tabs.Screen name="library" options={{ title: 'Library', tabBarIcon: ({ color }) => <BookOpen size={20} color={color} /> }} />
-        <Tabs.Screen name="progress" options={{ title: 'Progress', tabBarIcon: ({ color }) => <BarChart3 size={20} color={color} /> }} />
-        <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color }) => <Menu size={20} color={color} /> }} />
-        {/* Coach X is no longer a tab — accessible via the pill at top of every screen.
-            Hide the old coachx screen so it doesn't show in the tab bar but still routable if needed. */}
-        <Tabs.Screen name="coachx" options={{ href: null }} />
-      </Tabs>
-    </View>
+    <>
+      <View style={[styles.barWrap, { paddingBottom: insets.bottom + 8 }]}>
+        {/* Pill container with blur */}
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 80 : 100}
+          tint="dark"
+          style={styles.pill}
+        >
+          {tabs.map((tab) => {
+            const route = state.routes.find((r: any) => r.name === tab.name);
+            if (!route) return null;
+            const isFocused = state.routes[state.index]?.name === tab.name;
+            const { Icon } = tab;
+
+            const onPress = () => {
+              if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              const event = navigation.emit({
+                type: 'tabPress',
+                target: route.key,
+                canPreventDefault: true,
+              });
+              if (!isFocused && !event.defaultPrevented) {
+                navigation.navigate(route.name);
+              }
+            };
+
+            return (
+              <TouchableOpacity
+                key={tab.name}
+                onPress={onPress}
+                activeOpacity={0.7}
+                style={styles.tab}
+              >
+                <Icon
+                  size={22}
+                  color={isFocused ? GOLD : '#9A9A9A'}
+                  strokeWidth={isFocused ? 2.5 : 2}
+                />
+                <Text style={[
+                  styles.tabLabel,
+                  { color: isFocused ? GOLD : '#9A9A9A' },
+                  isFocused && { fontWeight: '700' },
+                ]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </BlurView>
+
+        {/* Plus button — separate, gold */}
+        <TouchableOpacity
+          style={styles.plusBtn}
+          onPress={() => {
+            if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            setPlusOpen(true);
+          }}
+          activeOpacity={0.85}
+        >
+          <Plus size={28} color="#000000" strokeWidth={2.5} />
+        </TouchableOpacity>
+      </View>
+
+      <PlusActionSheet visible={plusOpen} onClose={() => setPlusOpen(false)} />
+    </>
   );
 }
+
+export default function TabsLayout() {
+  return (
+    <Tabs
+      tabBar={(props) => <CustomTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
+    >
+      <Tabs.Screen name="today" />
+      <Tabs.Screen name="film" />
+      <Tabs.Screen name="library" />
+      <Tabs.Screen name="progress" />
+      {/* hide unused legacy screens */}
+      <Tabs.Screen name="more" options={{ href: null }} />
+      <Tabs.Screen name="coachx" options={{ href: null }} />
+      <Tabs.Screen name="_layout" options={{ href: null }} />
+    </Tabs>
+  );
+}
+
+const styles = StyleSheet.create({
+  barWrap: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    gap: 12,
+    backgroundColor: 'transparent',
+  },
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    height: 64,
+    borderRadius: 32,
+    overflow: 'hidden',
+    backgroundColor: Platform.OS === 'android' ? 'rgba(20,20,20,0.92)' : 'rgba(20,20,20,0.5)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    paddingHorizontal: 8,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingVertical: 4,
+  },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  plusBtn: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: GOLD,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+});
