@@ -4,19 +4,24 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Play } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Play, Edit3 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
-// When you generate the side-peek pointing pose in Dreamina, save it as
-// coach-x-peek.png in assets/images and swap this require to use it.
 const COACH_X_IMAGE = require('@/assets/images/coach-x-small.png');
 
-const COACH_X_LINE = "Here's today.\nLet's go.";
+// Gold + dark gradient theme
+const GRADIENT_COLORS = ['#1F1608', '#0F0A04', '#000000'];
+const SURFACE = '#1A130A';
+const BORDER = '#2D2418';
+const TEXT_PRIMARY = '#FFFFFF';
+const TEXT_SECONDARY = '#B8AC95';
+const TEXT_MUTED = '#6A6155';
+const GOLD = '#D4AF37';
 
 export default function TodayHome() {
   const insets = useSafeAreaInsets();
@@ -33,6 +38,10 @@ export default function TodayHome() {
     [planDrills]
   );
 
+  const donePct = resolvedDrills.length > 0
+    ? Math.round((resolvedDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / resolvedDrills.length) * 100)
+    : 0;
+
   const onStartSession = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push('/session');
@@ -44,22 +53,23 @@ export default function TodayHome() {
   };
 
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={GRADIENT_COLORS}
+      locations={[0, 0.5, 1]}
+      style={styles.container}
+    >
       <ScrollView
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== Day strip — top of screen, small rounded chips ===== */}
+        {/* ===== Day strip — letter on top, circle below ===== */}
         <View style={styles.dayStripWrap}>
           {plan.days.map((d, i) => {
             const isCur = i === currentDayIndex;
             return (
               <TouchableOpacity
                 key={i}
-                style={[
-                  styles.dayChip,
-                  isCur && styles.dayChipActive,
-                ]}
+                style={styles.dayCol}
                 onPress={() => {
                   if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                   usePlanStore.getState().setCurrentDayIndex(i);
@@ -67,22 +77,26 @@ export default function TodayHome() {
                 activeOpacity={0.7}
               >
                 <Text style={[
-                  styles.dayChipLetter,
-                  isCur && styles.dayChipLetterActive,
-                  d.isRest && !isCur && styles.dayChipLetterRest,
+                  styles.dayLetter,
+                  isCur && styles.dayLetterActive,
                 ]}>
                   {DAYS_SHORT[i]}
                 </Text>
+                <View style={[
+                  styles.dayCircle,
+                  isCur && styles.dayCircleActive,
+                  d.isRest && !isCur && styles.dayCircleRest,
+                ]} />
               </TouchableOpacity>
             );
           })}
         </View>
 
-        {/* ===== Coach X moment — image left, big bold text right ===== */}
+        {/* ===== Coach X moment ===== */}
         <View style={styles.coachBlock}>
           <Image source={COACH_X_IMAGE} style={styles.coachImg} resizeMode="contain" />
           <View style={styles.coachTextWrap}>
-            <Text style={styles.coachMessage}>{COACH_X_LINE}</Text>
+            <Text style={styles.coachMessage}>Here's today. Let's go.</Text>
           </View>
         </View>
 
@@ -97,7 +111,7 @@ export default function TodayHome() {
             </View>
           ) : null}
 
-          {/* Header */}
+          {/* Header row */}
           <View style={styles.workoutHeader}>
             <View style={styles.focusPill}>
               <Text style={styles.focusPillText}>
@@ -110,6 +124,13 @@ export default function TodayHome() {
           <Text style={styles.workoutTitle}>
             {day?.focus || (day?.isRest ? 'Rest day' : 'Workout')}
           </Text>
+
+          {/* Progress bar */}
+          {resolvedDrills.length > 0 ? (
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: donePct + '%' }]} />
+            </View>
+          ) : null}
 
           {/* Drill list */}
           <View style={styles.drillList}>
@@ -152,67 +173,71 @@ export default function TodayHome() {
             )}
           </View>
 
-          {/* Start session — massive primary action */}
+          {/* Start session button — gold */}
           {resolvedDrills.length > 0 ? (
             <TouchableOpacity style={styles.startBtn} onPress={onStartSession} activeOpacity={0.85}>
-              <Play size={20} color={Colors.white} fill={Colors.white} />
+              <Play size={20} color="#000000" fill="#000000" />
               <Text style={styles.startBtnTxt}>Start session</Text>
             </TouchableOpacity>
           ) : null}
 
-          {/* Edit workout — secondary text link */}
-          <TouchableOpacity style={styles.editLink} onPress={onEditWorkout} activeOpacity={0.6}>
-            <Text style={styles.editLinkTxt}>Edit workout</Text>
+          {/* Edit workout — bordered button */}
+          <TouchableOpacity style={styles.editBtn} onPress={onEditWorkout} activeOpacity={0.7}>
+            <Edit3 size={16} color={TEXT_SECONDARY} />
+            <Text style={styles.editBtnTxt}>Edit workout</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
+  container: { flex: 1 },
 
-  // ===== Day strip — top of screen =====
+  // ===== Day strip =====
   dayStripWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 24,
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 32,
   },
-  dayChip: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  dayCol: {
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: Colors.surfaceBorder,
+    gap: 8,
   },
-  dayChipActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
+  dayLetter: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: TEXT_MUTED,
+    letterSpacing: 0.5,
   },
-  dayChipLetter: {
-    fontSize: 14,
+  dayLetterActive: {
+    color: GOLD,
     fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: 0.2,
   },
-  dayChipLetterActive: {
-    color: Colors.white,
+  dayCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: TEXT_MUTED,
+    backgroundColor: 'transparent',
   },
-  dayChipLetterRest: {
-    color: Colors.textMuted,
+  dayCircleActive: {
+    backgroundColor: GOLD,
+    borderColor: GOLD,
+  },
+  dayCircleRest: {
+    borderStyle: 'dashed',
   },
 
   // ===== Coach X moment =====
   coachBlock: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingHorizontal: 24,
+    paddingBottom: 32,
     alignItems: 'center',
     gap: 16,
   },
@@ -224,14 +249,14 @@ const styles = StyleSheet.create({
   coachMessage: {
     fontSize: 26,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: TEXT_PRIMARY,
     letterSpacing: -0.7,
     lineHeight: 32,
   },
 
   // ===== Workout section =====
   workoutWrap: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
   },
   workoutHeader: {
     flexDirection: 'row',
@@ -240,28 +265,42 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   focusPill: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.3)',
   },
   focusPillText: {
     fontSize: 10,
     fontWeight: '700',
-    color: Colors.primary,
+    color: GOLD,
     letterSpacing: 1.5,
   },
   workoutDuration: {
     fontSize: 13,
-    color: Colors.textMuted,
+    color: TEXT_SECONDARY,
     fontWeight: '500',
   },
   workoutTitle: {
     fontSize: 28,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: TEXT_PRIMARY,
     letterSpacing: -0.8,
-    marginBottom: 20,
+    marginBottom: 16,
+  },
+
+  progressTrack: {
+    height: 3,
+    backgroundColor: BORDER,
+    borderRadius: 2,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  progressFill: {
+    height: 3,
+    backgroundColor: GOLD,
   },
 
   // ===== Drill list =====
@@ -274,49 +313,49 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.surfaceBorder,
+    borderBottomColor: BORDER,
   },
   drillCheck: {
     width: 22,
     height: 22,
     borderRadius: 11,
     borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
+    borderColor: TEXT_MUTED,
     backgroundColor: 'transparent',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
   },
   drillCheckDone: {
-    borderColor: Colors.primary,
-    backgroundColor: Colors.primary,
+    borderColor: GOLD,
+    backgroundColor: GOLD,
   },
   drillCheckMark: {
     fontSize: 11,
-    color: Colors.white,
+    color: '#000000',
     fontWeight: '800',
   },
   drillName: {
     flex: 1,
     fontSize: 15,
     fontWeight: '500',
-    color: Colors.textPrimary,
+    color: TEXT_PRIMARY,
     letterSpacing: -0.2,
   },
   drillNameDone: {
-    color: Colors.textMuted,
+    color: TEXT_MUTED,
     textDecorationLine: 'line-through',
   },
   drillTime: {
     fontSize: 13,
-    color: Colors.textMuted,
+    color: TEXT_SECONDARY,
     flexShrink: 0,
     fontWeight: '500',
   },
 
-  // ===== Start session — massive primary =====
+  // ===== Start session — gold =====
   startBtn: {
-    backgroundColor: '#1A1A1A',
+    backgroundColor: GOLD,
     borderRadius: 100,
     paddingVertical: 20,
     flexDirection: 'row',
@@ -328,27 +367,34 @@ const styles = StyleSheet.create({
   startBtnTxt: {
     fontSize: 17,
     fontWeight: '700',
-    color: Colors.white,
+    color: '#000000',
     letterSpacing: 0.2,
   },
 
-  // ===== Edit workout — secondary text link =====
-  editLink: {
+  // ===== Edit workout — bordered =====
+  editBtn: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 100,
+    paddingVertical: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    justifyContent: 'center',
+    gap: 8,
   },
-  editLinkTxt: {
+  editBtnTxt: {
     fontSize: 14,
-    fontWeight: '500',
-    color: Colors.textMuted,
-    letterSpacing: -0.1,
+    fontWeight: '600',
+    color: TEXT_SECONDARY,
+    letterSpacing: 0.2,
   },
 
   // ===== Rest day note =====
   restNote: {
-    backgroundColor: '#FBF5E2',
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
     borderWidth: 1,
-    borderColor: Colors.primary,
+    borderColor: 'rgba(212, 175, 55, 0.3)',
     borderRadius: 12,
     padding: 14,
     marginBottom: 20,
@@ -356,13 +402,13 @@ const styles = StyleSheet.create({
   restNoteLabel: {
     fontSize: 10,
     fontWeight: '700',
-    color: Colors.primary,
+    color: GOLD,
     letterSpacing: 1.5,
     marginBottom: 4,
   },
   restNoteBody: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: TEXT_SECONDARY,
     lineHeight: 19,
   },
 
@@ -372,7 +418,7 @@ const styles = StyleSheet.create({
   },
   emptyDrillsText: {
     fontSize: 14,
-    color: Colors.textMuted,
+    color: TEXT_MUTED,
     textAlign: 'center',
     lineHeight: 19,
   },
