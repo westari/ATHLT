@@ -44,8 +44,8 @@ borderTopColor: '#2D2418',
             marginTop: 4,
             fontFamily: 'Inter_600SemiBold',
           },
-          tabBarActiveTintColor: Colors.textPrimary,
-          tabBarInactiveTintColor: Colors.textMuted,
+         tabBarActiveTintColor: '#D4AF37',
+tabBarInactiveTintColor: '#6A6155',
         }}
       >
         <Tabs.Screen name="today" options={{ title: 'Today', tabBarIcon: ({ color }) => <Calendar size={20} color={color} /> }} />
