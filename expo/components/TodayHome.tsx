@@ -65,7 +65,6 @@ export default function TodayHome() {
     return { sessionsCompleted, streak };
   }, [plan, completedDrills, currentDayIndex]);
 
-  // Story subtitle for workout — Day X of 7 · Focus build
   const workoutStory = useMemo(() => {
     if (day?.isRest) return null;
     const dayNum = currentDayIndex + 1;
@@ -146,6 +145,13 @@ export default function TodayHome() {
             </>
           ) : (
             <>
+              {/* NEW: ASSIGNED tag above the workout label */}
+              <View style={styles.assignedTagWrap}>
+                <View style={styles.assignedTag}>
+                  <Text style={styles.assignedTagText}>ASSIGNED</Text>
+                </View>
+              </View>
+
               <View style={styles.widgetHeader}>
                 <Text style={styles.widgetLabel}>TODAY'S WORKOUT</Text>
                 <Text style={styles.widgetMeta}>{day?.duration}</Text>
@@ -338,6 +344,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.surfaceBorder,
   },
+
+  // NEW STYLES — Assigned tag
+  assignedTagWrap: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
+  assignedTag: {
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.25)',
+  },
+  assignedTagText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 1,
+  },
+
   widgetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
