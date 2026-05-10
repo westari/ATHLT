@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView, Image,
+  View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -11,17 +11,6 @@ import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-const COACH_X_IMAGE = require('@/assets/images/coach-x-small.png');
-
-const COACH_X_DAILY_LINES = [
-  "Here's today. Let's go.",
-  "Lock in. We've got work.",
-  "Show up. Show out.",
-  "No days off mentally.",
-  "This is where it's built.",
-  "Stay sharp. Don't slip.",
-  "Recover hard. Come back harder.",
-];
 
 const EXAMPLE_PAST_WORKOUT = {
   focus: 'Shooting',
@@ -33,10 +22,6 @@ const EXAMPLE_PAST_WORKOUT = {
     { name: 'Free throws', done: false },
   ],
 };
-
-// Header background - subtle off-white tint
-const HEADER_BG = '#F8F5EF';
-const HEADER_BORDER = '#EDE6D5';
 
 export default function TodayHome() {
   const insets = useSafeAreaInsets();
@@ -80,8 +65,6 @@ export default function TodayHome() {
     return { sessionsCompleted, streak };
   }, [plan, completedDrills, currentDayIndex]);
 
-  const dailyLine = COACH_X_DAILY_LINES[currentDayIndex] || COACH_X_DAILY_LINES[0];
-
   const onStartSession = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push('/session');
@@ -104,183 +87,168 @@ export default function TodayHome() {
   return (
     <View style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 110 }}
+        contentContainerStyle={{ paddingBottom: 110, paddingHorizontal: 16, paddingTop: 8 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== HEADER ZONE — settings + days + Coach X all together ===== */}
-        <View style={styles.headerZone}>
-          {/* Top row — settings */}
-          <View style={styles.topRow}>
-            <View style={{ flex: 1 }} />
-            <TouchableOpacity onPress={onMore} style={styles.settingsBtn} activeOpacity={0.7}>
-              <Settings size={18} color={Colors.textMuted} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Day strip */}
-          <View style={styles.dayStripWrap}>
-            {plan.days.map((d, i) => {
-              const isCur = i === currentDayIndex;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.dayCol}
-                  onPress={() => {
-                    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    usePlanStore.getState().setCurrentDayIndex(i);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.dayLetter, isCur && styles.dayLetterActive]}>
-                    {DAYS_SHORT[i]}
-                  </Text>
-                  <View style={[
-                    styles.dayCircle,
-                    isCur && styles.dayCircleActive,
-                    d.isRest && !isCur && styles.dayCircleRest,
-                  ]} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          {/* Coach X */}
-          <View style={styles.coachBlock}>
-            <Image source={COACH_X_IMAGE} style={styles.coachImg} resizeMode="contain" />
-            <View style={styles.coachTextWrap}>
-              <Text style={styles.coachLabel}>COACH X</Text>
-              <Text style={styles.coachMessage}>{dailyLine}</Text>
-            </View>
-          </View>
+        {/* ===== Top row — Today title left, settings right ===== */}
+        <View style={styles.topRow}>
+          <Text style={styles.pageTitle}>Today</Text>
+          <TouchableOpacity onPress={onMore} style={styles.settingsBtn} activeOpacity={0.7}>
+            <Settings size={18} color={Colors.textMuted} />
+          </TouchableOpacity>
         </View>
 
-        {/* ===== CONTENT ZONE ===== */}
-        <View style={styles.contentZone}>
-          {/* Today's workout */}
-          <View style={styles.widget}>
-            {day?.isRest ? (
-              <>
-                <Text style={styles.widgetLabel}>REST DAY</Text>
-                <Text style={styles.widgetTitle}>Recovery</Text>
-                <Text style={styles.restBody}>
-                  Recovery is part of the work. But if you wanna get shots up, go ahead.
+        {/* Day strip */}
+        <View style={styles.dayStripWrap}>
+          {plan.days.map((d, i) => {
+            const isCur = i === currentDayIndex;
+            return (
+              <TouchableOpacity
+                key={i}
+                style={styles.dayCol}
+                onPress={() => {
+                  if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  usePlanStore.getState().setCurrentDayIndex(i);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.dayLetter, isCur && styles.dayLetterActive]}>
+                  {DAYS_SHORT[i]}
                 </Text>
-              </>
-            ) : (
-              <>
-                <View style={styles.widgetHeader}>
-                  <Text style={styles.widgetLabel}>TODAY'S WORKOUT</Text>
-                  <Text style={styles.widgetMeta}>{day?.duration}</Text>
+                <View style={[
+                  styles.dayCircle,
+                  isCur && styles.dayCircleActive,
+                  d.isRest && !isCur && styles.dayCircleRest,
+                ]} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Today's workout */}
+        <View style={styles.widget}>
+          {day?.isRest ? (
+            <>
+              <Text style={styles.widgetLabel}>REST DAY</Text>
+              <Text style={styles.widgetTitle}>Recovery</Text>
+              <Text style={styles.restBody}>
+                Recovery is part of the work. But if you wanna get shots up, go ahead.
+              </Text>
+            </>
+          ) : (
+            <>
+              <View style={styles.widgetHeader}>
+                <Text style={styles.widgetLabel}>TODAY'S WORKOUT</Text>
+                <Text style={styles.widgetMeta}>{day?.duration}</Text>
+              </View>
+              <Text style={styles.widgetTitle}>{day?.focus || 'Workout'}</Text>
+
+              {resolvedDrills.length > 0 && (
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: donePct + '%' }]} />
                 </View>
-                <Text style={styles.widgetTitle}>{day?.focus || 'Workout'}</Text>
+              )}
 
-                {resolvedDrills.length > 0 && (
-                  <View style={styles.progressTrack}>
-                    <View style={[styles.progressFill, { width: donePct + '%' }]} />
-                  </View>
-                )}
-
-                <View style={styles.drillList}>
-                  {resolvedDrills.length === 0 ? (
-                    <Text style={styles.emptyDrillsText}>
-                      No drills yet. Tap "Edit workout" to add some.
-                    </Text>
-                  ) : (
-                    resolvedDrills.map((d, i) => {
-                      const done = completedDrills[currentDayIndex + '-' + i];
-                      return (
-                        <TouchableOpacity
-                          key={i}
-                          style={styles.drillRow}
-                          onPress={() => router.push('/drill/' + i)}
-                          activeOpacity={0.7}
+              <View style={styles.drillList}>
+                {resolvedDrills.length === 0 ? (
+                  <Text style={styles.emptyDrillsText}>
+                    No drills yet. Tap "Edit workout" to add some.
+                  </Text>
+                ) : (
+                  resolvedDrills.map((d, i) => {
+                    const done = completedDrills[currentDayIndex + '-' + i];
+                    return (
+                      <TouchableOpacity
+                        key={i}
+                        style={styles.drillRow}
+                        onPress={() => router.push('/drill/' + i)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={[styles.drillCheck, done && styles.drillCheckDone]}>
+                          {done && <Text style={styles.drillCheckMark}>✓</Text>}
+                        </View>
+                        <Text
+                          style={[styles.drillName, done && styles.drillNameDone]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
                         >
-                          <View style={[styles.drillCheck, done && styles.drillCheckDone]}>
-                            {done && <Text style={styles.drillCheckMark}>✓</Text>}
-                          </View>
-                          <Text
-                            style={[styles.drillName, done && styles.drillNameDone]}
-                            numberOfLines={1}
-                            ellipsizeMode="tail"
-                          >
-                            {d.name}
-                          </Text>
-                          <Text style={styles.drillTime}>{d.time}</Text>
-                        </TouchableOpacity>
-                      );
-                    })
-                  )}
-                </View>
-
-                {resolvedDrills.length > 0 && (
-                  <TouchableOpacity style={styles.startBtn} onPress={onStartSession} activeOpacity={0.85}>
-                    <Play size={18} color={Colors.white} fill={Colors.white} />
-                    <Text style={styles.startBtnTxt}>Start session</Text>
-                  </TouchableOpacity>
+                          {d.name}
+                        </Text>
+                        <Text style={styles.drillTime}>{d.time}</Text>
+                      </TouchableOpacity>
+                    );
+                  })
                 )}
+              </View>
 
-                <TouchableOpacity style={styles.editBtn} onPress={onEditWorkout} activeOpacity={0.7}>
-                  <Edit3 size={14} color={Colors.textMuted} />
-                  <Text style={styles.editBtnTxt}>Edit workout</Text>
+              {resolvedDrills.length > 0 && (
+                <TouchableOpacity style={styles.startBtn} onPress={onStartSession} activeOpacity={0.85}>
+                  <Play size={18} color={Colors.white} fill={Colors.white} />
+                  <Text style={styles.startBtnTxt}>Start session</Text>
                 </TouchableOpacity>
-              </>
-            )}
+              )}
+
+              <TouchableOpacity style={styles.editBtn} onPress={onEditWorkout} activeOpacity={0.7}>
+                <Edit3 size={14} color={Colors.textMuted} />
+                <Text style={styles.editBtnTxt}>Edit workout</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+
+        {/* Two squares */}
+        <View style={styles.squareRow}>
+          <View style={styles.squareWidget}>
+            <Text style={styles.squareLabel}>THIS WEEK</Text>
+
+            <View style={styles.streakWrap}>
+              <Flame
+                size={70}
+                color="rgba(212, 175, 55, 0.18)"
+                fill="rgba(212, 175, 55, 0.18)"
+                style={styles.flameBg}
+              />
+              <Text style={styles.streakNum}>{weekStats.streak}</Text>
+            </View>
+            <Text style={styles.streakLabel}>Day streak</Text>
+
+            <View style={styles.divider} />
+
+            <View style={styles.sessionsRow}>
+              <Text style={styles.sessionsNum}>{weekStats.sessionsCompleted}</Text>
+              <Text style={styles.sessionsLabel}>Sessions</Text>
+            </View>
           </View>
 
-          {/* Two squares */}
-          <View style={styles.squareRow}>
-            <View style={styles.squareWidget}>
-              <Text style={styles.squareLabel}>THIS WEEK</Text>
-
-              <View style={styles.streakWrap}>
-                <Flame
-                  size={70}
-                  color="rgba(212, 175, 55, 0.18)"
-                  fill="rgba(212, 175, 55, 0.18)"
-                  style={styles.flameBg}
-                />
-                <Text style={styles.streakNum}>{weekStats.streak}</Text>
-              </View>
-              <Text style={styles.streakLabel}>Day streak</Text>
-
-              <View style={styles.divider} />
-
-              <View style={styles.sessionsRow}>
-                <Text style={styles.sessionsNum}>{weekStats.sessionsCompleted}</Text>
-                <Text style={styles.sessionsLabel}>Sessions</Text>
-              </View>
+          <TouchableOpacity
+            style={styles.squareWidget}
+            onPress={onViewPast}
+            activeOpacity={0.85}
+          >
+            <View style={styles.pastHeader}>
+              <Text style={styles.squareLabel}>RECENT</Text>
+              <ChevronRight size={14} color={Colors.textMuted} />
             </View>
 
-            <TouchableOpacity
-              style={styles.squareWidget}
-              onPress={onViewPast}
-              activeOpacity={0.85}
-            >
-              <View style={styles.pastHeader}>
-                <Text style={styles.squareLabel}>RECENT</Text>
-                <ChevronRight size={14} color={Colors.textMuted} />
-              </View>
+            <Text style={styles.pastFocus}>{EXAMPLE_PAST_WORKOUT.focus}</Text>
+            <Text style={styles.pastDate}>{EXAMPLE_PAST_WORKOUT.date}</Text>
 
-              <Text style={styles.pastFocus}>{EXAMPLE_PAST_WORKOUT.focus}</Text>
-              <Text style={styles.pastDate}>{EXAMPLE_PAST_WORKOUT.date}</Text>
-
-              <View style={styles.pastDrillList}>
-                {EXAMPLE_PAST_WORKOUT.drills.map((d, i) => (
-                  <View key={i} style={styles.pastDrillRow}>
-                    <View style={[styles.pastCheck, d.done && styles.pastCheckDone]}>
-                      {d.done && <Check size={9} color={Colors.white} strokeWidth={3} />}
-                    </View>
-                    <Text
-                      style={[styles.pastDrillName, d.done && styles.pastDrillDone]}
-                      numberOfLines={1}
-                    >
-                      {d.name}
-                    </Text>
+            <View style={styles.pastDrillList}>
+              {EXAMPLE_PAST_WORKOUT.drills.map((d, i) => (
+                <View key={i} style={styles.pastDrillRow}>
+                  <View style={[styles.pastCheck, d.done && styles.pastCheckDone]}>
+                    {d.done && <Check size={9} color={Colors.white} strokeWidth={3} />}
                   </View>
-                ))}
-              </View>
-            </TouchableOpacity>
-          </View>
+                  <Text
+                    style={[styles.pastDrillName, d.done && styles.pastDrillDone]}
+                    numberOfLines={1}
+                  >
+                    {d.name}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </View>
@@ -290,36 +258,35 @@ export default function TodayHome() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
-  // ===== HEADER ZONE =====
-  headerZone: {
-    backgroundColor: HEADER_BG,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: HEADER_BORDER,
-  },
   topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingBottom: 8,
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+  },
+  pageTitle: {
+    fontSize: 32,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    letterSpacing: -0.8,
   },
   settingsBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0,0,0,0.04)',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  // Day strip
   dayStripWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
-    paddingVertical: 12,
-    marginBottom: 4,
+    paddingTop: 4,
+    paddingBottom: 24,
   },
   dayCol: {
     alignItems: 'center',
@@ -340,7 +307,7 @@ const styles = StyleSheet.create({
     height: 28,
     borderRadius: 14,
     borderWidth: 1.5,
-    borderColor: 'rgba(0,0,0,0.12)',
+    borderColor: Colors.surfaceBorder,
     backgroundColor: 'transparent',
   },
   dayCircleActive: {
@@ -349,39 +316,6 @@ const styles = StyleSheet.create({
   },
   dayCircleRest: {
     borderStyle: 'dashed',
-  },
-
-  // Coach X
-  coachBlock: {
-    flexDirection: 'row',
-    paddingTop: 12,
-    alignItems: 'center',
-    gap: 14,
-  },
-  coachImg: {
-    width: 64,
-    height: 64,
-  },
-  coachTextWrap: { flex: 1 },
-  coachLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 1.5,
-    marginBottom: 4,
-  },
-  coachMessage: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: -0.5,
-    lineHeight: 28,
-  },
-
-  // ===== CONTENT ZONE =====
-  contentZone: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
   },
 
   widget: {
