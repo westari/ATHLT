@@ -4,7 +4,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Play, Edit3, Flame, Settings, ChevronRight, Check } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Play, Edit3, Flame, Settings, ChevronRight, Check, TrendingUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
@@ -38,32 +39,71 @@ export default function TodayHome() {
     [planDrills]
   );
 
+  const doneCount = resolvedDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length;
   const donePct = resolvedDrills.length > 0
-    ? Math.round((resolvedDrills.filter((_, i) => completedDrills[currentDayIndex + '-' + i]).length / resolvedDrills.length) * 100)
+    ? Math.round((doneCount / resolvedDrills.length) * 100)
     : 0;
 
-  const weekStats = useMemo(() => {
+  // Aggregate stats
+  const stats = useMemo(() => {
     let sessionsCompleted = 0;
     let streak = 0;
+    let totalDrillsDone = 0;
 
     plan.days.forEach((d, i) => {
       const drills = (d.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
-      const doneCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
-      const allDone = drills.length > 0 && doneCount === drills.length;
+      const dCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
+      totalDrillsDone += dCount;
+      const allDone = drills.length > 0 && dCount === drills.length;
       if (allDone) sessionsCompleted += 1;
     });
 
     for (let i = currentDayIndex; i >= 0; i--) {
       const drills = (plan.days[i]?.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
-      const doneCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
-      const allDone = drills.length > 0 && doneCount === drills.length;
+      const dCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
+      const allDone = drills.length > 0 && dCount === drills.length;
       const isRest = plan.days[i]?.isRest;
       if (allDone || isRest) streak += 1;
       else break;
     }
 
-    return { sessionsCompleted, streak };
+    return { sessionsCompleted, streak, totalDrillsDone };
   }, [plan, completedDrills, currentDayIndex]);
+
+  // Story subtitle for workout
+  const workoutStory = useMemo(() => {
+    if (day?.isRest) return null;
+    const dayNum = currentDayIndex + 1;
+    const totalDays = plan.days.length;
+    const focus = day?.focus || 'training';
+    return `Day ${dayNum} of ${totalDays} · ${focus} build`;
+  }, [day, currentDayIndex, plan]);
+
+  // Hero number — show building progress, not zero state
+  const heroDisplay = useMemo(() => {
+    if (stats.streak > 0) {
+      return { primary: stats.streak.toString(), label: stats.streak === 1 ? 'Day streak' : 'Day streak', isZero: false };
+    }
+    // Zero state — show day 1 of journey instead of 0
+    return { primary: 'Day 1', label: 'of your build', isZero: true };
+  }, [stats.streak]);
+
+  // Sessions display — positive framing for new users
+  const sessionsDisplay = useMemo(() => {
+    if (stats.sessionsCompleted > 0) {
+      return { num: stats.sessionsCompleted.toString(), label: stats.sessionsCompleted === 1 ? 'Session' : 'Sessions' };
+    }
+    if (stats.totalDrillsDone > 0) {
+      return { num: stats.totalDrillsDone.toString(), label: stats.totalDrillsDone === 1 ? 'Drill done' : 'Drills done' };
+    }
+    return { num: '—', label: 'First session up' };
+  }, [stats]);
+
+  // Page title — gives identity instead of generic "Today"
+  const pageTitle = useMemo(() => {
+    if (plan.weekTitle) return plan.weekTitle;
+    return 'Today';
+  }, [plan]);
 
   const onStartSession = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -86,13 +126,26 @@ export default function TodayHome() {
 
   return (
     <View style={styles.container}>
+      {/* Subtle warm gradient anchor at top — gives the page energy */}
+      <LinearGradient
+        colors={['rgba(212, 175, 55, 0.08)', 'rgba(212, 175, 55, 0.02)', 'rgba(255, 255, 255, 0)']}
+        locations={[0, 0.6, 1]}
+        style={styles.gradientAnchor}
+        pointerEvents="none"
+      />
+
       <ScrollView
         contentContainerStyle={{ paddingBottom: 110, paddingHorizontal: 16, paddingTop: 8 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ===== Top row — Today title left, settings right ===== */}
+        {/* ===== Top: page title + settings ===== */}
         <View style={styles.topRow}>
-          <Text style={styles.pageTitle}>Today</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pageTitle}>{pageTitle}</Text>
+            {plan.weekTitle && (
+              <Text style={styles.pageSubtitle}>This week's build</Text>
+            )}
+          </View>
           <TouchableOpacity onPress={onMore} style={styles.settingsBtn} activeOpacity={0.7}>
             <Settings size={18} color={Colors.textMuted} />
           </TouchableOpacity>
@@ -131,6 +184,9 @@ export default function TodayHome() {
             <>
               <Text style={styles.widgetLabel}>REST DAY</Text>
               <Text style={styles.widgetTitle}>Recovery</Text>
+              <Text style={styles.workoutStory}>
+                Earned rest · Comes back tomorrow
+              </Text>
               <Text style={styles.restBody}>
                 Recovery is part of the work. But if you wanna get shots up, go ahead.
               </Text>
@@ -142,6 +198,9 @@ export default function TodayHome() {
                 <Text style={styles.widgetMeta}>{day?.duration}</Text>
               </View>
               <Text style={styles.widgetTitle}>{day?.focus || 'Workout'}</Text>
+              {workoutStory && (
+                <Text style={styles.workoutStory}>{workoutStory}</Text>
+              )}
 
               {resolvedDrills.length > 0 && (
                 <View style={styles.progressTrack}>
@@ -184,7 +243,9 @@ export default function TodayHome() {
               {resolvedDrills.length > 0 && (
                 <TouchableOpacity style={styles.startBtn} onPress={onStartSession} activeOpacity={0.85}>
                   <Play size={18} color={Colors.white} fill={Colors.white} />
-                  <Text style={styles.startBtnTxt}>Start session</Text>
+                  <Text style={styles.startBtnTxt}>
+                    {doneCount > 0 ? 'Continue session' : 'Start session'}
+                  </Text>
                 </TouchableOpacity>
               )}
 
@@ -198,28 +259,42 @@ export default function TodayHome() {
 
         {/* Two squares */}
         <View style={styles.squareRow}>
+          {/* LEFT: Build progress (was streak) */}
           <View style={styles.squareWidget}>
-            <Text style={styles.squareLabel}>THIS WEEK</Text>
+            <Text style={styles.squareLabel}>YOUR BUILD</Text>
 
-            <View style={styles.streakWrap}>
-              <Flame
-                size={70}
-                color="rgba(212, 175, 55, 0.18)"
-                fill="rgba(212, 175, 55, 0.18)"
-                style={styles.flameBg}
-              />
-              <Text style={styles.streakNum}>{weekStats.streak}</Text>
+            <View style={styles.heroWrap}>
+              {!heroDisplay.isZero && (
+                <Flame
+                  size={70}
+                  color="rgba(212, 175, 55, 0.18)"
+                  fill="rgba(212, 175, 55, 0.18)"
+                  style={styles.flameBg}
+                />
+              )}
+              {heroDisplay.isZero && (
+                <TrendingUp
+                  size={56}
+                  color="rgba(212, 175, 55, 0.16)"
+                  style={styles.flameBg}
+                  strokeWidth={2.5}
+                />
+              )}
+              <Text style={[styles.heroNum, heroDisplay.isZero && styles.heroNumSmall]}>
+                {heroDisplay.primary}
+              </Text>
             </View>
-            <Text style={styles.streakLabel}>Day streak</Text>
+            <Text style={styles.heroLabel}>{heroDisplay.label}</Text>
 
             <View style={styles.divider} />
 
             <View style={styles.sessionsRow}>
-              <Text style={styles.sessionsNum}>{weekStats.sessionsCompleted}</Text>
-              <Text style={styles.sessionsLabel}>Sessions</Text>
+              <Text style={styles.sessionsNum}>{sessionsDisplay.num}</Text>
+              <Text style={styles.sessionsLabel}>{sessionsDisplay.label}</Text>
             </View>
           </View>
 
+          {/* RIGHT: Past workout */}
           <TouchableOpacity
             style={styles.squareWidget}
             onPress={onViewPast}
@@ -258,17 +333,34 @@ export default function TodayHome() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
 
+  gradientAnchor: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 280,
+    zIndex: 0,
+  },
+
   topRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    paddingBottom: 12,
+    paddingBottom: 16,
   },
   pageTitle: {
-    fontSize: 32,
+    fontSize: 30,
     fontWeight: '700',
     color: Colors.textPrimary,
-    letterSpacing: -0.8,
+    letterSpacing: -0.7,
+    lineHeight: 36,
+  },
+  pageSubtitle: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: Colors.textMuted,
+    marginTop: 2,
+    letterSpacing: -0.1,
   },
   settingsBtn: {
     width: 36,
@@ -279,6 +371,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 4,
   },
 
   dayStripWrap: {
@@ -349,6 +442,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -0.6,
+    marginBottom: 6,
+  },
+  workoutStory: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: Colors.primary,
+    letterSpacing: -0.1,
     marginBottom: 14,
   },
 
@@ -468,7 +568,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
 
-  streakWrap: {
+  heroWrap: {
     alignItems: 'center',
     justifyContent: 'center',
     height: 80,
@@ -478,13 +578,17 @@ const styles = StyleSheet.create({
   flameBg: {
     position: 'absolute',
   },
-  streakNum: {
+  heroNum: {
     fontSize: 44,
     fontWeight: '700',
     color: Colors.textPrimary,
     letterSpacing: -1.5,
   },
-  streakLabel: {
+  heroNumSmall: {
+    fontSize: 28,
+    letterSpacing: -0.8,
+  },
+  heroLabel: {
     fontSize: 11,
     fontWeight: '600',
     color: Colors.textMuted,
@@ -501,6 +605,7 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'center',
     gap: 6,
+    flexWrap: 'wrap',
   },
   sessionsNum: {
     fontSize: 18,
