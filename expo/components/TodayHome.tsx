@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'; 
+import React, { useMemo } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView,
 } from 'react-native';
@@ -66,9 +66,7 @@ export default function TodayHome() {
     return { sessionsCompleted, streak };
   }, [plan, completedDrills, currentDayIndex]);
 
-  // ===== Session state for Coach X bubble =====
-  // skippedYesterday: previous day was non-rest and not fully completed
-  // sessionsLast7Days: number of fully-completed sessions in the most recent 7 days
+  // Session state for Coach X bubble
   const coachXState = useMemo(() => {
     const yIdx = currentDayIndex - 1;
     let skippedYesterday = false;
@@ -82,7 +80,6 @@ export default function TodayHome() {
       }
     }
 
-    // Count completed sessions in last 7 days (cap at current day index window)
     const start = Math.max(0, currentDayIndex - 6);
     let sessionsLast7Days = 0;
     for (let i = start; i <= currentDayIndex; i++) {
@@ -142,14 +139,6 @@ export default function TodayHome() {
           </TouchableOpacity>
         </View>
 
-        {/* === NEW: Coach X speech bubble === */}
-        <View style={styles.bubbleWrap}>
-          <CoachXBubble
-            sessionState={coachXState}
-            onPress={onCoachXTap}
-          />
-        </View>
-
         {/* Day strip */}
         <View style={styles.dayStripWrap}>
           {plan.days.map((d, i) => {
@@ -175,6 +164,14 @@ export default function TodayHome() {
               </TouchableOpacity>
             );
           })}
+        </View>
+
+        {/* === Coach X bubble — UNDER day strip, compact === */}
+        <View style={styles.bubbleWrap}>
+          <CoachXBubble
+            sessionState={coachXState}
+            onPress={onCoachXTap}
+          />
         </View>
 
         {/* Today's workout */}
@@ -265,8 +262,8 @@ export default function TodayHome() {
             <View style={styles.streakWrap}>
               <Flame
                 size={70}
-                color="rgba(212, 175, 55, 0.18)"
-                fill="rgba(212, 175, 55, 0.18)"
+                color="rgba(212, 160, 23, 0.18)"
+                fill="rgba(212, 160, 23, 0.18)"
                 style={styles.flameBg}
               />
               <Text style={styles.streakNum}>{weekStats.streak}</Text>
@@ -342,20 +339,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-  // Coach X bubble wrap
-  bubbleWrap: {
-    width: '100%',
-    marginBottom: 16,
-    borderRadius: 14,
-    overflow: 'hidden',
-  },
-
   dayStripWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
     paddingTop: 4,
-    paddingBottom: 24,
+    paddingBottom: 12,
   },
   dayCol: {
     alignItems: 'center',
@@ -387,6 +376,12 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
 
+  // Coach X bubble wrap — under day strip
+  bubbleWrap: {
+    width: '100%',
+    marginBottom: 16,
+  },
+
   widget: {
     backgroundColor: Colors.surface,
     borderRadius: 18,
@@ -401,12 +396,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   assignedTag: {
-    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    backgroundColor: 'rgba(212, 160, 23, 0.12)',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.25)',
+    borderColor: 'rgba(212, 160, 23, 0.25)',
   },
   assignedTagText: {
     fontSize: 9,
