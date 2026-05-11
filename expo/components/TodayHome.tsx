@@ -9,6 +9,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
+import CoachXBubble from '@/components/CoachXBubble';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -65,6 +66,36 @@ export default function TodayHome() {
     return { sessionsCompleted, streak };
   }, [plan, completedDrills, currentDayIndex]);
 
+  // ===== Session state for Coach X bubble =====
+  // skippedYesterday: previous day was non-rest and not fully completed
+  // sessionsLast7Days: number of fully-completed sessions in the most recent 7 days
+  const coachXState = useMemo(() => {
+    const yIdx = currentDayIndex - 1;
+    let skippedYesterday = false;
+    if (yIdx >= 0) {
+      const yDay = plan.days[yIdx];
+      if (yDay && !yDay.isRest) {
+        const drills = (yDay.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
+        const doneCount = drills.filter((_, j) => completedDrills[yIdx + '-' + j]).length;
+        const allDone = drills.length > 0 && doneCount === drills.length;
+        skippedYesterday = !allDone;
+      }
+    }
+
+    // Count completed sessions in last 7 days (cap at current day index window)
+    const start = Math.max(0, currentDayIndex - 6);
+    let sessionsLast7Days = 0;
+    for (let i = start; i <= currentDayIndex; i++) {
+      const d = plan.days[i];
+      if (!d || d.isRest) continue;
+      const drills = (d.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
+      const doneCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
+      if (drills.length > 0 && doneCount === drills.length) sessionsLast7Days += 1;
+    }
+
+    return { skippedYesterday, sessionsLast7Days };
+  }, [plan, completedDrills, currentDayIndex]);
+
   const workoutStory = useMemo(() => {
     if (day?.isRest) return null;
     const dayNum = currentDayIndex + 1;
@@ -88,6 +119,11 @@ export default function TodayHome() {
     router.push('/more');
   };
 
+  const onCoachXTap = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push('/coach-x');
+  };
+
   const onViewPast = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -104,6 +140,14 @@ export default function TodayHome() {
           <TouchableOpacity onPress={onMore} style={styles.settingsBtn} activeOpacity={0.7}>
             <Settings size={18} color={Colors.textMuted} />
           </TouchableOpacity>
+        </View>
+
+        {/* === NEW: Coach X speech bubble === */}
+        <View style={styles.bubbleWrap}>
+          <CoachXBubble
+            sessionState={coachXState}
+            onPress={onCoachXTap}
+          />
         </View>
 
         {/* Day strip */}
@@ -145,7 +189,6 @@ export default function TodayHome() {
             </>
           ) : (
             <>
-              {/* NEW: ASSIGNED tag above the workout label */}
               <View style={styles.assignedTagWrap}>
                 <View style={styles.assignedTag}>
                   <Text style={styles.assignedTagText}>ASSIGNED</Text>
@@ -299,6 +342,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  // Coach X bubble wrap
+  bubbleWrap: {
+    width: '100%',
+    marginBottom: 16,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+
   dayStripWrap: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -345,7 +396,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.surfaceBorder,
   },
 
-  // NEW STYLES — Assigned tag
   assignedTagWrap: {
     flexDirection: 'row',
     marginBottom: 8,
