@@ -66,33 +66,6 @@ export default function TodayHome() {
     return { sessionsCompleted, streak };
   }, [plan, completedDrills, currentDayIndex]);
 
-  // Session state for Coach X bubble
-  const coachXState = useMemo(() => {
-    const yIdx = currentDayIndex - 1;
-    let skippedYesterday = false;
-    if (yIdx >= 0) {
-      const yDay = plan.days[yIdx];
-      if (yDay && !yDay.isRest) {
-        const drills = (yDay.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
-        const doneCount = drills.filter((_, j) => completedDrills[yIdx + '-' + j]).length;
-        const allDone = drills.length > 0 && doneCount === drills.length;
-        skippedYesterday = !allDone;
-      }
-    }
-
-    const start = Math.max(0, currentDayIndex - 6);
-    let sessionsLast7Days = 0;
-    for (let i = start; i <= currentDayIndex; i++) {
-      const d = plan.days[i];
-      if (!d || d.isRest) continue;
-      const drills = (d.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[];
-      const doneCount = drills.filter((_, j) => completedDrills[i + '-' + j]).length;
-      if (drills.length > 0 && doneCount === drills.length) sessionsLast7Days += 1;
-    }
-
-    return { skippedYesterday, sessionsLast7Days };
-  }, [plan, completedDrills, currentDayIndex]);
-
   const workoutStory = useMemo(() => {
     if (day?.isRest) return null;
     const dayNum = currentDayIndex + 1;
@@ -166,12 +139,9 @@ export default function TodayHome() {
           })}
         </View>
 
-        {/* === Coach X bubble — UNDER day strip, compact === */}
+        {/* === Coach X bubble — under day strip === */}
         <View style={styles.bubbleWrap}>
-          <CoachXBubble
-            sessionState={coachXState}
-            onPress={onCoachXTap}
-          />
+          <CoachXBubble onPress={onCoachXTap} />
         </View>
 
         {/* Today's workout */}
@@ -376,7 +346,6 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
   },
 
-  // Coach X bubble wrap — under day strip
   bubbleWrap: {
     width: '100%',
     marginBottom: 16,
