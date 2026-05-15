@@ -1,15 +1,20 @@
 // expo/app/session.tsx
-// Main session screen — runs through all drills for the current day.
+// Session screen — phone orientation drives the overlay.
 //
-// Setup overlay strategy:
-//   - On mount, check current orientation
-//   - If landscape: skip setup, go straight to countdown
-//   - If portrait: show rotate-phone overlay until user rotates
-//   - Mid-session: if user flips to portrait, overlay reappears, timer pauses
-//   - When they flip back to landscape, overlay dismisses, timer resumes
+// Rule: If phone is PORTRAIT → show "Rotate phone" overlay (auto-dismisses
+// when rotated to landscape). If phone is LANDSCAPE → run the session.
+// No "I'm ready" button, no setup instructions. The phone IS the trigger.
 //
-// Exit button is always available — in HUD during drill, floating during
-// countdowns/demo, top-right of the setup overlay.
+// Phases (only while in landscape):
+//   1. countdown-watch (3-2-1 WATCH)
+//   2. demo-fullscreen (YouTube demo plays)
+//   3. countdown-go (demo shrinks to PIP, 3-2-1 GO)
+//   4. active (drill timer with HUD)
+//   5. complete (session done)
+//
+// If user rotates to portrait at any point, the rotate-phone overlay
+// appears and the timer pauses. On rotate back to landscape, the overlay
+// auto-dismisses and the previous state resumes.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -29,7 +34,6 @@ import CountdownOverlay from '@/components/CountdownOverlay';
 import DemoVideoPip from '@/components/DemoVideoPip';
 import SessionHUD from '@/components/SessionHUD';
 
-// ===== Demo video pool =====
 const DEMO_VIDEO_MAP: Record<string, string> = {
   'pound dribble':   'https://www.youtube.com/watch?v=h6QSiJqQwGM',
   'crossover':       'https://www.youtube.com/watch?v=L_QrSxKpWko',
@@ -50,7 +54,6 @@ const DEMO_VIDEO_MAP: Record<string, string> = {
 const DEFAULT_DEMO = 'https://www.youtube.com/watch?v=lGTtSILQGnE';
 
 type Phase =
-  | 'waiting-landscape' // initial check or portrait detected — show setup overlay
   | 'countdown-watch'
   | 'demo-fullscreen'
   | 'countdown-go'
@@ -78,73 +81,44 @@ export default function SessionScreen() {
   );
 
   const [drillIdx, setDrillIdx] = useState(0);
-  const [phase, setPhase] = useState<Phase>('waiting-landscape');
-  // Was the user shown setup at least once?  Used to know if it's "initial"
-  // setup vs mid-session portrait warning.
-  const [hasShownInitialSetup, setHasShownInitialSetup] = useState(false);
+  const [phase, setPhase] = useState<Phase>('countdown-watch');
+  const [isLandscape, setIsLandscape] = useState(true);
 
-  // Drill timer state
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [timeTotal, setTimeTotal] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const wasPausedByPortrait = useRef(false);
 
-  // Track which phase we were in before portrait detection
-  const phaseBeforePortrait = useRef<Phase | null>(null);
-
   const sessionStartRef = useRef<number>(Date.now());
   const currentDrill = resolvedDrills[drillIdx];
 
-  // ===== Orientation: check on mount, listen for changes =====
+  // ===== Orientation =====
 
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
+    (async () => {
       try {
         await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
         const current = await ScreenOrientation.getOrientationAsync();
-        if (!mounted) return;
-        if (isLandscapeOrientation(current)) {
-          // Already landscape — skip the rotate-phone overlay
-          setPhase('countdown-watch');
-          setHasShownInitialSetup(true);
-        } else {
-          // Portrait — show the rotate-phone screen
-          setPhase('waiting-landscape');
-        }
+        if (mounted) setIsLandscape(isLandscapeOrientation(current));
       } catch {
-        // If locking fails, fall back to portrait detection at least
+        // ignore
       }
-    };
-    init();
+    })();
 
     const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
       if (!mounted) return;
-      const isLandscape = isLandscapeOrientation(evt.orientationInfo.orientation);
+      const landscape = isLandscapeOrientation(evt.orientationInfo.orientation);
+      setIsLandscape(landscape);
 
-      if (!isLandscape) {
-        // Rotated to portrait
-        if (phase !== 'waiting-landscape' && phase !== 'complete') {
-          phaseBeforePortrait.current = phase;
-          if (phase === 'active' && timerRef.current) {
-            pauseTimer();
-            wasPausedByPortrait.current = true;
-          }
-          setPhase('waiting-landscape');
-        }
-      } else {
-        // Rotated to landscape — auto-resume if we were paused by portrait
-        if (phase === 'waiting-landscape' && hasShownInitialSetup && phaseBeforePortrait.current) {
-          const prevPhase = phaseBeforePortrait.current;
-          phaseBeforePortrait.current = null;
-          setPhase(prevPhase);
-          if (wasPausedByPortrait.current && prevPhase === 'active') {
-            resumeTimer();
-            wasPausedByPortrait.current = false;
-          }
-        }
+      if (!landscape && phase === 'active' && timerRef.current) {
+        pauseTimer();
+        wasPausedByPortrait.current = true;
+      } else if (landscape && wasPausedByPortrait.current && phase === 'active') {
+        resumeTimer();
+        wasPausedByPortrait.current = false;
       }
     });
 
@@ -155,7 +129,7 @@ export default function SessionScreen() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, hasShownInitialSetup]);
+  }, [phase]);
 
   // ===== Timer =====
 
@@ -205,11 +179,6 @@ export default function SessionScreen() {
   };
 
   // ===== Phase transitions =====
-
-  const onSetupReady = () => {
-    setHasShownInitialSetup(true);
-    setPhase('countdown-watch');
-  };
 
   const onWatchDone    = () => setPhase('demo-fullscreen');
   const onDemoComplete = () => setPhase('countdown-go');
@@ -262,10 +231,6 @@ export default function SessionScreen() {
     }
     return DEFAULT_DEMO;
   }, [currentDrill]);
-
-  // Determine if we should show the setup overlay
-  const isPortraitWarning = phase === 'waiting-landscape' && hasShownInitialSetup;
-  const isInitialSetup    = phase === 'waiting-landscape' && !hasShownInitialSetup;
 
   // ===== Render =====
 
@@ -322,7 +287,7 @@ export default function SessionScreen() {
       />
 
       {/* Floating exit during countdowns + demo */}
-      {(phase === 'countdown-watch' || phase === 'demo-fullscreen' || phase === 'countdown-go') && (
+      {isLandscape && (phase === 'countdown-watch' || phase === 'demo-fullscreen' || phase === 'countdown-go') && (
         <TouchableOpacity
           style={styles.floatingExitBtn}
           onPress={onExit}
@@ -333,8 +298,8 @@ export default function SessionScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Demo video */}
-      {(phase === 'demo-fullscreen' || phase === 'countdown-go' || phase === 'active') && (
+      {/* Demo video — fullscreen, then PIP */}
+      {isLandscape && (phase === 'demo-fullscreen' || phase === 'countdown-go' || phase === 'active') && (
         <DemoVideoPip
           videoUrl={demoUrl}
           isFullscreen={phase === 'demo-fullscreen'}
@@ -343,7 +308,7 @@ export default function SessionScreen() {
       )}
 
       {/* HUD during active drill */}
-      {phase === 'active' && (
+      {isLandscape && phase === 'active' && (
         <SessionHUD
           drillName={currentDrill?.name || 'Drill'}
           timeRemainingSec={timeRemaining}
@@ -359,14 +324,14 @@ export default function SessionScreen() {
       )}
 
       {/* Countdowns */}
-      {phase === 'countdown-watch' && (
+      {isLandscape && phase === 'countdown-watch' && (
         <CountdownOverlay
           finalLabel="WATCH"
           contextLabel={`DRILL ${drillIdx + 1} OF ${resolvedDrills.length}`}
           onComplete={onWatchDone}
         />
       )}
-      {phase === 'countdown-go' && (
+      {isLandscape && phase === 'countdown-go' && (
         <CountdownOverlay
           finalLabel="GO"
           contextLabel={currentDrill?.name?.toUpperCase()}
@@ -374,14 +339,9 @@ export default function SessionScreen() {
         />
       )}
 
-      {/* Setup overlay */}
-      {(isInitialSetup || isPortraitWarning) && (
-        <SessionSetupOverlay
-          isInitialSetup={isInitialSetup}
-          isPortraitWarning={isPortraitWarning}
-          onReady={onSetupReady}
-          onExit={onExit}
-        />
+      {/* Rotate-phone overlay — shown whenever phone is portrait */}
+      {!isLandscape && (
+        <SessionSetupOverlay onExit={onExit} />
       )}
     </View>
   );
