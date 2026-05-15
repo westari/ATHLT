@@ -52,7 +52,7 @@ const INTENSITY_OPTIONS = [
 const TOTAL_STEPS = 5;
 
 // IMPORTANT: replace this with your real Vercel domain
-const API_BASE = 'https://YOUR_VERCEL_DOMAIN';
+const API_BASE = 'https://www.tryparlai.com';
 
 type ProposedDrill = { name: string; time: string };
 
