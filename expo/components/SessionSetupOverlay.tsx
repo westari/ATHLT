@@ -1,140 +1,154 @@
 // expo/components/SessionSetupOverlay.tsx
-// Setup instructions shown:
-//   1. At the first drill of every session
-//   2. Again if the user rotates their phone back to portrait mid-session
-//
-// Renders an overlay on top of the session screen. Has a "Ready" CTA
-// that dismisses the overlay and starts the next phase (demo video).
+// Minimal "rotate phone" overlay.
+// - Shows phone with curved arrows rotating around it
+// - Single line of copy: "Rotate phone"
+// - Exit button (X) top-right to leave the session
+// - "I'm ready" only used at drill 1; portrait warning auto-dismisses on rotate
 
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Platform,
 } from 'react-native';
-import Svg, { Rect, Line, Circle } from 'react-native-svg';
-import { Check } from 'lucide-react-native';
+import Svg, { Rect, Circle, Path } from 'react-native-svg';
+import { X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
 type Props = {
-  drillName: string;
-  drillIndex: number;
-  totalDrills: number;
+  /** First time of the session — shows "I'm ready" button. */
+  isInitialSetup: boolean;
+  /** Mid-session portrait warning — no button, auto-dismisses on rotate. */
+  isPortraitWarning: boolean;
+  /** Called when user taps "I'm ready" (initial setup only). */
   onReady: () => void;
-  isPortraitWarning?: boolean; // true when shown because user rotated back to portrait
+  /** Called when user taps X to exit session. */
+  onExit: () => void;
 };
 
 export default function SessionSetupOverlay({
-  drillName,
-  drillIndex,
-  totalDrills,
-  onReady,
+  isInitialSetup,
   isPortraitWarning,
+  onReady,
+  onExit,
 }: Props) {
+  // Rotation animation — phone + arrows pulse rotation continuously
+  const spin = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: 1800,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [spin]);
+
+  // Phone rocks from -15° to +15° to suggest rotation
+  const phoneRotate = spin.interpolate({
+    inputRange:  [0,     0.5,    1],
+    outputRange: ['-12deg', '12deg', '-12deg'],
+  });
+  // Arrows pulse opacity in sync
+  const arrowOpacity = spin.interpolate({
+    inputRange:  [0,   0.5, 1],
+    outputRange: [0.5, 1,   0.5],
+  });
+
   const handleReady = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onReady();
   };
 
+  const handleExit = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onExit();
+  };
+
   return (
     <View style={styles.container}>
+      {/* Exit button — always available */}
+      <TouchableOpacity style={styles.exitBtn} onPress={handleExit} activeOpacity={0.7}>
+        <X size={20} color="rgba(255,255,255,0.8)" />
+      </TouchableOpacity>
+
       <View style={styles.content}>
-        {/* Top tag */}
-        <View style={styles.tag}>
-          <Text style={styles.tagText}>
-            {isPortraitWarning ? 'TURN YOUR PHONE BACK' : 'GET SET UP'}
+        {/* Animated phone + rotating arrows */}
+        <View style={styles.animationWrap}>
+          {/* Top-right curved arrow */}
+          <Animated.View style={[styles.arrow, styles.arrowTopRight, { opacity: arrowOpacity }]}>
+            <Svg width={50} height={50} viewBox="0 0 50 50">
+              <Path
+                d="M 8 25 Q 8 8 25 8 L 30 8 M 30 8 L 24 4 M 30 8 L 24 12"
+                stroke="#fff"
+                strokeWidth="2"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </Animated.View>
+
+          {/* Phone — rocks back and forth */}
+          <Animated.View style={{ transform: [{ rotate: phoneRotate }] }}>
+            <Svg width={180} height={100} viewBox="0 0 180 100">
+              <Rect
+                x="10"
+                y="20"
+                width="160"
+                height="60"
+                rx="8"
+                fill="none"
+                stroke="#fff"
+                strokeWidth="2.5"
+              />
+              <Circle cx="90" cy="14" r="1.5" fill="#fff" />
+            </Svg>
+          </Animated.View>
+
+          {/* Bottom-left curved arrow */}
+          <Animated.View style={[styles.arrow, styles.arrowBottomLeft, { opacity: arrowOpacity }]}>
+            <Svg width={50} height={50} viewBox="0 0 50 50">
+              <Path
+                d="M 42 25 Q 42 42 25 42 L 20 42 M 20 42 L 26 38 M 20 42 L 26 46"
+                stroke="#fff"
+                strokeWidth="2"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </Animated.View>
+        </View>
+
+        {/* Copy */}
+        <Text style={styles.label}>Rotate phone</Text>
+        {isInitialSetup && (
+          <Text style={styles.sublabel}>
+            Lay it sideways on a flat surface. Step back so your body is in frame.
           </Text>
-        </View>
+        )}
 
-        {/* Title */}
-        <Text style={styles.title}>
-          {isPortraitWarning
-            ? 'Rotate to landscape'
-            : 'Lay your phone sideways'}
-        </Text>
+        {/* Button — only shown on initial setup */}
+        {isInitialSetup && !isPortraitWarning && (
+          <TouchableOpacity
+            style={styles.readyBtn}
+            onPress={handleReady}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.readyBtnText}>I'm ready</Text>
+          </TouchableOpacity>
+        )}
 
-        <Text style={styles.subtitle}>
-          {isPortraitWarning
-            ? 'The session keeps going. Get back in landscape to continue.'
-            : 'Set your phone horizontally on a tripod or against something flat. Step back 6-8 feet so your full body is in frame.'}
-        </Text>
-
-        {/* Illustration of phone in landscape */}
-        <View style={styles.illustration}>
-          <Svg width={200} height={120} viewBox="0 0 200 120">
-            {/* Phone in landscape position */}
-            <Rect
-              x="20"
-              y="30"
-              width="160"
-              height="80"
-              rx="10"
-              fill="none"
-              stroke={Colors.primary}
-              strokeWidth="3"
-            />
-            {/* Screen */}
-            <Rect
-              x="28"
-              y="38"
-              width="144"
-              height="64"
-              rx="4"
-              fill={Colors.primary}
-              fillOpacity="0.15"
-            />
-            {/* Camera dot */}
-            <Circle cx="100" cy="34" r="2" fill={Colors.primary} />
-
-            {/* Ground line */}
-            <Line
-              x1="0"
-              y1="115"
-              x2="200"
-              y2="115"
-              stroke={Colors.surfaceBorder}
-              strokeWidth="1"
-              strokeDasharray="4 4"
-            />
-          </Svg>
-        </View>
-
-        {/* Checklist */}
-        <View style={styles.checklist}>
-          <ChecklistItem text="Phone is sideways (landscape)" />
-          <ChecklistItem text="Phone is stable (tripod or flat surface)" />
-          <ChecklistItem text="You're 6-8 feet back, full body in frame" />
-        </View>
-
-        {/* Drill info */}
-        <View style={styles.drillInfo}>
-          <Text style={styles.drillInfoLabel}>
-            DRILL {drillIndex + 1} OF {totalDrills}
+        {isPortraitWarning && (
+          <Text style={styles.autoResumeHint}>
+            Session resumes automatically when you rotate back.
           </Text>
-          <Text style={styles.drillInfoName} numberOfLines={2}>
-            {drillName}
-          </Text>
-        </View>
-
-        {/* Ready button */}
-        <TouchableOpacity
-          style={styles.readyBtn}
-          onPress={handleReady}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.readyBtnText}>I'm ready</Text>
-        </TouchableOpacity>
+        )}
       </View>
-    </View>
-  );
-}
-
-function ChecklistItem({ text }: { text: string }) {
-  return (
-    <View style={styles.checkItem}>
-      <View style={styles.checkIcon}>
-        <Check size={11} color={Colors.primary} strokeWidth={3} />
-      </View>
-      <Text style={styles.checkText}>{text}</Text>
     </View>
   );
 }
@@ -142,107 +156,80 @@ function ChecklistItem({ text }: { text: string }) {
 const styles = StyleSheet.create({
   container: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#0A0A0A',
+    backgroundColor: '#000',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 1000,
-    padding: 24,
   },
-  content: {
-    width: '100%',
-    maxWidth: 520,
-    alignItems: 'center',
-  },
-  tag: {
-    backgroundColor: 'rgba(212, 160, 23, 0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 4,
+  exitBtn: {
+    position: 'absolute',
+    top: 50,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(212, 160, 23, 0.35)',
-    marginBottom: 12,
-  },
-  tagText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 1.4,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: Colors.white,
-    letterSpacing: -0.6,
-    textAlign: 'center',
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.7)',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 20,
-    maxWidth: 380,
-  },
-  illustration: {
-    marginBottom: 16,
-  },
-  checklist: {
-    alignSelf: 'stretch',
-    maxWidth: 360,
-    width: '100%',
-    marginBottom: 20,
-    gap: 8,
-  },
-  checkItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  checkIcon: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: 'rgba(212, 160, 23, 0.18)',
+    borderColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 10,
   },
-  checkText: {
+  content: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  animationWrap: {
+    width: 240,
+    height: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  arrow: {
+    position: 'absolute',
+  },
+  arrowTopRight: {
+    top: 0,
+    right: 0,
+  },
+  arrowBottomLeft: {
+    bottom: 0,
+    left: 0,
+  },
+  label: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: -0.5,
+    marginBottom: 6,
+  },
+  sublabel: {
     fontSize: 13,
     fontWeight: '500',
-    color: 'rgba(255,255,255,0.85)',
-    flex: 1,
-  },
-  drillInfo: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  drillInfoLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.5)',
-    letterSpacing: 1.4,
-    marginBottom: 4,
-  },
-  drillInfoName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.white,
+    color: 'rgba(255,255,255,0.55)',
     textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 24,
+    maxWidth: 320,
   },
   readyBtn: {
     backgroundColor: Colors.primary,
-    paddingHorizontal: 32,
+    paddingHorizontal: 36,
     paddingVertical: 14,
     borderRadius: 100,
-    minWidth: 200,
-    alignItems: 'center',
+    marginTop: 8,
   },
   readyBtnText: {
     fontSize: 15,
     fontWeight: '700',
     color: '#000',
     letterSpacing: 0.2,
+  },
+  autoResumeHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 8,
   },
 });
