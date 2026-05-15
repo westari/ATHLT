@@ -1,587 +1,437 @@
-import React, { useState, useRef, useEffect } from 'react';
+// expo/app/session.tsx
+// Main session screen — runs through all drills for the current day.
+//
+// Flow per drill:
+//   1. SETUP OVERLAY: "Lay phone sideways" (shown at drill 1, or any time user
+//      rotates phone back to portrait mid-session)
+//   2. Tap "I'm ready" → COUNTDOWN: 3-2-1 "WATCH"
+//   3. DEMO video plays fullscreen
+//   4. Demo auto-completes → video animates to top-right PIP
+//   5. COUNTDOWN: 3-2-1 "GO"
+//   6. DRILL TIMER runs with HUD (timer, reps, set, drill name)
+//   7. Timer expires → auto-advance to next drill (back to step 2)
+//
+// Camera feed is a PLACEHOLDER for v1 (dark gradient) — replace with real
+// camera + pose tracking when Apple Dev account is set up.
+
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Platform,
-  ScrollView,
-  Animated,
-  Modal,
+  View, Text, StyleSheet, TouchableOpacity, Platform, AppState,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X, ChevronRight, ChevronLeft, Play, Pause, Check } from 'lucide-react-native';
+import { useRouter, Stack } from 'expo-router';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
-import { logDrillResult, logSession } from '@/lib/memorySync';
+import { resolvePlanDrill } from '@/lib/resolveDrill';
+import SessionSetupOverlay from '@/components/SessionSetupOverlay';
+import CountdownOverlay from '@/components/CountdownOverlay';
+import DemoVideoPip from '@/components/DemoVideoPip';
+import SessionHUD from '@/components/SessionHUD';
 
-const TYPE_TO_SKILL_FALLBACK: Record<string, string> = {
-  warmup: 'athleticism',
-  shooting: 'shooting',
-  skill: 'ballHandling',
-  conditioning: 'athleticism',
+// ===== Demo video pool =====
+// Map drill name (lowercase, partial match) → YouTube URL.
+// You can expand this freely; the fallback is used when nothing matches.
+const DEMO_VIDEO_MAP: Record<string, string> = {
+  'pound dribble':       'https://www.youtube.com/watch?v=h6QSiJqQwGM',
+  'crossover':           'https://www.youtube.com/watch?v=L_QrSxKpWko',
+  'form shooting':       'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'mikan':               'https://www.youtube.com/watch?v=AGtZsv0LJEU',
+  'defensive slide':     'https://www.youtube.com/watch?v=oyJ3-7PqAg0',
+  'finishing':           'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'pull-up':             'https://www.youtube.com/watch?v=4Cd7B5MoxYI',
+  'catch and shoot':     'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'free throw':          'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'tennis ball':         'https://www.youtube.com/watch?v=PqDIANpQ_VY',
+  'two-ball':            'https://www.youtube.com/watch?v=PqDIANpQ_VY',
+  'suicide':             'https://www.youtube.com/watch?v=BSjBkLNHrTk',
+  'conditioning':        'https://www.youtube.com/watch?v=BSjBkLNHrTk',
+  'warm-up':             'https://www.youtube.com/watch?v=jpqYBQDH_C8',
+  'dynamic warm':        'https://www.youtube.com/watch?v=jpqYBQDH_C8',
 };
+const DEFAULT_DEMO = 'https://www.youtube.com/watch?v=lGTtSILQGnE';
+
+// Phases per drill
+type Phase =
+  | 'setup'           // setup overlay shown
+  | 'countdown-watch' // 3-2-1 → WATCH
+  | 'demo-fullscreen' // demo plays fullscreen
+  | 'countdown-go'    // demo shrinks to PIP, 3-2-1 → GO
+  | 'active'          // drill timer running
+  | 'complete';       // session done
 
 export default function SessionScreen() {
-  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { plan, completedDrills, toggleDrill, markDrillComplete, completeSession, currentDayIndex } = usePlanStore();
+  const router = useRouter();
+  const { plan, currentDayIndex, completedDrills, toggleDrillComplete } = usePlanStore();
 
-  const dayIndex = currentDayIndex;
-  const currentDay = plan?.days?.[dayIndex];
-  const drills = currentDay?.drills || [];
+  const day = plan?.days?.[currentDayIndex];
+  const resolvedDrills = useMemo(
+    () => (day?.drills || [])
+      .map(d => resolvePlanDrill(d))
+      .filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[],
+    [day]
+  );
 
-  const [currentDrillIndex, setCurrentDrillIndex] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(false);
+  const [drillIdx, setDrillIdx] = useState(0);
+  const [phase, setPhase] = useState<Phase>('setup');
+  const [isOrientationLandscape, setIsOrientationLandscape] = useState(true);
+  const [showPortraitWarning, setShowPortraitWarning] = useState(false);
+
+  // Drill timer
   const [timeRemaining, setTimeRemaining] = useState(0);
-  const [sessionComplete, setSessionComplete] = useState(false);
-  const [completedInSession, setCompletedInSession] = useState<Record<number, boolean>>({});
+  const [timeTotal, setTimeTotal] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false);
-  const [pendingDrillIndex, setPendingDrillIndex] = useState<number | null>(null);
-  const [skillsWorkedInSession, setSkillsWorkedInSession] = useState<Set<string>>(new Set());
-  const [sessionStartTime] = useState<number>(Date.now());
+  // Session-level
+  const sessionStartRef = useRef<number>(Date.now());
 
-  const timerRef = useRef<any>(null);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const currentDrill = drills[currentDrillIndex];
+  const currentDrill = resolvedDrills[drillIdx];
 
-  const parseDrillTime = (timeStr: string): number => {
-    const match = timeStr?.match(/(\d+)/);
-    if (match) return parseInt(match[1]) * 60;
-    return 300;
-  };
-
-  const getSkillForDrill = (drill: any): string => {
-    if (drill?.primarySkill) return drill.primarySkill;
-    return TYPE_TO_SKILL_FALLBACK[drill?.type] || 'athleticism';
-  };
+  // ===== Orientation lock & detection =====
 
   useEffect(() => {
-    if (currentDrill) {
-      setTimeRemaining(parseDrillTime(currentDrill.time));
-      setIsTimerRunning(false);
-    }
-  }, [currentDrillIndex]);
+    let mounted = true;
 
-  useEffect(() => {
-    if (isTimerRunning && timeRemaining > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            setIsTimerRunning(false);
-            if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isTimerRunning]);
+    // Lock to landscape on mount
+    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
 
-  useEffect(() => {
-    if (isTimerRunning) {
-      Animated.loop(Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.05, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 1000, useNativeDriver: true }),
-      ])).start();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [isTimerRunning]);
-
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return mins + ':' + secs.toString().padStart(2, '0');
-  };
-
-  const handleStartPause = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setIsTimerRunning(!isTimerRunning);
-  };
-
-  const handleCompleteDrill = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    clearInterval(timerRef.current);
-    setIsTimerRunning(false);
-    setPendingDrillIndex(currentDrillIndex);
-    setFeedbackModalVisible(true);
-  };
-
-  const handleFeedbackSelected = async (feedback: 'too_easy' | 'right' | 'too_hard') => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-
-    const idx = pendingDrillIndex;
-    setFeedbackModalVisible(false);
-    setPendingDrillIndex(null);
-
-    if (idx === null) return;
-
-    const drill = drills[idx];
-    const skill = getSkillForDrill(drill);
-
-    setCompletedInSession(prev => ({ ...prev, [idx]: true }));
-    // Use markDrillComplete to avoid toggle-off if already complete (prevents dup logs)
-    markDrillComplete(dayIndex, idx);
-
-    setSkillsWorkedInSession(prev => {
-      const next = new Set(prev);
-      next.add(skill);
-      return next;
+    // Listen for orientation changes — if user rotates portrait, show warning
+    const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
+      if (!mounted) return;
+      const o = evt.orientationInfo.orientation;
+      const isLandscape =
+        o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+      setIsOrientationLandscape(isLandscape);
+      if (!isLandscape && phase !== 'setup') {
+        // User flipped to portrait mid-session — show warning overlay
+        setShowPortraitWarning(true);
+        pauseTimer();
+      } else if (isLandscape && showPortraitWarning) {
+        // They flipped back — auto-dismiss the warning, resume
+        setShowPortraitWarning(false);
+        if (phase === 'active') resumeTimer();
+      }
     });
 
-    if (drill?.drillId) {
-      logDrillResult({
-        drillId: drill.drillId,
-        primarySkill: skill,
-        userFeedback: feedback,
-      }).catch(e => console.error('logDrillResult failed:', e));
-    }
+    return () => {
+      mounted = false;
+      ScreenOrientation.removeOrientationChangeListener(sub);
+      ScreenOrientation.unlockAsync().catch(() => {});
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    if (idx < drills.length - 1) {
-      setCurrentDrillIndex(idx + 1);
-    } else {
-      const durationMin = Math.round((Date.now() - sessionStartTime) / 60000);
-      const completedCount = Object.keys(completedInSession).length + 1;
-      const skillsArray = Array.from(skillsWorkedInSession);
-      skillsArray.push(skill);
-      logSession({
-        dayIndex,
-        completedDrillsCount: completedCount,
-        durationMinutes: durationMin,
-        skillsWorked: Array.from(new Set(skillsArray)),
-      }).catch(e => console.error('logSession failed:', e));
+  // ===== Timer control =====
 
-      // Actually increment the local streak + total sessions
-      completeSession({
-        date: new Date().toISOString(),
-        focus: currentDay?.focus || '',
-        duration: currentDay?.duration || '',
-        drillsCompleted: completedCount,
-        drillsTotal: drills.length,
+  const startTimer = (seconds: number) => {
+    setTimeTotal(seconds);
+    setTimeRemaining(seconds);
+    setIsPaused(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          onDrillTimeUp();
+          return 0;
+        }
+        return prev - 1;
       });
-
-      setSessionComplete(true);
-    }
+    }, 1000);
   };
 
-  const handleSkipDrill = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    clearInterval(timerRef.current);
-    setIsTimerRunning(false);
-    if (currentDrillIndex < drills.length - 1) {
-      setCurrentDrillIndex(currentDrillIndex + 1);
-    } else {
-      // Session ended via skip — still count it
-      const completedCount = Object.keys(completedInSession).length;
-      if (completedCount > 0) {
-        completeSession({
-          date: new Date().toISOString(),
-          focus: currentDay?.focus || '',
-          duration: currentDay?.duration || '',
-          drillsCompleted: completedCount,
-          drillsTotal: drills.length,
-        });
-      }
-      setSessionComplete(true);
-    }
-  };
-
-  const handlePrevDrill = () => {
-    if (currentDrillIndex > 0) {
-      if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const pauseTimer = () => {
+    if (timerRef.current) {
       clearInterval(timerRef.current);
-      setIsTimerRunning(false);
-      setCurrentDrillIndex(currentDrillIndex - 1);
+      timerRef.current = null;
+    }
+    setIsPaused(true);
+  };
+
+  const resumeTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    setIsPaused(false);
+    timerRef.current = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          if (timerRef.current) clearInterval(timerRef.current);
+          onDrillTimeUp();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const togglePause = () => {
+    if (isPaused) resumeTimer();
+    else pauseTimer();
+  };
+
+  // ===== Phase transitions =====
+
+  const onSetupReady = () => {
+    setPhase('countdown-watch');
+  };
+
+  const onWatchCountdownDone = () => {
+    setPhase('demo-fullscreen');
+  };
+
+  const onDemoComplete = () => {
+    setPhase('countdown-go');
+  };
+
+  const onGoCountdownDone = () => {
+    // Start the drill timer
+    const totalSec = drillDurationToSeconds(currentDrill?.time);
+    startTimer(totalSec);
+    setPhase('active');
+  };
+
+  const onDrillTimeUp = () => {
+    if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+
+    // Mark this drill complete
+    toggleDrillComplete(currentDayIndex + '-' + drillIdx);
+
+    // Advance to next drill, or finish session
+    if (drillIdx + 1 < resolvedDrills.length) {
+      setDrillIdx(prev => prev + 1);
+      // Skip setup overlay on subsequent drills (user is already set up).
+      // Per spec: setup shown at drill 1 + if portrait detected.
+      setPhase('countdown-watch');
+    } else {
+      setPhase('complete');
     }
   };
 
-  const handleClose = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    clearInterval(timerRef.current);
+  const onExit = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    ScreenOrientation.unlockAsync().catch(() => {});
     router.back();
   };
 
-  const handleResetTimer = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    clearInterval(timerRef.current);
-    setIsTimerRunning(false);
-    if (currentDrill) setTimeRemaining(parseDrillTime(currentDrill.time));
-  };
+  // ===== Computed UI values =====
 
-  // Drill type badge colors — tuned for light theme
-  const TC: Record<string, string> = {
-    warmup: '#6F8A4B', // olive green
-    skill: Colors.primary,
-    shooting: '#A8733A', // bronze
-    conditioning: '#B8503C', // brick
-  };
-  const TL: Record<string, string> = {
-    warmup: 'WARMUP', skill: 'SKILL WORK', shooting: 'SHOOTING', conditioning: 'CONDITIONING',
-  };
+  const sessionPctComplete = useMemo(() => {
+    if (resolvedDrills.length === 0) return 0;
+    const completed = drillIdx + (phase === 'active' && timeTotal > 0
+      ? (1 - timeRemaining / timeTotal)
+      : 0);
+    return Math.min(100, (completed / resolvedDrills.length) * 100);
+  }, [drillIdx, timeRemaining, timeTotal, phase, resolvedDrills.length]);
 
-  if (sessionComplete) {
-    const cc = Object.keys(completedInSession).length;
+  const sessionTimeLabel = useMemo(() => {
+    const elapsedSec = Math.floor((Date.now() - sessionStartRef.current) / 1000);
+    const m = Math.floor(elapsedSec / 60);
+    const s = elapsedSec % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }, [timeRemaining]); // re-render with the timer tick
+
+  const demoUrl = useMemo(() => {
+    if (!currentDrill?.name) return DEFAULT_DEMO;
+    const lower = currentDrill.name.toLowerCase();
+    for (const [key, url] of Object.entries(DEMO_VIDEO_MAP)) {
+      if (lower.includes(key)) return url;
+    }
+    return DEFAULT_DEMO;
+  }, [currentDrill]);
+
+  // ===== Render =====
+
+  if (!plan || !day) {
     return (
-      <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={s.doneScreen}>
-          <View style={s.doneCircle}><Check size={48} color={Colors.black} /></View>
-          <Text style={s.doneTitle}>Session Complete!</Text>
-          <Text style={s.doneSub}>You crushed {cc} out of {drills.length} drills.</Text>
-          <View style={s.doneStats}>
-            <View style={s.doneStat}>
-              <Text style={s.doneVal}>{cc}/{drills.length}</Text>
-              <Text style={s.doneLbl}>Drills</Text>
-            </View>
-            <View style={s.doneDiv} />
-            <View style={s.doneStat}>
-              <Text style={s.doneVal}>{currentDay?.duration || '—'}</Text>
-              <Text style={s.doneLbl}>Duration</Text>
-            </View>
-          </View>
-          <Text style={s.doneMot}>Consistency beats intensity. Show up again tomorrow.</Text>
-          <TouchableOpacity style={s.doneBtn} onPress={handleClose} activeOpacity={0.85}>
-            <Text style={s.doneBtnTxt}>DONE</Text>
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <Text style={styles.emptyText}>No plan loaded.</Text>
+      </View>
+    );
+  }
+
+  if (resolvedDrills.length === 0) {
+    return (
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <Text style={styles.emptyText}>No drills in today's workout.</Text>
+        <TouchableOpacity style={styles.emptyBtn} onPress={onExit} activeOpacity={0.8}>
+          <Text style={styles.emptyBtnText}>Back home</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // Session complete screen
+  if (phase === 'complete') {
+    return (
+      <View style={styles.container}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <View style={styles.completeWrap}>
+          <Text style={styles.completeTag}>SESSION COMPLETE</Text>
+          <Text style={styles.completeTitle}>Work in.</Text>
+          <Text style={styles.completeSub}>
+            {resolvedDrills.length} drills · Day {currentDayIndex + 1} of {plan.days.length}
+          </Text>
+          <TouchableOpacity style={styles.completeBtn} onPress={onExit} activeOpacity={0.85}>
+            <Text style={styles.completeBtnText}>Done</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
-
-  if (!currentDrill || drills.length === 0) {
-    return (
-      <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-        <View style={s.doneScreen}>
-          <Text style={s.doneTitle}>No drills for this day</Text>
-          <Text style={s.doneSub}>This might be a rest day.</Text>
-          <TouchableOpacity style={s.doneBtn} onPress={handleClose} activeOpacity={0.85}>
-            <Text style={s.doneBtnTxt}>GO BACK</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  const tc = TC[currentDrill.type] || Colors.textMuted;
-  const tl = TL[currentDrill.type] || '';
-  const tt = parseDrillTime(currentDrill.time);
-  const dp = tt > 0 ? ((tt - timeRemaining) / tt) : 0;
 
   return (
-    <View style={[s.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={handleClose} style={s.closeBtn} activeOpacity={0.7}>
-          <X size={22} color={Colors.textSecondary} />
-        </TouchableOpacity>
-        <View style={s.headerMid}>
-          <Text style={s.headerFocus}>{currentDay?.focus || 'Session'}</Text>
-          <Text style={s.headerProg}>Drill {currentDrillIndex + 1} of {drills.length}</Text>
-        </View>
-        <View style={{ width: 44 }} />
-      </View>
+    <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
 
-      <View style={s.oTrack}>
-        <View style={[s.oFill, { width: ((currentDrillIndex + 1) / drills.length * 100) + '%' }]} />
-      </View>
+      {/* Camera feed PLACEHOLDER (replace with real camera + pose tracking later) */}
+      <LinearGradient
+        colors={['#1a1a1a', '#0a0a0a']}
+        style={StyleSheet.absoluteFill}
+      />
 
-      <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
-        <View style={[s.tag, { backgroundColor: tc + '20', borderColor: tc + '60' }]}>
-          <Text style={[s.tagTxt, { color: tc }]}>{tl}</Text>
-        </View>
-        <Text style={s.drillName}>{currentDrill.name}</Text>
+      {/* Demo video — fullscreen during demo phase, PIP afterward */}
+      {(phase === 'demo-fullscreen' || phase === 'countdown-go' || phase === 'active') && (
+        <DemoVideoPip
+          videoUrl={demoUrl}
+          isFullscreen={phase === 'demo-fullscreen'}
+          onDemoComplete={onDemoComplete}
+        />
+      )}
 
-        <Animated.View style={[s.timerWrap, { transform: [{ scale: pulseAnim }] }]}>
-          <View style={[s.timerCircle, isTimerRunning && { borderColor: tc }]}>
-            <Text style={[s.timerTxt, isTimerRunning && { color: tc }]}>{formatTime(timeRemaining)}</Text>
-            <Text style={s.timerLbl}>
-              {timeRemaining === 0 ? 'DONE!' : isTimerRunning ? 'RUNNING' : 'READY'}
-            </Text>
-          </View>
-        </Animated.View>
+      {/* HUD shown during active drill */}
+      {phase === 'active' && (
+        <SessionHUD
+          drillName={currentDrill?.name || 'Drill'}
+          timeRemainingSec={timeRemaining}
+          timeTotalSec={timeTotal}
+          drillIndex={drillIdx}
+          totalDrills={resolvedDrills.length}
+          sessionPctComplete={sessionPctComplete}
+          sessionTimeLabel={sessionTimeLabel}
+          isPaused={isPaused}
+          onTogglePause={togglePause}
+          onExit={onExit}
+        />
+      )}
 
-        <View style={s.dpTrack}>
-          <View style={[s.dpFill, { width: (dp * 100) + '%', backgroundColor: tc }]} />
-        </View>
+      {/* Countdown overlays */}
+      {phase === 'countdown-watch' && (
+        <CountdownOverlay
+          finalLabel="WATCH"
+          contextLabel={`DRILL ${drillIdx + 1} OF ${resolvedDrills.length}`}
+          onComplete={onWatchCountdownDone}
+        />
+      )}
+      {phase === 'countdown-go' && (
+        <CountdownOverlay
+          finalLabel="GO"
+          contextLabel={currentDrill?.name?.toUpperCase()}
+          onComplete={onGoCountdownDone}
+        />
+      )}
 
-        <View style={s.controls}>
-          <TouchableOpacity onPress={handleResetTimer} style={s.ctrlBtn} activeOpacity={0.7}>
-            <Text style={s.ctrlTxt}>RESET</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleStartPause} style={[s.playBtn, { backgroundColor: tc }]} activeOpacity={0.85}>
-            {isTimerRunning ? <Pause size={28} color={Colors.white} /> : <Play size={28} color={Colors.white} />}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleSkipDrill} style={s.ctrlBtn} activeOpacity={0.7}>
-            <Text style={s.ctrlTxt}>SKIP</Text>
-          </TouchableOpacity>
-        </View>
-
-        {currentDrill.detail ? (
-          <View style={s.detailCard}>
-            <Text style={s.detailTitle}>INSTRUCTIONS</Text>
-            <Text style={s.detailBody}>{currentDrill.detail}</Text>
-          </View>
-        ) : null}
-
-        <View style={s.listCard}>
-          <Text style={s.listTitle}>SESSION DRILLS</Text>
-          {drills.map((d, i) => {
-            const done = completedInSession[i] || completedDrills[dayIndex + '-' + i];
-            const curr = i === currentDrillIndex;
-            const dc = TC[d.type] || Colors.textMuted;
-            return (
-              <TouchableOpacity
-                key={i}
-                style={[s.listItem, curr && s.listItemCurr]}
-                onPress={() => { clearInterval(timerRef.current); setIsTimerRunning(false); setCurrentDrillIndex(i); }}
-                activeOpacity={0.7}
-              >
-                <View style={[s.listDot, done && { backgroundColor: dc, borderColor: dc }, curr && { borderColor: dc, borderWidth: 2.5 }]}>
-                  {done && <Text style={{ fontSize: 9, color: Colors.white, fontWeight: '800' }}>✓</Text>}
-                </View>
-                <Text
-                  style={[
-                    s.listName,
-                    done && { textDecorationLine: 'line-through', color: Colors.textMuted },
-                    curr && { color: Colors.textPrimary },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {d.name}
-                </Text>
-                <Text style={s.listTime}>{d.time}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </ScrollView>
-
-      <View style={[s.bottom, { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }]}>
-        <View style={s.navRow}>
-          <TouchableOpacity
-            onPress={handlePrevDrill}
-            style={[s.navBtn, currentDrillIndex === 0 && { opacity: 0.3 }]}
-            disabled={currentDrillIndex === 0}
-            activeOpacity={0.7}
-          >
-            <ChevronLeft size={20} color={Colors.textSecondary} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[s.compBtn, { backgroundColor: tc }]}
-            onPress={handleCompleteDrill}
-            activeOpacity={0.85}
-          >
-            <Check size={18} color={Colors.white} />
-            <Text style={s.compTxt}>
-              {currentDrillIndex === drills.length - 1 ? 'FINISH SESSION' : 'COMPLETE & NEXT'}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={handleSkipDrill} style={s.navBtn} activeOpacity={0.7}>
-            <ChevronRight size={20} color={Colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* FEEDBACK MODAL */}
-      <Modal
-        visible={feedbackModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setFeedbackModalVisible(false)}
-      >
-        <View style={s.modalOverlay}>
-          <View style={s.modalCard}>
-            <Text style={s.modalTitle}>How was that?</Text>
-            <Text style={s.modalSub}>This helps Coach X tune your next session.</Text>
-
-            <TouchableOpacity
-              style={[s.fbBtn, { borderColor: Colors.success, backgroundColor: '#E8F2EB' }]}
-              onPress={() => handleFeedbackSelected('too_easy')}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.fbTxt, { color: Colors.success }]}>TOO EASY</Text>
-              <Text style={s.fbDesc}>I could have done more</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.fbBtn, { borderColor: Colors.primary, backgroundColor: '#FBF5E2' }]}
-              onPress={() => handleFeedbackSelected('right')}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.fbTxt, { color: Colors.primary }]}>JUST RIGHT</Text>
-              <Text style={s.fbDesc}>Felt challenging but doable</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[s.fbBtn, { borderColor: Colors.danger, backgroundColor: '#FBE9E9' }]}
-              onPress={() => handleFeedbackSelected('too_hard')}
-              activeOpacity={0.7}
-            >
-              <Text style={[s.fbTxt, { color: Colors.danger }]}>TOO HARD</Text>
-              <Text style={s.fbDesc}>I struggled with this one</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* Setup overlay — shown at drill 1 or when user rotates to portrait */}
+      {(phase === 'setup' || showPortraitWarning) && (
+        <SessionSetupOverlay
+          drillName={currentDrill?.name || 'Drill'}
+          drillIndex={drillIdx}
+          totalDrills={resolvedDrills.length}
+          isPortraitWarning={showPortraitWarning}
+          onReady={() => {
+            if (showPortraitWarning) {
+              setShowPortraitWarning(false);
+              if (phase === 'active') resumeTimer();
+            } else {
+              onSetupReady();
+            }
+          }}
+        />
+      )}
     </View>
   );
 }
 
-const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
-  closeBtn: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  headerMid: { flex: 1, alignItems: 'center' },
-  headerFocus: { fontSize: 15, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
-  headerProg: { fontSize: 12, color: Colors.textMuted },
-  oTrack: { height: 3, backgroundColor: Colors.surfaceBorder, marginHorizontal: 20 },
-  oFill: { height: 3, backgroundColor: Colors.primary },
-  content: { paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 },
-  tag: {
-    alignSelf: 'center', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 6,
-    marginBottom: 12, borderWidth: 1,
-  },
-  tagTxt: { fontSize: 11, fontWeight: '800', letterSpacing: 1 },
-  drillName: {
-    fontSize: 24, fontWeight: '800', color: Colors.textPrimary,
-    textAlign: 'center', lineHeight: 32, marginBottom: 28,
-  },
-  timerWrap: { alignItems: 'center', marginBottom: 24 },
-  timerCircle: {
-    width: 180, height: 180, borderRadius: 90, borderWidth: 4,
-    borderColor: Colors.surfaceBorder, backgroundColor: Colors.surface,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  timerTxt: { fontSize: 42, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  timerLbl: { fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5 },
-  dpTrack: {
-    height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2,
-    marginBottom: 24, overflow: 'hidden',
-  },
-  dpFill: { height: 4, borderRadius: 2 },
-  controls: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 24, marginBottom: 32,
-  },
-  ctrlBtn: {
-    paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10,
-    backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder,
-  },
-  ctrlTxt: { fontSize: 11, fontWeight: '700', color: Colors.textSecondary, letterSpacing: 1 },
-  playBtn: {
-    width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center',
-  },
-  detailCard: {
-    backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 20, marginBottom: 20,
-  },
-  detailTitle: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5, marginBottom: 10,
-  },
-  detailBody: { fontSize: 15, color: Colors.textSecondary, lineHeight: 23 },
-  listCard: {
-    backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 20,
-  },
-  listTitle: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5, marginBottom: 14,
-  },
-  listItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
-  },
-  listItemCurr: {
-    backgroundColor: '#FBF5E2',
-    marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 8,
-  },
-  listDot: {
-    width: 20, height: 20, borderRadius: 10, borderWidth: 1.5,
-    borderColor: Colors.surfaceBorder,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  listName: { fontSize: 13, fontWeight: '500', color: Colors.textSecondary, flex: 1 },
-  listTime: { fontSize: 11, color: Colors.textMuted },
-  bottom: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    paddingHorizontal: 20, paddingTop: 16, backgroundColor: Colors.background,
-    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
-  },
-  navRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  navBtn: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  compBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, borderRadius: 14, paddingVertical: 18,
-  },
-  compTxt: { fontSize: 13, fontWeight: '900', color: Colors.white, letterSpacing: 1.5 },
-  doneScreen: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
-  doneCircle: {
-    width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 24,
-  },
-  doneTitle: {
-    fontSize: 28, fontWeight: '800', color: Colors.textPrimary,
-    marginBottom: 12, textAlign: 'center',
-  },
-  doneSub: {
-    fontSize: 16, color: Colors.textSecondary, textAlign: 'center',
-    lineHeight: 24, marginBottom: 32,
-  },
-  doneStats: {
-    flexDirection: 'row', backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 20, marginBottom: 24, alignItems: 'center', width: '100%',
-  },
-  doneStat: { flex: 1, alignItems: 'center' },
-  doneVal: { fontSize: 20, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  doneLbl: { fontSize: 11, color: Colors.textMuted },
-  doneDiv: { width: 1, height: 30, backgroundColor: Colors.surfaceBorder },
-  doneMot: {
-    fontSize: 15, fontWeight: '600', color: Colors.primary,
-    textAlign: 'center', fontStyle: 'italic', lineHeight: 22, marginBottom: 32,
-  },
-  doneBtn: {
-    backgroundColor: Colors.primary, borderRadius: 14,
-    paddingVertical: 20, paddingHorizontal: 48, alignItems: 'center',
-  },
-  doneBtnTxt: { fontSize: 15, fontWeight: '900', color: Colors.black, letterSpacing: 2 },
+// ===== Helpers =====
 
-  modalOverlay: {
+function drillDurationToSeconds(timeStr?: string): number {
+  if (!timeStr) return 60;
+  const m = timeStr.match(/(\d+)\s*min/i);
+  if (m) return parseInt(m[1], 10) * 60;
+  const s = timeStr.match(/(\d+)\s*sec/i);
+  if (s) return parseInt(s[1], 10);
+  // Fallback: try plain integer as minutes
+  const plain = parseInt(timeStr, 10);
+  return isNaN(plain) ? 60 : plain * 60;
+}
+
+const styles = StyleSheet.create({
+  container: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  emptyText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 100,
     paddingHorizontal: 24,
   },
-  modalCard: {
-    width: '100%', backgroundColor: Colors.surface, borderRadius: 20,
-    borderWidth: 1, borderColor: Colors.surfaceBorder, padding: 24,
+  emptyBtn: {
+    alignSelf: 'center',
+    marginTop: 20,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 100,
   },
-  modalTitle: {
-    fontSize: 22, fontWeight: '800', color: Colors.textPrimary,
-    textAlign: 'center', marginBottom: 6,
+  emptyBtnText: {
+    color: '#000',
+    fontWeight: '700',
+    fontSize: 14,
   },
-  modalSub: {
-    fontSize: 13, color: Colors.textMuted, textAlign: 'center', marginBottom: 20,
+
+  completeWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
   },
-  fbBtn: {
-    borderRadius: 14, borderWidth: 2,
-    paddingVertical: 16, paddingHorizontal: 20, alignItems: 'center',
+  completeTag: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 2,
     marginBottom: 10,
   },
-  fbTxt: { fontSize: 14, fontWeight: '900', letterSpacing: 1.5, marginBottom: 4 },
-  fbDesc: { fontSize: 12, color: Colors.textSecondary },
+  completeTitle: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#fff',
+    letterSpacing: -1,
+    marginBottom: 6,
+  },
+  completeSub: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 32,
+  },
+  completeBtn: {
+    backgroundColor: Colors.primary,
+    paddingHorizontal: 48,
+    paddingVertical: 14,
+    borderRadius: 100,
+  },
+  completeBtnText: {
+    color: '#000',
+    fontWeight: '700',
+    fontSize: 15,
+  },
 });
