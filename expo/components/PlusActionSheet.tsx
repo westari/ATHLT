@@ -1,257 +1,192 @@
-import React, { useEffect, useRef } from 'react';
+// expo/components/PlusActionSheet.tsx
+// Bottom action sheet shown when user taps the + button.
+// 3 options for v1: Ask Coach X / Build a Workout / Log a Game.
+// (Track Shots removed — coming when CV ships.)
+
+import React from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Modal, Animated,
-  TouchableWithoutFeedback, Dimensions, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Modal, Pressable, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  MessageSquare, Dumbbell, ClipboardList, Brain, X,
-} from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { MessageSquare, Dumbbell, ClipboardList, X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
-const GOLD = '#D4AF37';
-const SCREEN_HEIGHT = Dimensions.get('window').height;
-
-interface ActionItem {
-  id: string;
-  Icon: any;
-  iconBg: string;
-  iconColor: string;
-  label: string;
-  description: string;
-}
-
-const ACTIONS: ActionItem[] = [
-  {
-    id: 'coachx',
-    Icon: MessageSquare,
-    iconBg: 'rgba(212, 175, 55, 0.15)',
-    iconColor: GOLD,
-    label: 'Ask Coach X',
-    description: 'Got a question? Get a real answer.',
-  },
-  {
-    id: 'workout',
-    Icon: Dumbbell,
-    iconBg: 'rgba(255, 255, 255, 0.08)',
-    iconColor: '#FFFFFF',
-    label: 'Build a Workout',
-    description: 'Pick drills or tell Coach X what you need.',
-  },
-  {
-    id: 'logGame',
-    Icon: ClipboardList,
-    iconBg: 'rgba(255, 255, 255, 0.08)',
-    iconColor: '#FFFFFF',
-    label: 'Log a Game',
-    description: 'Record stats from a real game.',
-  },
-  {
-    id: 'iqQuiz',
-    Icon: Brain,
-    iconBg: 'rgba(255, 255, 255, 0.08)',
-    iconColor: '#FFFFFF',
-    label: 'Game IQ Quiz',
-    description: 'Train your brain. No ball needed.',
-  },
-];
-
-interface Props {
+type Props = {
   visible: boolean;
   onClose: () => void;
-}
+};
 
 export default function PlusActionSheet({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
-  const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const router = useRouter();
 
-  useEffect(() => {
-    if (visible) {
-      Animated.parallel([
-        Animated.spring(translateY, {
-          toValue: 0,
-          friction: 9,
-          tension: 60,
-          useNativeDriver: true,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 1,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    } else {
-      Animated.parallel([
-        Animated.timing(translateY, {
-          toValue: SCREEN_HEIGHT,
-          duration: 220,
-          useNativeDriver: true,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start();
-    }
-  }, [visible]);
-
-  const handleAction = (id: string) => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    // TODO: wire up actual nav to each action
-    console.log('Tapped action:', id);
+  const handleNav = (path: string) => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     onClose();
+    setTimeout(() => router.push(path as any), 200);
   };
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="none"
+      animationType="fade"
       onRequestClose={onClose}
-      statusBarTranslucent
     >
-      <View style={StyleSheet.absoluteFill}>
-        {/* Backdrop */}
-        <TouchableWithoutFeedback onPress={onClose}>
-          <Animated.View
-            style={[
-              StyleSheet.absoluteFill,
-              { backgroundColor: 'rgba(0,0,0,0.6)', opacity: backdropOpacity },
-            ]}
-          />
-        </TouchableWithoutFeedback>
-
-        {/* Sheet */}
-        <Animated.View
-          style={[
-            styles.sheet,
-            {
-              paddingBottom: insets.bottom + 24,
-              transform: [{ translateY }],
-            },
-          ]}
-        >
-          {/* Drag handle */}
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]} onPress={(e) => e.stopPropagation()}>
+          {/* Handle */}
           <View style={styles.handle} />
 
           {/* Header */}
-          <View style={styles.headerRow}>
-            <Text style={styles.title}>What's the move?</Text>
-            <TouchableOpacity
-              onPress={onClose}
-              style={styles.closeBtn}
-              activeOpacity={0.7}
-            >
-              <X size={20} color="#9A9A9A" />
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Quick Actions</Text>
+            <TouchableOpacity onPress={onClose} style={styles.closeBtn} activeOpacity={0.7}>
+              <X size={20} color={Colors.textMuted} />
             </TouchableOpacity>
           </View>
 
-          {/* Action grid */}
-          <View style={styles.grid}>
-            {ACTIONS.map((action) => {
-              const { Icon } = action;
-              return (
-                <TouchableOpacity
-                  key={action.id}
-                  style={styles.actionCard}
-                  onPress={() => handleAction(action.id)}
-                  activeOpacity={0.8}
-                >
-                  <View style={[styles.iconWrap, { backgroundColor: action.iconBg }]}>
-                    <Icon size={24} color={action.iconColor} strokeWidth={2} />
-                  </View>
-                  <Text style={styles.actionLabel}>{action.label}</Text>
-                  <Text style={styles.actionDesc}>{action.description}</Text>
-                </TouchableOpacity>
-              );
-            })}
+          {/* Actions */}
+          <View style={styles.actions}>
+            {/* Ask Coach X — gold accent */}
+            <TouchableOpacity
+              style={[styles.action, styles.actionAccent]}
+              onPress={() => handleNav('/coach-x')}
+              activeOpacity={0.85}
+            >
+              <View style={[styles.iconWrap, styles.iconWrapAccent]}>
+                <MessageSquare size={20} color={Colors.primary} />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Ask Coach X</Text>
+                <Text style={styles.actionSub}>Chat with your AI coach</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Build a Workout */}
+            <TouchableOpacity
+              style={styles.action}
+              onPress={() => handleNav('/build-workout')}
+              activeOpacity={0.85}
+            >
+              <View style={styles.iconWrap}>
+                <Dumbbell size={20} color={Colors.textPrimary} />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Build a Workout</Text>
+                <Text style={styles.actionSub}>Coach X builds it for you</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Log a Game */}
+            <TouchableOpacity
+              style={styles.action}
+              onPress={() => handleNav('/log-game')}
+              activeOpacity={0.85}
+            >
+              <View style={styles.iconWrap}>
+                <ClipboardList size={20} color={Colors.textPrimary} />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Log a Game</Text>
+                <Text style={styles.actionSub}>Quick stats from your last game</Text>
+              </View>
+            </TouchableOpacity>
           </View>
-        </Animated.View>
-      </View>
+        </Pressable>
+      </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+  },
   sheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: '#0F0F0F',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: 12,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    borderBottomWidth: 0,
+    backgroundColor: Colors.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 8,
+    paddingHorizontal: 16,
   },
   handle: {
-    alignSelf: 'center',
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: Colors.surfaceBorder,
+    alignSelf: 'center',
     marginBottom: 16,
   },
-  headerRow: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 20,
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
-  title: {
-    fontSize: 22,
+  headerTitle: {
+    fontSize: 20,
     fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
+    color: Colors.textPrimary,
+    letterSpacing: -0.4,
   },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: Colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  actionCard: {
-    width: '48%',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 18,
-    padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    minHeight: 130,
+    borderColor: Colors.surfaceBorder,
+  },
+  actions: {
+    gap: 10,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.surfaceBorder,
+  },
+  actionAccent: {
+    borderColor: 'rgba(212, 160, 23, 0.35)',
+    backgroundColor: 'rgba(212, 160, 23, 0.06)',
   },
   iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: Colors.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
   },
-  actionLabel: {
+  iconWrapAccent: {
+    backgroundColor: 'rgba(212, 160, 23, 0.15)',
+  },
+  actionTextWrap: {
+    flex: 1,
+  },
+  actionTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#FFFFFF',
+    color: Colors.textPrimary,
     letterSpacing: -0.2,
-    marginBottom: 4,
+    marginBottom: 2,
   },
-  actionDesc: {
+  actionSub: {
     fontSize: 12,
-    color: '#9A9A9A',
-    lineHeight: 16,
     fontWeight: '500',
+    color: Colors.textMuted,
   },
 });
