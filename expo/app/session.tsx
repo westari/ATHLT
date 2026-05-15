@@ -2,27 +2,32 @@
 // Main session screen — runs through all drills for the current day.
 //
 // Flow per drill:
-//   1. SETUP OVERLAY: "Lay phone sideways" (shown at drill 1, or any time user
-//      rotates phone back to portrait mid-session)
-//   2. Tap "I'm ready" → COUNTDOWN: 3-2-1 "WATCH"
-//   3. DEMO video plays fullscreen
-//   4. Demo auto-completes → video animates to top-right PIP
+//   1. SETUP OVERLAY (drill 1 only): "Rotate phone" anim → "I'm ready" button
+//   2. COUNTDOWN: 3-2-1 "WATCH"
+//   3. DEMO video plays fullscreen (~7s)
+//   4. Demo animates to top-right PIP
 //   5. COUNTDOWN: 3-2-1 "GO"
-//   6. DRILL TIMER runs with HUD (timer, reps, set, drill name)
-//   7. Timer expires → auto-advance to next drill (back to step 2)
+//   6. DRILL TIMER runs with HUD (timer, reps, set, drill name, pause via tap)
+//   7. Timer expires → next drill (back to step 2)
 //
-// Camera feed is a PLACEHOLDER for v1 (dark gradient) — replace with real
-// camera + pose tracking when Apple Dev account is set up.
+// Mid-session portrait detection:
+//   - If user rotates phone to portrait during session, setup overlay reappears
+//   - As soon as they rotate back to landscape, overlay auto-dismisses
+//   - Timer auto-pauses while portrait, auto-resumes on landscape
+//
+// Exit button is ALWAYS available — in the HUD during active drill, and in
+// the setup overlay's top-right corner.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, AppState,
+  View, Text, StyleSheet, TouchableOpacity, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { X } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
@@ -32,40 +37,37 @@ import DemoVideoPip from '@/components/DemoVideoPip';
 import SessionHUD from '@/components/SessionHUD';
 
 // ===== Demo video pool =====
-// Map drill name (lowercase, partial match) → YouTube URL.
-// You can expand this freely; the fallback is used when nothing matches.
 const DEMO_VIDEO_MAP: Record<string, string> = {
-  'pound dribble':       'https://www.youtube.com/watch?v=h6QSiJqQwGM',
-  'crossover':           'https://www.youtube.com/watch?v=L_QrSxKpWko',
-  'form shooting':       'https://www.youtube.com/watch?v=lGTtSILQGnE',
-  'mikan':               'https://www.youtube.com/watch?v=AGtZsv0LJEU',
-  'defensive slide':     'https://www.youtube.com/watch?v=oyJ3-7PqAg0',
-  'finishing':           'https://www.youtube.com/watch?v=lGTtSILQGnE',
-  'pull-up':             'https://www.youtube.com/watch?v=4Cd7B5MoxYI',
-  'catch and shoot':     'https://www.youtube.com/watch?v=lGTtSILQGnE',
-  'free throw':          'https://www.youtube.com/watch?v=lGTtSILQGnE',
-  'tennis ball':         'https://www.youtube.com/watch?v=PqDIANpQ_VY',
-  'two-ball':            'https://www.youtube.com/watch?v=PqDIANpQ_VY',
-  'suicide':             'https://www.youtube.com/watch?v=BSjBkLNHrTk',
-  'conditioning':        'https://www.youtube.com/watch?v=BSjBkLNHrTk',
-  'warm-up':             'https://www.youtube.com/watch?v=jpqYBQDH_C8',
-  'dynamic warm':        'https://www.youtube.com/watch?v=jpqYBQDH_C8',
+  'pound dribble':   'https://www.youtube.com/watch?v=h6QSiJqQwGM',
+  'crossover':       'https://www.youtube.com/watch?v=L_QrSxKpWko',
+  'form shooting':   'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'mikan':           'https://www.youtube.com/watch?v=AGtZsv0LJEU',
+  'defensive slide': 'https://www.youtube.com/watch?v=oyJ3-7PqAg0',
+  'finishing':       'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'pull-up':         'https://www.youtube.com/watch?v=4Cd7B5MoxYI',
+  'catch and shoot': 'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'free throw':      'https://www.youtube.com/watch?v=lGTtSILQGnE',
+  'tennis ball':     'https://www.youtube.com/watch?v=PqDIANpQ_VY',
+  'two-ball':        'https://www.youtube.com/watch?v=PqDIANpQ_VY',
+  'suicide':         'https://www.youtube.com/watch?v=BSjBkLNHrTk',
+  'conditioning':    'https://www.youtube.com/watch?v=BSjBkLNHrTk',
+  'warm-up':         'https://www.youtube.com/watch?v=jpqYBQDH_C8',
+  'dynamic warm':    'https://www.youtube.com/watch?v=jpqYBQDH_C8',
 };
 const DEFAULT_DEMO = 'https://www.youtube.com/watch?v=lGTtSILQGnE';
 
-// Phases per drill
 type Phase =
-  | 'setup'           // setup overlay shown
-  | 'countdown-watch' // 3-2-1 → WATCH
+  | 'setup'           // initial setup overlay at drill 1
+  | 'countdown-watch' // 3-2-1 WATCH
   | 'demo-fullscreen' // demo plays fullscreen
-  | 'countdown-go'    // demo shrinks to PIP, 3-2-1 → GO
+  | 'countdown-go'    // demo shrunk to PIP, 3-2-1 GO
   | 'active'          // drill timer running
-  | 'complete';       // session done
+  | 'complete';
 
 export default function SessionScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, currentDayIndex, completedDrills, toggleDrillComplete } = usePlanStore();
+  const { plan, currentDayIndex, toggleDrillComplete } = usePlanStore();
 
   const day = plan?.days?.[currentDayIndex];
   const resolvedDrills = useMemo(
@@ -77,18 +79,15 @@ export default function SessionScreen() {
 
   const [drillIdx, setDrillIdx] = useState(0);
   const [phase, setPhase] = useState<Phase>('setup');
-  const [isOrientationLandscape, setIsOrientationLandscape] = useState(true);
   const [showPortraitWarning, setShowPortraitWarning] = useState(false);
 
-  // Drill timer
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [timeTotal, setTimeTotal] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const wasPausedByPortrait = useRef(false);
 
-  // Session-level
   const sessionStartRef = useRef<number>(Date.now());
-
   const currentDrill = resolvedDrills[drillIdx];
 
   // ===== Orientation lock & detection =====
@@ -96,25 +95,29 @@ export default function SessionScreen() {
   useEffect(() => {
     let mounted = true;
 
-    // Lock to landscape on mount
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
 
-    // Listen for orientation changes — if user rotates portrait, show warning
     const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
       if (!mounted) return;
       const o = evt.orientationInfo.orientation;
       const isLandscape =
         o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
         o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
-      setIsOrientationLandscape(isLandscape);
-      if (!isLandscape && phase !== 'setup') {
-        // User flipped to portrait mid-session — show warning overlay
+
+      if (!isLandscape && phase !== 'setup' && phase !== 'complete') {
+        // Rotated to portrait mid-session — show warning, pause timer
         setShowPortraitWarning(true);
-        pauseTimer();
+        if (phase === 'active' && timerRef.current) {
+          pauseTimer();
+          wasPausedByPortrait.current = true;
+        }
       } else if (isLandscape && showPortraitWarning) {
-        // They flipped back — auto-dismiss the warning, resume
+        // Rotated back to landscape — auto-dismiss, resume timer if it was paused by portrait
         setShowPortraitWarning(false);
-        if (phase === 'active') resumeTimer();
+        if (wasPausedByPortrait.current && phase === 'active') {
+          resumeTimer();
+          wasPausedByPortrait.current = false;
+        }
       }
     });
 
@@ -125,7 +128,7 @@ export default function SessionScreen() {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [phase, showPortraitWarning]);
 
   // ===== Timer control =====
 
@@ -176,20 +179,10 @@ export default function SessionScreen() {
 
   // ===== Phase transitions =====
 
-  const onSetupReady = () => {
-    setPhase('countdown-watch');
-  };
-
-  const onWatchCountdownDone = () => {
-    setPhase('demo-fullscreen');
-  };
-
-  const onDemoComplete = () => {
-    setPhase('countdown-go');
-  };
-
-  const onGoCountdownDone = () => {
-    // Start the drill timer
+  const onSetupReady     = () => setPhase('countdown-watch');
+  const onWatchDone      = () => setPhase('demo-fullscreen');
+  const onDemoComplete   = () => setPhase('countdown-go');
+  const onGoDone = () => {
     const totalSec = drillDurationToSeconds(currentDrill?.time);
     startTimer(totalSec);
     setPhase('active');
@@ -197,15 +190,9 @@ export default function SessionScreen() {
 
   const onDrillTimeUp = () => {
     if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    // Mark this drill complete
     toggleDrillComplete(currentDayIndex + '-' + drillIdx);
-
-    // Advance to next drill, or finish session
     if (drillIdx + 1 < resolvedDrills.length) {
       setDrillIdx(prev => prev + 1);
-      // Skip setup overlay on subsequent drills (user is already set up).
-      // Per spec: setup shown at drill 1 + if portrait detected.
       setPhase('countdown-watch');
     } else {
       setPhase('complete');
@@ -213,12 +200,13 @@ export default function SessionScreen() {
   };
 
   const onExit = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (timerRef.current) clearInterval(timerRef.current);
     ScreenOrientation.unlockAsync().catch(() => {});
     router.back();
   };
 
-  // ===== Computed UI values =====
+  // ===== Computed values =====
 
   const sessionPctComplete = useMemo(() => {
     if (resolvedDrills.length === 0) return 0;
@@ -229,11 +217,11 @@ export default function SessionScreen() {
   }, [drillIdx, timeRemaining, timeTotal, phase, resolvedDrills.length]);
 
   const sessionTimeLabel = useMemo(() => {
-    const elapsedSec = Math.floor((Date.now() - sessionStartRef.current) / 1000);
-    const m = Math.floor(elapsedSec / 60);
-    const s = elapsedSec % 60;
+    const elapsed = Math.floor((Date.now() - sessionStartRef.current) / 1000);
+    const m = Math.floor(elapsed / 60);
+    const s = elapsed % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
-  }, [timeRemaining]); // re-render with the timer tick
+  }, [timeRemaining]);
 
   const demoUrl = useMemo(() => {
     if (!currentDrill?.name) return DEFAULT_DEMO;
@@ -251,6 +239,9 @@ export default function SessionScreen() {
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
         <Text style={styles.emptyText}>No plan loaded.</Text>
+        <TouchableOpacity style={styles.emptyBtn} onPress={onExit} activeOpacity={0.8}>
+          <Text style={styles.emptyBtnText}>Back home</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -267,7 +258,6 @@ export default function SessionScreen() {
     );
   }
 
-  // Session complete screen
   if (phase === 'complete') {
     return (
       <View style={styles.container}>
@@ -290,13 +280,24 @@ export default function SessionScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Camera feed PLACEHOLDER (replace with real camera + pose tracking later) */}
+      {/* Camera feed PLACEHOLDER */}
       <LinearGradient
         colors={['#1a1a1a', '#0a0a0a']}
         style={StyleSheet.absoluteFill}
       />
 
-      {/* Demo video — fullscreen during demo phase, PIP afterward */}
+      {/* Persistent exit button — visible during countdowns and demo phases */}
+      {(phase === 'countdown-watch' || phase === 'demo-fullscreen' || phase === 'countdown-go') && (
+        <TouchableOpacity
+          style={[styles.floatingExitBtn, { top: 16 }]}
+          onPress={onExit}
+          activeOpacity={0.7}
+        >
+          <X size={18} color="#fff" />
+        </TouchableOpacity>
+      )}
+
+      {/* Demo video — fullscreen, then PIP */}
       {(phase === 'demo-fullscreen' || phase === 'countdown-go' || phase === 'active') && (
         <DemoVideoPip
           videoUrl={demoUrl}
@@ -305,7 +306,7 @@ export default function SessionScreen() {
         />
       )}
 
-      {/* HUD shown during active drill */}
+      {/* HUD during active drill — exit + pause both available here */}
       {phase === 'active' && (
         <SessionHUD
           drillName={currentDrill?.name || 'Drill'}
@@ -321,37 +322,29 @@ export default function SessionScreen() {
         />
       )}
 
-      {/* Countdown overlays */}
+      {/* Countdowns */}
       {phase === 'countdown-watch' && (
         <CountdownOverlay
           finalLabel="WATCH"
           contextLabel={`DRILL ${drillIdx + 1} OF ${resolvedDrills.length}`}
-          onComplete={onWatchCountdownDone}
+          onComplete={onWatchDone}
         />
       )}
       {phase === 'countdown-go' && (
         <CountdownOverlay
           finalLabel="GO"
           contextLabel={currentDrill?.name?.toUpperCase()}
-          onComplete={onGoCountdownDone}
+          onComplete={onGoDone}
         />
       )}
 
-      {/* Setup overlay — shown at drill 1 or when user rotates to portrait */}
+      {/* Setup overlay — drill 1 OR portrait warning */}
       {(phase === 'setup' || showPortraitWarning) && (
         <SessionSetupOverlay
-          drillName={currentDrill?.name || 'Drill'}
-          drillIndex={drillIdx}
-          totalDrills={resolvedDrills.length}
+          isInitialSetup={phase === 'setup'}
           isPortraitWarning={showPortraitWarning}
-          onReady={() => {
-            if (showPortraitWarning) {
-              setShowPortraitWarning(false);
-              if (phase === 'active') resumeTimer();
-            } else {
-              onSetupReady();
-            }
-          }}
+          onReady={onSetupReady}
+          onExit={onExit}
         />
       )}
     </View>
@@ -366,16 +359,13 @@ function drillDurationToSeconds(timeStr?: string): number {
   if (m) return parseInt(m[1], 10) * 60;
   const s = timeStr.match(/(\d+)\s*sec/i);
   if (s) return parseInt(s[1], 10);
-  // Fallback: try plain integer as minutes
   const plain = parseInt(timeStr, 10);
   return isNaN(plain) ? 60 : plain * 60;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
+  container: { flex: 1, backgroundColor: '#000' },
+
   emptyText: {
     color: '#fff',
     fontSize: 16,
@@ -395,6 +385,20 @@ const styles = StyleSheet.create({
     color: '#000',
     fontWeight: '700',
     fontSize: 14,
+  },
+
+  floatingExitBtn: {
+    position: 'absolute',
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 950,
   },
 
   completeWrap: {
