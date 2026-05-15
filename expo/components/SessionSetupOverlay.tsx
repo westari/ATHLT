@@ -1,7 +1,7 @@
 // expo/components/SessionSetupOverlay.tsx
-// "Rotate phone" overlay shown when phone is portrait.
-// - Auto-dismisses when caller passes a new prop saying landscape detected
-// - Defensive: optional onExit/onReady, won't crash if not passed
+// Shown only when phone is in PORTRAIT orientation.
+// Auto-dismisses when user rotates to landscape — no button, no description.
+// Just: rotate animation, "Rotate phone" label, and an exit X.
 
 import React, { useEffect, useRef } from 'react';
 import {
@@ -10,21 +10,12 @@ import {
 import Svg, { Rect, Circle, Path } from 'react-native-svg';
 import { X } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import Colors from '@/constants/colors';
 
 type Props = {
-  isInitialSetup?: boolean;
-  isPortraitWarning?: boolean;
-  onReady?: () => void;
   onExit?: () => void;
 };
 
-export default function SessionSetupOverlay({
-  isInitialSetup = true,
-  isPortraitWarning = false,
-  onReady,
-  onExit,
-}: Props) {
+export default function SessionSetupOverlay({ onExit }: Props) {
   const spin = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -49,11 +40,6 @@ export default function SessionSetupOverlay({
     outputRange: [0.5, 1,   0.5],
   });
 
-  const handleReady = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (typeof onReady === 'function') onReady();
-  };
-
   const handleExit = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     if (typeof onExit === 'function') onExit();
@@ -61,7 +47,6 @@ export default function SessionSetupOverlay({
 
   return (
     <View style={styles.container}>
-      {/* Exit button */}
       <TouchableOpacity
         style={styles.exitBtn}
         onPress={handleExit}
@@ -73,7 +58,6 @@ export default function SessionSetupOverlay({
 
       <View style={styles.content}>
         <View style={styles.animationWrap}>
-          {/* Top-right arrow */}
           <Animated.View style={[styles.arrow, styles.arrowTopRight, { opacity: arrowOpacity }]}>
             <Svg width={50} height={50} viewBox="0 0 50 50">
               <Path
@@ -87,7 +71,6 @@ export default function SessionSetupOverlay({
             </Svg>
           </Animated.View>
 
-          {/* Phone */}
           <Animated.View style={{ transform: [{ rotate: phoneRotate }] }}>
             <Svg width={180} height={100} viewBox="0 0 180 100">
               <Rect
@@ -104,7 +87,6 @@ export default function SessionSetupOverlay({
             </Svg>
           </Animated.View>
 
-          {/* Bottom-left arrow */}
           <Animated.View style={[styles.arrow, styles.arrowBottomLeft, { opacity: arrowOpacity }]}>
             <Svg width={50} height={50} viewBox="0 0 50 50">
               <Path
@@ -120,28 +102,6 @@ export default function SessionSetupOverlay({
         </View>
 
         <Text style={styles.label}>Rotate phone</Text>
-        {isInitialSetup && !isPortraitWarning && (
-          <Text style={styles.sublabel}>
-            Lay it sideways on a flat surface. Step back so your body is in frame.
-          </Text>
-        )}
-
-        {/* Only show button on initial setup (and not as portrait warning) */}
-        {isInitialSetup && !isPortraitWarning && (
-          <TouchableOpacity
-            style={styles.readyBtn}
-            onPress={handleReady}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.readyBtnText}>I'm ready</Text>
-          </TouchableOpacity>
-        )}
-
-        {isPortraitWarning && (
-          <Text style={styles.autoResumeHint}>
-            Session resumes automatically when you rotate back.
-          </Text>
-        )}
       </View>
     </View>
   );
@@ -171,14 +131,13 @@ const styles = StyleSheet.create({
   },
   content: {
     alignItems: 'center',
-    paddingHorizontal: 32,
   },
   animationWrap: {
     width: 240,
     height: 160,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   arrow: {
     position: 'absolute',
@@ -192,38 +151,9 @@ const styles = StyleSheet.create({
     left: 0,
   },
   label: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     color: '#fff',
-    letterSpacing: -0.5,
-    marginBottom: 6,
-  },
-  sublabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.55)',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 24,
-    maxWidth: 320,
-  },
-  readyBtn: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 36,
-    paddingVertical: 14,
-    borderRadius: 100,
-    marginTop: 8,
-  },
-  readyBtnText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#000',
-    letterSpacing: 0.2,
-  },
-  autoResumeHint: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 8,
+    letterSpacing: -0.4,
   },
 });
