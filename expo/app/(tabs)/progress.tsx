@@ -1,18 +1,34 @@
+// expo/app/(tabs)/progress.tsx
+// Progress tab.
+//
+// Changes:
+//  - ADDED a "GAMES" section: season summary + recent 5 games + "See all"
+//  - REMOVED the "TRAINING FOCUS" block (it just echoed onboarding answers —
+//    that lives nowhere now; it was redundant junk)
+//  - Kept the genuinely useful training analytics (stats row, this week,
+//    drill breakdown, day by day)
+
 import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TrendingUp, Flame, Target } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
+import { TrendingUp, Flame, Target, ChevronRight } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
+import GameHistory from '@/components/GameHistory';
 
 export default function ProgressScreen() {
   const insets = useSafeAreaInsets();
-  const { plan, profile, completedDrills, totalSessions, currentStreak } = usePlanStore();
+  const router = useRouter();
+  const { plan, completedDrills, totalSessions, currentStreak } = usePlanStore();
 
   const totalDrillsCompleted = Object.keys(completedDrills).length;
   const days = plan?.days || [];
@@ -54,6 +70,11 @@ export default function ProgressScreen() {
     other: Colors.textMuted,
   };
 
+  const goToGameHistory = () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push('/game-history');
+  };
+
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
@@ -82,6 +103,21 @@ export default function ProgressScreen() {
             <Text style={s.statLabel}>Complete</Text>
           </View>
         </View>
+
+        {/* GAMES — summary + recent 5, tap to see all */}
+        <View style={s.gamesHeader}>
+          <Text style={s.sectionTitleBare}>GAMES</Text>
+          <TouchableOpacity
+            onPress={goToGameHistory}
+            activeOpacity={0.7}
+            style={s.seeAllBtn}
+            hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
+          >
+            <Text style={s.seeAllText}>See all</Text>
+            <ChevronRight size={14} color={Colors.primary} />
+          </TouchableOpacity>
+        </View>
+        <GameHistory limit={5} />
 
         {plan && (
           <View style={s.section}>
@@ -154,28 +190,6 @@ export default function ProgressScreen() {
           </View>
         )}
 
-        {profile && (
-          <View style={s.section}>
-            <Text style={s.sectionTitle}>TRAINING FOCUS</Text>
-            <View style={s.focusRow}>
-              <Text style={s.focusLabel}>Primary Goal</Text>
-              <Text style={s.focusValue}>{profile.goal}</Text>
-            </View>
-            <View style={s.focusRow}>
-              <Text style={s.focusLabel}>Main Weakness</Text>
-              <Text style={[s.focusValue, { color: Colors.danger }]}>{profile.weakness}</Text>
-            </View>
-            <View style={s.focusRow}>
-              <Text style={s.focusLabel}>Frequency</Text>
-              <Text style={s.focusValue}>{profile.frequency}</Text>
-            </View>
-            <View style={s.focusRow}>
-              <Text style={s.focusLabel}>Session Length</Text>
-              <Text style={s.focusValue}>{profile.duration}</Text>
-            </View>
-          </View>
-        )}
-
         {!plan && (
           <View style={s.emptyState}>
             <Text style={s.emptyTitle}>No training data yet</Text>
@@ -208,10 +222,34 @@ const s = StyleSheet.create({
   },
   statValue: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
   statLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500' },
+
+  gamesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    paddingHorizontal: 2,
+  },
+  sectionTitleBare: {
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
+    letterSpacing: 1.5,
+  },
+  seeAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  seeAllText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 0.2,
+  },
+
   section: {
     backgroundColor: Colors.surface, borderRadius: 16,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 20, marginBottom: 14,
+    padding: 20, marginBottom: 14, marginTop: 14,
   },
   sectionTitle: {
     fontSize: 11, fontWeight: '700', color: Colors.textMuted,
@@ -264,15 +302,6 @@ const s = StyleSheet.create({
   dayPct: {
     fontSize: 12, color: Colors.textMuted, fontWeight: '600',
     width: 30, textAlign: 'right',
-  },
-  focusRow: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingVertical: 10, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
-  },
-  focusLabel: { fontSize: 13, color: Colors.textMuted },
-  focusValue: {
-    fontSize: 13, fontWeight: '600', color: Colors.textPrimary,
-    textAlign: 'right', flex: 1, marginLeft: 16,
   },
   emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: {
