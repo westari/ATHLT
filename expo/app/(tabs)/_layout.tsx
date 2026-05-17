@@ -10,12 +10,16 @@ import {
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PlusActionSheet from '@/components/PlusActionSheet';
+import { usePlanStore } from '@/store/planStore';
 
 const GOLD = '#D4AF37';
 
 function CustomTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
   const [plusOpen, setPlusOpen] = useState(false);
+  const onboardingComplete = usePlanStore(s => s.onboardingComplete);
+
+  if (!onboardingComplete) return null;
 
   const tabs = [
     { name: 'today', label: 'Today', Icon: Home },

@@ -73,7 +73,7 @@ export default function EditWorkoutScreen() {
 
   const onAddDrill = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push('/drill-library?addToToday=true');
+    Alert.alert('Coming soon', 'Drill picker will be added when the library screen gets add-to-workout support.');
   };
 
   const onSaveManual = () => {

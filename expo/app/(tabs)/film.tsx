@@ -20,7 +20,7 @@ import { usePlanStore } from '@/store/planStore';
 import { getDrillById } from '@/constants/drillLibrary';
 
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
-const BACKEND_URL = 'https://collectiq-xi.vercel.app';
+const BACKEND_URL = 'https://www.tryparlai.com';
 const SUPABASE_URL = 'https://tvtojlwdpipntkktguck.supabase.co';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 

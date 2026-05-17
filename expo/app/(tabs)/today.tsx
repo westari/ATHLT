@@ -286,7 +286,7 @@ function AnimatedOption({ index, children, style, onPress, activeOpacity, disabl
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription } = usePlanStore();
+  const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription, setOnboardingComplete } = usePlanStore();
 
   const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'readback' | 'focuspick' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'climax' | 'plan'>('loading');
   const [isReady, setIsReady] = useState(false);
@@ -313,7 +313,7 @@ export default function TodayScreen() {
   ];
 
   useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
-  useEffect(() => { if (isReady) { if (profile && plan) setAppState('plan'); else setAppState('welcome'); } }, [isReady]);
+  useEffect(() => { if (isReady) { if (profile && plan) { setAppState('plan'); setOnboardingComplete(true); } else setAppState('welcome'); } }, [isReady]);
 
   useEffect(() => {
     if (isReady && appState === 'plan' && (!plan || !profile)) {
@@ -1030,6 +1030,7 @@ export default function TodayScreen() {
               usePlanStore.getState().setProfile(prof as any);
             }
             setAppState('plan');
+            setOnboardingComplete(true);
             return;
           }
         }
@@ -1055,7 +1056,7 @@ export default function TodayScreen() {
               const prof = { sport: a.sport || 'Basketball', position: a.position || 'Player', experience: a.experience || '', goal: a.goal || '', weakness: a.weakness || '', frequency: a.frequency || '', duration: a.duration || '', access: a.access || '' };
               usePlanStore.getState().setProfile(prof as any);
             }
-            if (planRow?.plan_data) setAppState('plan'); else setAppState('welcome');
+            if (planRow?.plan_data) { setAppState('plan'); setOnboardingComplete(true); } else setAppState('welcome');
           } catch (e) { console.error('Sign-in load failed:', e); setAppState('welcome'); }
         }}
         onBack={() => setAppState('welcome')}
@@ -1103,7 +1104,7 @@ export default function TodayScreen() {
     return (
       <CoachXClimax
         coachSummary={plan.coachSummary}
-        onComplete={() => setAppState('plan')}
+        onComplete={() => { setAppState('plan'); setOnboardingComplete(true); }}
       />
     );
   }
