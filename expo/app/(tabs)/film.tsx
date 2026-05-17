@@ -549,9 +549,16 @@ export default function FilmTab() {
   }
 
   // ===== IDLE SCREEN =====
+  const hasFilm = pastFilms.length > 0;
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
+      <ScrollView
+        contentContainerStyle={[
+          { paddingBottom: 40 + insets.bottom },
+          !hasFilm && styles.idleScrollCentered,
+        ]}
+      >
 
         {/* Clean header — no Coach X portrait, no statement, no pill */}
         <View style={styles.idleHeader}>
@@ -565,7 +572,7 @@ export default function FilmTab() {
         </TouchableOpacity>
         <Text style={styles.uploadHint}>Up to 60 seconds. Game footage works best.</Text>
 
-        {pastFilms.length > 0 ? (
+        {hasFilm ? (
           <View style={styles.pastFilmsSection}>
             <Text style={styles.pastFilmsTitle}>YOUR FILM</Text>
             {pastFilms.map(f => (
@@ -600,13 +607,13 @@ export default function FilmTab() {
             ))}
           </View>
         ) : (
-          <View style={styles.emptyWrap}>
+          <View style={styles.emptyCard}>
             <View style={styles.emptyIconCircle}>
-              <Film size={26} color={Colors.textMuted} />
+              <Film size={24} color={Colors.primary} />
             </View>
             <Text style={styles.emptyTitle}>No film yet</Text>
             <Text style={styles.emptyText}>
-              Your analyzed film shows up here. Upload a clip and Coach X breaks down every key moment.
+              Your breakdowns land here once you upload a clip.
             </Text>
           </View>
         )}
@@ -838,6 +845,9 @@ const styles = StyleSheet.create({
   },
 
   // ===== IDLE =====
+  idleScrollCentered: {
+    flexGrow: 1, justifyContent: 'center',
+  },
   idleHeader: {
     paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20,
   },
@@ -862,17 +872,21 @@ const styles = StyleSheet.create({
     fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginTop: 10, marginBottom: 24,
   },
 
-  // ===== EMPTY STATE (no past film) =====
-  emptyWrap: {
-    alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 40, paddingTop: 48,
-  },
-  emptyIconCircle: {
-    width: 64, height: 64, borderRadius: 32,
+  // ===== EMPTY STATE (no past film) — contained card, balanced =====
+  emptyCard: {
+    marginHorizontal: 20,
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
+    borderRadius: 16,
+    paddingVertical: 36, paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  emptyIconCircle: {
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: Colors.background,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
     alignItems: 'center', justifyContent: 'center',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   emptyTitle: {
     fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
