@@ -11,7 +11,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEvent } from 'expo';
 import {
   Upload, Play, Pause, Plus, Bookmark, MessageCircle,
-  TrendingUp, AlertCircle, ChevronRight, ChevronLeft,
+  TrendingUp, AlertCircle, ChevronRight, ChevronLeft, Film,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import CoachXPill from '@/components/CoachXPill';
@@ -551,15 +551,12 @@ export default function FilmTab() {
   // ===== IDLE SCREEN =====
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <CoachXPill />
       <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
+        {/* Clean header — no Coach X portrait, no statement, no pill */}
         <View style={styles.idleHeader}>
-          <Image source={COACH_X_PORTRAIT} style={styles.idleHeaderPortrait} resizeMode="contain" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.idleHeaderLabel}>FILM ROOM</Text>
-            <Text style={styles.idleHeaderText}>Upload film. I'll break it down.</Text>
-          </View>
+          <Text style={styles.idleHeaderLabel}>FILM ROOM</Text>
+          <Text style={styles.idleHeaderText}>Upload film. Get a full breakdown.</Text>
         </View>
 
         <TouchableOpacity style={styles.uploadCard} onPress={handleUploadFilm} activeOpacity={0.85}>
@@ -568,79 +565,7 @@ export default function FilmTab() {
         </TouchableOpacity>
         <Text style={styles.uploadHint}>Up to 60 seconds. Game footage works best.</Text>
 
-        {/* ===== PREVIEW MOCKUP — shown only when no films uploaded ===== */}
-        {pastFilms.length === 0 && (
-          <View style={styles.previewWrap}>
-            <Text style={styles.previewLabel}>WHAT YOU'LL GET</Text>
-
-            <View style={styles.previewPhone}>
-              {/* Mini video frame */}
-              <View style={styles.previewVideo}>
-                <View style={styles.previewVideoBars}>
-                  <View style={[styles.previewBar, { height: 18, backgroundColor: '#FFB800' }]} />
-                  <View style={[styles.previewBar, { height: 28 }]} />
-                  <View style={[styles.previewBar, { height: 14 }]} />
-                  <View style={[styles.previewBar, { height: 22 }]} />
-                </View>
-                <View style={styles.previewPlayBtn}>
-                  <Play size={14} color={Colors.white} fill={Colors.white} />
-                </View>
-              </View>
-
-              {/* Mini timeline */}
-              <View style={styles.previewTimelineWrap}>
-                <View style={styles.previewTimelineTrack}>
-                  <View style={[styles.previewMarker, { left: '8%', backgroundColor: '#C47A6C' }]} />
-                  <View style={[styles.previewMarker, { left: '22%', backgroundColor: '#C47A6C' }]} />
-                  <View style={[styles.previewMarker, { left: '46%', backgroundColor: '#8B9A6B' }]} />
-                  <View style={[styles.previewMarker, { left: '64%', backgroundColor: '#C47A6C' }]} />
-                  <View style={[styles.previewMarker, { left: '85%', backgroundColor: '#8B9A6B' }]} />
-                </View>
-              </View>
-
-              {/* Mini Coach X commentary */}
-              <View style={styles.previewCommentary}>
-                <View style={styles.previewCoachAvatar} />
-                <View style={{ flex: 1 }}>
-                  <View style={styles.previewCommentaryHeader}>
-                    <View style={styles.previewTimestamp} />
-                    <View style={styles.previewTypeTag} />
-                  </View>
-                  <View style={[styles.previewLine, { width: '85%' }]} />
-                  <View style={[styles.previewLine, { width: '65%' }]} />
-                </View>
-              </View>
-
-              {/* Mini Coach X speech bubble */}
-              <View style={styles.previewBubble}>
-                <View style={styles.previewBubbleHeader}>
-                  <View style={styles.previewBubbleLabel} />
-                  <View style={styles.previewBubbleGrade}>
-                    <Text style={styles.previewBubbleGradeText}>B-</Text>
-                  </View>
-                </View>
-                <View style={[styles.previewLine, { width: '90%', backgroundColor: '#C9A85A' }]} />
-                <View style={[styles.previewLine, { width: '75%', backgroundColor: '#C9A85A' }]} />
-              </View>
-
-              {/* Mini drill cards */}
-              <View style={styles.previewDrillCard}>
-                <View style={[styles.previewLine, { width: '55%', height: 6, backgroundColor: '#1A1A1A' }]} />
-                <View style={[styles.previewLine, { width: '40%', height: 4, backgroundColor: '#999' }]} />
-              </View>
-              <View style={styles.previewDrillCard}>
-                <View style={[styles.previewLine, { width: '60%', height: 6, backgroundColor: '#1A1A1A' }]} />
-                <View style={[styles.previewLine, { width: '35%', height: 4, backgroundColor: '#999' }]} />
-              </View>
-            </View>
-
-            <Text style={styles.previewCaption}>
-              Coach X tags every key moment, breaks down what you're doing well, and picks drills to fix what's not.
-            </Text>
-          </View>
-        )}
-
-        {pastFilms.length > 0 && (
+        {pastFilms.length > 0 ? (
           <View style={styles.pastFilmsSection}>
             <Text style={styles.pastFilmsTitle}>YOUR FILM</Text>
             {pastFilms.map(f => (
@@ -673,6 +598,16 @@ export default function FilmTab() {
                 <ChevronRight size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             ))}
+          </View>
+        ) : (
+          <View style={styles.emptyWrap}>
+            <View style={styles.emptyIconCircle}>
+              <Film size={26} color={Colors.textMuted} />
+            </View>
+            <Text style={styles.emptyTitle}>No film yet</Text>
+            <Text style={styles.emptyText}>
+              Your analyzed film shows up here. Upload a clip and Coach X breaks down every key moment.
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -904,17 +839,15 @@ const styles = StyleSheet.create({
 
   // ===== IDLE =====
   idleHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20,
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20,
   },
-  idleHeaderPortrait: { width: 56, height: 56 },
   idleHeaderLabel: {
     fontSize: 10, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 4,
+    letterSpacing: 1.5, marginBottom: 6,
   },
   idleHeaderText: {
-    fontSize: 20, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.5, lineHeight: 26,
+    fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.5, lineHeight: 28,
   },
 
   uploadCard: {
@@ -929,130 +862,27 @@ const styles = StyleSheet.create({
     fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginTop: 10, marginBottom: 24,
   },
 
-  // ===== PREVIEW MOCKUP =====
-  previewWrap: {
-    paddingHorizontal: 20, paddingTop: 8,
-  },
-  previewLabel: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5, marginBottom: 12, textAlign: 'center',
-  },
-  previewPhone: {
-    backgroundColor: Colors.background,
-    borderRadius: 20,
-    borderWidth: 2, borderColor: Colors.surfaceBorder,
-    padding: 14, paddingTop: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-
-  // mini video frame
-  previewVideo: {
-    width: '100%', aspectRatio: 16 / 9,
-    backgroundColor: '#1A1A1A',
-    borderRadius: 8,
-    marginBottom: 10,
-    overflow: 'hidden',
+  // ===== EMPTY STATE (no past film) =====
+  emptyWrap: {
     alignItems: 'center', justifyContent: 'center',
-    position: 'relative',
+    paddingHorizontal: 40, paddingTop: 48,
   },
-  previewVideoBars: {
-    flexDirection: 'row', alignItems: 'flex-end', gap: 4,
-    position: 'absolute', bottom: 12, left: 16,
-  },
-  previewBar: {
-    width: 8, backgroundColor: '#444', borderRadius: 2,
-  },
-  previewPlayBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-
-  // mini timeline
-  previewTimelineWrap: { marginBottom: 12, paddingHorizontal: 4 },
-  previewTimelineTrack: {
-    height: 4, backgroundColor: Colors.surfaceBorder,
-    borderRadius: 2, position: 'relative',
-  },
-  previewMarker: {
-    position: 'absolute', top: -3,
-    width: 10, height: 10, borderRadius: 5,
-    marginLeft: -5,
-  },
-
-  // mini commentary card
-  previewCommentary: {
-    flexDirection: 'row', gap: 10,
+  emptyIconCircle: {
+    width: 64, height: 64, borderRadius: 32,
     backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 10,
-    padding: 10, marginBottom: 10,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 16,
   },
-  previewCoachAvatar: {
-    width: 28, height: 28, borderRadius: 14,
-    backgroundColor: '#FBF5E2',
-    borderWidth: 1, borderColor: Colors.primary,
+  emptyTitle: {
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.3, marginBottom: 6,
   },
-  previewCommentaryHeader: {
-    flexDirection: 'row', gap: 6, marginBottom: 6,
-    alignItems: 'center',
-  },
-  previewTimestamp: {
-    width: 28, height: 7, borderRadius: 2,
-    backgroundColor: Colors.primary,
-  },
-  previewTypeTag: {
-    width: 36, height: 7, borderRadius: 2,
-    backgroundColor: '#F5DDD6',
-  },
-  previewLine: {
-    height: 5, borderRadius: 2,
-    backgroundColor: Colors.surfaceBorder,
-    marginBottom: 4,
+  emptyText: {
+    fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 19,
   },
 
-  // mini speech bubble
-  previewBubble: {
-    backgroundColor: '#FBF5E2',
-    borderWidth: 1, borderColor: Colors.primary,
-    borderRadius: 10,
-    padding: 10, marginBottom: 10,
-  },
-  previewBubbleHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    marginBottom: 6,
-  },
-  previewBubbleLabel: {
-    width: 60, height: 6, borderRadius: 2,
-    backgroundColor: Colors.primary,
-  },
-  previewBubbleGrade: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 7, paddingVertical: 2,
-    borderRadius: 100,
-  },
-  previewBubbleGradeText: {
-    fontSize: 9, fontWeight: '800', color: Colors.white, letterSpacing: -0.2,
-  },
-
-  // mini drill cards
-  previewDrillCard: {
-    backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 8,
-    padding: 10, marginBottom: 6,
-  },
-
-  previewCaption: {
-    fontSize: 12, color: Colors.textMuted,
-    textAlign: 'center', lineHeight: 17,
-    marginTop: 16, paddingHorizontal: 10,
-  },
-
+  // ===== PAST FILM =====
   pastFilmsSection: { paddingHorizontal: 20 },
   pastFilmsTitle: {
     fontSize: 11, fontWeight: '700', color: Colors.textMuted,
