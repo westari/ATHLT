@@ -16,7 +16,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, AppState,
+  View, Text, StyleSheet, TouchableOpacity, Platform, AppState, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
@@ -62,6 +62,8 @@ type Phase =
   | 'active'          // drill timer running
   | 'complete';       // session done
 
+type CoachReadState = 'idle' | 'loading' | 'done' | 'error';
+
 export default function SessionScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -84,6 +86,8 @@ export default function SessionScreen() {
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [timeTotal, setTimeTotal] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [coachReadState, setCoachReadState] = useState<CoachReadState>('idle');
+  const [coachReadText, setCoachReadText] = useState('');
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Session-level
@@ -212,6 +216,37 @@ export default function SessionScreen() {
     }
   };
 
+  const fetchCoachRead = async () => {
+    setCoachReadState('loading');
+    try {
+      const drillPayload = resolvedDrills.map(d => ({
+        name: d.name,
+        time: d.time,
+        category: d.category,
+      }));
+      const resp = await fetch('https://www.tryparlai.com/api/coach-postgame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drills: drillPayload,
+          focus: day?.focus || '',
+          dayNumber: currentDayIndex + 1,
+          totalDays: plan?.days.length ?? 7,
+        }),
+      });
+      if (!resp.ok) throw new Error('bad response');
+      const data = await resp.json();
+      if (data.message) {
+        setCoachReadText(data.message);
+        setCoachReadState('done');
+      } else {
+        setCoachReadState('error');
+      }
+    } catch {
+      setCoachReadState('error');
+    }
+  };
+
   const onExit = () => {
     if (timerRef.current) clearInterval(timerRef.current);
     ScreenOrientation.unlockAsync().catch(() => {});
@@ -278,6 +313,30 @@ export default function SessionScreen() {
           <Text style={styles.completeSub}>
             {resolvedDrills.length} drills · Day {currentDayIndex + 1} of {plan.days.length}
           </Text>
+
+          {coachReadState === 'idle' && (
+            <TouchableOpacity style={styles.coachReadBtn} onPress={fetchCoachRead} activeOpacity={0.85}>
+              <Text style={styles.coachReadBtnText}>Get Coach X's read</Text>
+            </TouchableOpacity>
+          )}
+          {coachReadState === 'loading' && (
+            <View style={styles.coachReadLoading}>
+              <ActivityIndicator color={Colors.primary} size="small" />
+              <Text style={styles.coachReadLoadingText}>Coach X is watching the tape…</Text>
+            </View>
+          )}
+          {coachReadState === 'done' && (
+            <View style={styles.coachReadCard}>
+              <Text style={styles.coachReadLabel}>COACH X</Text>
+              <Text style={styles.coachReadText}>{coachReadText}</Text>
+            </View>
+          )}
+          {coachReadState === 'error' && (
+            <TouchableOpacity onPress={fetchCoachRead} activeOpacity={0.7}>
+              <Text style={styles.coachReadError}>Couldn't reach Coach X. Tap to retry.</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity style={styles.completeBtn} onPress={onExit} activeOpacity={0.85}>
             <Text style={styles.completeBtnText}>Done</Text>
           </TouchableOpacity>
@@ -433,5 +492,60 @@ const styles = StyleSheet.create({
     color: '#000',
     fontWeight: '700',
     fontSize: 15,
+  },
+
+  coachReadBtn: {
+    marginBottom: 20,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    paddingHorizontal: 28,
+    paddingVertical: 11,
+    borderRadius: 100,
+  },
+  coachReadBtnText: {
+    color: Colors.primary,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  coachReadLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 20,
+  },
+  coachReadLoadingText: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    fontStyle: 'italic',
+  },
+  coachReadCard: {
+    marginBottom: 20,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(212,160,23,0.3)',
+    padding: 16,
+    maxWidth: 320,
+    alignSelf: 'stretch',
+  },
+  coachReadLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.primary,
+    letterSpacing: 2,
+    marginBottom: 8,
+  },
+  coachReadText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#fff',
+    lineHeight: 22,
+  },
+  coachReadError: {
+    fontSize: 13,
+    color: Colors.danger,
+    marginBottom: 16,
+    textDecorationLine: 'underline',
   },
 });
