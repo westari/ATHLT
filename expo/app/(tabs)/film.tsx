@@ -549,16 +549,9 @@ export default function FilmTab() {
   }
 
   // ===== IDLE SCREEN =====
-  const hasFilm = pastFilms.length > 0;
-
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView
-        contentContainerStyle={[
-          { paddingBottom: 40 + insets.bottom },
-          !hasFilm && styles.idleScrollCentered,
-        ]}
-      >
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
         {/* Clean header — no Coach X portrait, no statement, no pill */}
         <View style={styles.idleHeader}>
@@ -566,13 +559,17 @@ export default function FilmTab() {
           <Text style={styles.idleHeaderText}>Upload film. Get a full breakdown.</Text>
         </View>
 
-        <TouchableOpacity style={styles.uploadCard} onPress={handleUploadFilm} activeOpacity={0.85}>
-          <Upload size={20} color={Colors.white} />
-          <Text style={styles.uploadCardText}>Upload film</Text>
+        {/* Large upload drop-zone — fills the screen by being big, nothing moved */}
+        <TouchableOpacity style={styles.uploadZone} onPress={handleUploadFilm} activeOpacity={0.85}>
+          <View style={styles.uploadZoneIcon}>
+            <Upload size={30} color={Colors.primary} />
+          </View>
+          <Text style={styles.uploadZoneTitle}>Upload film</Text>
+          <Text style={styles.uploadZoneSub}>Tap to pick a clip from your camera roll</Text>
+          <Text style={styles.uploadZoneHint}>Up to 60 seconds · game footage works best</Text>
         </TouchableOpacity>
-        <Text style={styles.uploadHint}>Up to 60 seconds. Game footage works best.</Text>
 
-        {hasFilm ? (
+        {pastFilms.length > 0 && (
           <View style={styles.pastFilmsSection}>
             <Text style={styles.pastFilmsTitle}>YOUR FILM</Text>
             {pastFilms.map(f => (
@@ -605,16 +602,6 @@ export default function FilmTab() {
                 <ChevronRight size={18} color={Colors.textMuted} />
               </TouchableOpacity>
             ))}
-          </View>
-        ) : (
-          <View style={styles.emptyCard}>
-            <View style={styles.emptyIconCircle}>
-              <Film size={24} color={Colors.primary} />
-            </View>
-            <Text style={styles.emptyTitle}>No film yet</Text>
-            <Text style={styles.emptyText}>
-              Your breakdowns land here once you upload a clip.
-            </Text>
           </View>
         )}
       </ScrollView>
@@ -845,9 +832,6 @@ const styles = StyleSheet.create({
   },
 
   // ===== IDLE =====
-  idleScrollCentered: {
-    flexGrow: 1, justifyContent: 'center',
-  },
   idleHeader: {
     paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20,
   },
@@ -860,44 +844,38 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5, lineHeight: 28,
   },
 
-  uploadCard: {
-    backgroundColor: '#1A1A1A', marginHorizontal: 20,
-    borderRadius: 100, paddingVertical: 18,
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-  },
-  uploadCardText: {
-    fontSize: 15, fontWeight: '600', color: Colors.white, letterSpacing: 0.2,
-  },
-  uploadHint: {
-    fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginTop: 10, marginBottom: 24,
-  },
-
-  // ===== EMPTY STATE (no past film) — contained card, balanced =====
-  emptyCard: {
+  // ===== LARGE UPLOAD DROP-ZONE =====
+  uploadZone: {
     marginHorizontal: 20,
+    minHeight: 320,
     backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 16,
-    paddingVertical: 36, paddingHorizontal: 24,
-    alignItems: 'center',
+    borderWidth: 2, borderColor: Colors.surfaceBorder,
+    borderStyle: 'dashed',
+    borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 32,
   },
-  emptyIconCircle: {
-    width: 56, height: 56, borderRadius: 28,
+  uploadZoneIcon: {
+    width: 72, height: 72, borderRadius: 36,
     backgroundColor: Colors.background,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     alignItems: 'center', justifyContent: 'center',
-    marginBottom: 14,
+    marginBottom: 18,
   },
-  emptyTitle: {
-    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.3, marginBottom: 6,
+  uploadZoneTitle: {
+    fontSize: 20, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.4, marginBottom: 8,
   },
-  emptyText: {
-    fontSize: 13, color: Colors.textMuted, textAlign: 'center', lineHeight: 19,
+  uploadZoneSub: {
+    fontSize: 14, color: Colors.textSecondary, textAlign: 'center',
+    lineHeight: 20, marginBottom: 14,
+  },
+  uploadZoneHint: {
+    fontSize: 12, color: Colors.textMuted, textAlign: 'center', letterSpacing: 0.2,
   },
 
   // ===== PAST FILM =====
-  pastFilmsSection: { paddingHorizontal: 20 },
+  pastFilmsSection: { paddingHorizontal: 20, paddingTop: 24 },
   pastFilmsTitle: {
     fontSize: 11, fontWeight: '700', color: Colors.textMuted,
     letterSpacing: 1.5, marginBottom: 12, marginTop: 8,
