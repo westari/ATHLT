@@ -20,6 +20,7 @@ import { usePlanStore } from '@/store/planStore';
 import { getDrillById } from '@/constants/drillLibrary';
 
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
+const COACH_X_FILM = require('@/assets/images/coach-x-film.png');
 const BACKEND_URL = 'https://www.tryparlai.com';
 const SUPABASE_URL = 'https://tvtojlwdpipntkktguck.supabase.co';
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -555,7 +556,7 @@ export default function FilmTab() {
       <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
         <View style={styles.idleHeader}>
-          <Image source={COACH_X_PORTRAIT} style={styles.idleHeaderPortrait} resizeMode="contain" />
+          <Image source={COACH_X_FILM} style={styles.idleHeaderPortrait} resizeMode="contain" />
           <View style={{ flex: 1 }}>
             <Text style={styles.idleHeaderLabel}>FILM ROOM</Text>
             <Text style={styles.idleHeaderText}>Upload film. I'll break it down.</Text>
