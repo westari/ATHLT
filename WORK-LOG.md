@@ -589,4 +589,143 @@ Alternative considered and rejected: Moving onboarding routes out of the `(tabs)
 
 ---
 
+## SESSION 7 — Deployment branch audit + CV Step 1 readiness (2026-05-17)
+
+---
+
+### PHASE 1a — Branch / deployment state
+
+**Command run:** `git log --oneline origin/main -5` and `git log --oneline origin/coach-x-postgame -5`
+
+#### Branch state (exact, as of 2026-05-17)
+
+| Commit | Message | main | coach-x-postgame | fix-session-orientation |
+|--------|---------|------|-----------------|------------------------|
+| `34d5040` | Use coach-x-film.png in film tab idle header | ❌ NOT here | ✅ YES | ❌ NOT here |
+| `c4e9971` | Fix onboarding tab bar visibility; bug fixes; dead file cleanup; CV plan + training scripts | ❌ NOT here | ✅ YES | ❌ NOT here |
+| `684c242` | add Coach X postgame read to session complete screen | ❌ NOT here | ✅ YES | ❌ NOT here |
+| `35aa6dc` | add expo-screen-orientation | ✅ HEAD of main | ✅ in history | ❌ NOT here |
+
+**`main` is 3 commits behind `coach-x-postgame`.** The onboarding tab bar fix, all bug fixes, dead file cleanup, CV-PLAN.md, scripts/, and WORK-LOG.md are ONLY on `coach-x-postgame`.
+
+**`fix-session-orientation`** branch exists (local and inferred from CLAUDE.md). It contains `app.json orientation: portrait → default` fix, which is required before CV work (otherwise iOS system-level portrait lock prevents session.tsx from going landscape). This branch is NOT merged to main OR coach-x-postgame.
+
+---
+
+### ⚠️ NEEDS DECISION: deployment branch split
+
+Two decisions required before any EAS build can run correctly:
+
+**Decision A — Merge coach-x-postgame → main**
+All the recent work (bug fixes, onboarding fix, image update) is stranded on coach-x-postgame. Main is the production branch. These should be merged before an EAS build so the build includes the fixed code.
+
+**Decision B — Merge fix-session-orientation before CV Step 1**
+`app.json` currently says `"orientation": "portrait"` on both main and coach-x-postgame. This is a system-level lock — iOS will not allow the screen to rotate to landscape regardless of what expo-screen-orientation tries to do inside the app. Session.tsx (the CV screen) requires landscape. The fix-session-orientation branch changes this to `"default"` and adds a root-layout API lock. This MUST be merged before running the CV EAS build, or the landscape session will silently fail to rotate on device.
+
+**Recommended merge order:**
+1. Merge `coach-x-postgame` → `main` (gets all fixes onto main)
+2. Merge (or cherry-pick) the `fix-session-orientation` app.json change onto main
+3. Then run the CV Step 1 EAS build from main
+
+**PHASE 1a STATUS: BLOCKED — NEEDS DECISION. Not proceeding past this note until you confirm the merge plan.**
+
+---
+
+### PHASE 1b — Docs loaded
+
+Both key documents fully re-read:
+
+- **CLAUDE.md** (`c:\Users\arize\ATHLT\CLAUDE.md`) — read in full. Confirmed: EAS project ID `soq1hf2k3yx1ie9heuqn3`, EAS owner `1westari4`, CV blocked on Apple Dev, known bugs list current (note: bugs 2/3/4 are already fixed on coach-x-postgame but CLAUDE.md still lists them — minor drift).
+- **CV-PLAN.md** (`c:\Users\arize\ATHLT\CV-PLAN.md`) — read in full including MANDATORY SELF-CHECK, all 9 step prompts, and STEP-BY-STEP PASS/FAIL + PHONE TEST MAP. Calibration setup and regression checks are in Steps 5, 6, 7, 9 as updated.
+
+---
+
+### PHASE 2 — CV Step 1 readiness check (no build run)
+
+Step 1 prompt says: "Do not modify any app code or config files. Just confirm and build."
+No code changes are needed for Step 1. It is purely a verify-and-build step.
+
+#### Verification results
+
+| Check | File | Expected | Found | Status |
+|-------|------|----------|-------|--------|
+| expo-dev-client in dependencies | `package.json` line 25 | `"expo-dev-client": "~6.0.x"` | `"expo-dev-client": "~6.0.21"` | ✅ PASS |
+| expo-dev-client in plugins | `app.json` line 38 | `"expo-dev-client"` in plugins array | Present as 3rd plugin entry | ✅ PASS |
+| EAS projectId in app.json | `app.json` line 48 | `0eaeb587-8e3a-4b29-a454-a26eb329a971` | Exact match | ✅ PASS |
+| development profile in eas.json | `eas.json` | `developmentClient: true`, `distribution: internal` | Both present | ✅ PASS |
+| EAS CLI version constraint | `eas.json` | `>= 18.8.1` | Declared | ✅ PASS (user must confirm CLI is installed) |
+
+**No file changes needed for Step 1.** All prerequisites are already in place.
+
+#### Exact command that will run Step 1 (DO NOT RUN YET)
+
+```
+cd C:\Users\arize\ATHLT\expo
+eas build --profile development --platform ios
+```
+
+That's it. One command. No code edits.
+
+#### What will happen when you run it
+
+1. EAS CLI reads `eas.json` development profile: `developmentClient: true`, `distribution: internal`
+2. EAS reads `app.json` EAS projectId and uploads the current local code to EAS build servers
+3. Build queues — typically takes 5–20 minutes on EAS free tier
+4. EAS dashboard at `https://expo.dev/accounts/1westari4/projects/soq1hf2k3yx1ie9heuqn3/builds` will show the build
+5. When complete: EAS sends an email with a QR code / download link for the `.ipa`
+6. You download and install the `.ipa` on your iPhone (via QR or direct link)
+7. You open the installed app → it shows the Expo Dev Client shell (not Expo Go)
+8. You run `npx expo start` on your PC, scan the QR in Dev Client → ATHLT Today screen loads
+
+**PHASE 2 STATUS: READY TO RUN STEP 1 — awaiting your go-ahead after branch decisions are resolved.**
+
+---
+
+### PHASE 3 — Summary: what needs YOU
+
+#### (1) Deployment branch status
+
+| Item | Status |
+|------|--------|
+| `coach-x-postgame` commits on `main` | ❌ NOT MERGED — 3 commits behind |
+| `fix-session-orientation` on `main` or `coach-x-postgame` | ❌ NOT MERGED anywhere |
+| All recent work (bug fixes, onboarding, image) on GitHub | ✅ On `coach-x-postgame` remote |
+| Recommendation | Merge coach-x-postgame → main, then merge fix-session-orientation, then build |
+
+#### (2) CV Step 1 staged and ready
+
+| Item | Status |
+|------|--------|
+| expo-dev-client in package.json | ✅ Present |
+| expo-dev-client in app.json plugins | ✅ Present |
+| EAS development profile configured | ✅ Present |
+| Code changes needed for Step 1 | ✅ None — verify-and-build only |
+| EAS build command identified | ✅ `eas build --profile development --platform ios` |
+
+#### (3) Things that need YOU (cannot proceed without)
+
+**Your decisions first:**
+- [ ] **Confirm merge plan**: Should coach-x-postgame → main before the EAS build? (recommended: yes)
+- [ ] **Confirm fix-session-orientation merge**: The portrait lock in app.json must be removed before CV work. Merge that branch too? (recommended: yes, or cherry-pick the app.json change)
+
+**Apple account (hard blocker):**
+- [ ] **Confirm Apple Developer account is active** — Eric needs to have paid and the account confirmed. Without this, `eas build --profile development --platform ios` with `distribution: internal` will fail when EAS tries to create provisioning profiles.
+
+**At build time (you must be present):**
+- [ ] **eas-cli installed**: Run `eas --version` in PowerShell to confirm. Required version `>= 18.8.1`. Install with `npm install -g eas-cli` if missing.
+- [ ] **EAS logged in**: Run `eas whoami` — should return `1westari4`. If not, run `eas login`.
+
+**After build completes (phone required):**
+- [ ] **Install the `.ipa`** from the EAS email/dashboard link onto your iPhone
+- [ ] **Register your device UDID** in Apple Developer portal if not already done (internal distribution requires it)
+- [ ] **Run phone test** (exact steps in CV-PLAN.md Step 1 PASS/FAIL section):
+  - Open installed Dev Client app on iPhone
+  - Run `npx expo start` on PC
+  - Scan QR or enter URL in Dev Client
+  - Confirm ATHLT Today screen loads, all 4 tabs work, no red error overlays
+
+**Nothing in Phase 2 or beyond runs until you confirm: (a) merge plan, (b) Apple Dev is active, (c) eas-cli is installed and logged in.**
+
+---
+
 *Log written by Claude Code autonomous session. All grep results are exact — no assumptions.*
