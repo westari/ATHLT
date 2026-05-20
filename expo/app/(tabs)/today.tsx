@@ -9,6 +9,7 @@ import {
   Play, Check, GraduationCap, Users, Award, Trophy, Target, BarChart3,
   MapPin, Calendar, Clock, Dumbbell, User as UserIcon, Zap, Brain,
 } from 'lucide-react-native';
+import { Picker } from '@react-native-picker/picker';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
@@ -259,65 +260,6 @@ const LOADING_STEPS = [
   "Writing Coach X's notes",
 ];
 
-const PICKER_ITEM_HEIGHT = 76;
-
-function ScrollPicker({ options, value, onChange }: {
-  options: string[];
-  value: string;
-  onChange: (val: string) => void;
-}) {
-  const scrollRef = useRef<ScrollView>(null);
-  const selectedIdx = Math.max(0, options.indexOf(value));
-  const [scrollY, setScrollY] = useState(selectedIdx * PICKER_ITEM_HEIGHT);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      scrollRef.current?.scrollTo({ y: selectedIdx * PICKER_ITEM_HEIGHT, animated: false });
-    }, 30);
-    return () => clearTimeout(t);
-  }, []);
-
-  const commitScroll = (offsetY: number) => {
-    const idx = Math.round(offsetY / PICKER_ITEM_HEIGHT);
-    const clamped = Math.max(0, Math.min(options.length - 1, idx));
-    scrollRef.current?.scrollTo({ y: clamped * PICKER_ITEM_HEIGHT, animated: true });
-    if (options[clamped] !== value) onChange(options[clamped]);
-  };
-
-  return (
-    <ScrollView
-      ref={scrollRef}
-      style={{ height: PICKER_ITEM_HEIGHT * 3 }}
-      contentContainerStyle={{ paddingVertical: PICKER_ITEM_HEIGHT }}
-      showsVerticalScrollIndicator={false}
-      snapToInterval={PICKER_ITEM_HEIGHT}
-      decelerationRate="fast"
-      contentOffset={{ x: 0, y: selectedIdx * PICKER_ITEM_HEIGHT }}
-      onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
-      scrollEventThrottle={16}
-      onMomentumScrollEnd={(e) => commitScroll(e.nativeEvent.contentOffset.y)}
-      onScrollEndDrag={(e) => commitScroll(e.nativeEvent.contentOffset.y)}
-    >
-      {options.map((opt, i) => {
-        const delta = Math.abs(scrollY / PICKER_ITEM_HEIGHT - i);
-        const isSel = delta < 0.6;
-        const isAdj = !isSel && delta < 1.6;
-        return (
-          <View key={opt} style={{ height: PICKER_ITEM_HEIGHT, alignItems: 'center', justifyContent: 'center' }}>
-            <Text style={{
-              fontSize: isSel ? 52 : isAdj ? 20 : 14,
-              fontWeight: isSel ? '700' : '400',
-              color: '#FFFFFF',
-              opacity: isSel ? 1 : isAdj ? 0.45 : 0,
-            }}>
-              {opt}
-            </Text>
-          </View>
-        );
-      })}
-    </ScrollView>
-  );
-}
 
 function AnimatedOption({ index, children, style, onPress, activeOpacity, disabled }: { index: number; children: React.ReactNode; style: any; onPress: () => void; activeOpacity?: number; disabled?: boolean; }) {
   const opacity = useRef(new Animated.Value(0)).current;
@@ -925,12 +867,17 @@ export default function TodayScreen() {
             </View>
             <Text style={[s.qq, { color: '#FFFFFF' }]}>{st.question}</Text>
             {st.subtitle ? <Text style={[s.qsub, { color: 'rgba(255,255,255,0.45)' }]}>{st.subtitle}</Text> : null}
-            <View style={{ marginTop: 32 }}>
-              <ScrollPicker
-                options={wheelOpts}
-                value={currentVal}
-                onChange={(val) => handleWheelChange(st.id, val)}
-              />
+            <View style={{ marginTop: 16 }}>
+              <Picker
+                selectedValue={currentVal}
+                onValueChange={(v) => handleWheelChange(st.id, v as string)}
+                style={{ height: 230, backgroundColor: '#0A0A0A' }}
+                itemStyle={{ color: '#FFFFFF', fontSize: 28, fontWeight: '600' }}
+              >
+                {wheelOpts.map(o => (
+                  <Picker.Item key={o} label={o} value={o} />
+                ))}
+              </Picker>
             </View>
           </View>
           <View style={[s.bn, { backgroundColor: '#0A0A0A', borderTopColor: 'rgba(255,255,255,0.06)' }]}>
