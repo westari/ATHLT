@@ -9,7 +9,6 @@ import {
   Play, Check, GraduationCap, Users, Award, Trophy, Target, BarChart3,
   MapPin, Calendar, Clock, Dumbbell, User as UserIcon, Zap, Brain,
 } from 'lucide-react-native';
-import { Picker } from '@react-native-picker/picker';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import AuthScreen from '@/components/AuthScreen';
@@ -41,18 +40,18 @@ const SECTION_ICONS: Record<string, any> = {
 };
 
 // ===== NEW: scroll wheel options =====
-const AGE_OPTIONS = ['13 or under', '14', '15', '16', '17', '18+'];
+const AGE_OPTIONS = Array.from({ length: 73 }, (_, i) => String(i + 8)); // 8–80
 const HEIGHT_OPTIONS = (() => {
   const arr: string[] = [];
   for (let ft = 4; ft <= 7; ft++) {
-    const maxIn = ft === 7 ? 0 : 11;
-    const minIn = ft === 4 ? 8 : 0;
+    const minIn = ft === 4 ? 6 : 0;
+    const maxIn = ft === 7 ? 6 : 11;
     for (let inch = minIn; inch <= maxIn; inch++) {
       arr.push(ft + "'" + inch + '"');
     }
   }
   return arr;
-})();
+})(); // 4'6"–7'6"
 const WEIGHT_OPTIONS = (() => {
   const arr: string[] = [];
   for (let w = 70; w <= 280; w += 5) arr.push(w + ' lbs');
@@ -265,6 +264,66 @@ const LOADING_STEPS = [
   "Writing Coach X's notes",
 ];
 
+const PICKER_ITEM_HEIGHT = 76;
+
+function ScrollPicker({ options, value, onChange }: {
+  options: string[];
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const scrollRef = useRef<ScrollView>(null);
+  const selectedIdx = Math.max(0, options.indexOf(value));
+  const [scrollY, setScrollY] = useState(selectedIdx * PICKER_ITEM_HEIGHT);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: selectedIdx * PICKER_ITEM_HEIGHT, animated: false });
+    }, 30);
+    return () => clearTimeout(t);
+  }, []);
+
+  const commitScroll = (offsetY: number) => {
+    const idx = Math.round(offsetY / PICKER_ITEM_HEIGHT);
+    const clamped = Math.max(0, Math.min(options.length - 1, idx));
+    scrollRef.current?.scrollTo({ y: clamped * PICKER_ITEM_HEIGHT, animated: true });
+    if (options[clamped] !== value) onChange(options[clamped]);
+  };
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      style={{ height: PICKER_ITEM_HEIGHT * 3 }}
+      contentContainerStyle={{ paddingVertical: PICKER_ITEM_HEIGHT }}
+      showsVerticalScrollIndicator={false}
+      snapToInterval={PICKER_ITEM_HEIGHT}
+      decelerationRate="fast"
+      contentOffset={{ x: 0, y: selectedIdx * PICKER_ITEM_HEIGHT }}
+      onScroll={(e) => setScrollY(e.nativeEvent.contentOffset.y)}
+      scrollEventThrottle={16}
+      onMomentumScrollEnd={(e) => commitScroll(e.nativeEvent.contentOffset.y)}
+      onScrollEndDrag={(e) => commitScroll(e.nativeEvent.contentOffset.y)}
+    >
+      {options.map((opt, i) => {
+        const delta = Math.abs(scrollY / PICKER_ITEM_HEIGHT - i);
+        const isSel = delta < 0.6;
+        const isAdj = !isSel && delta < 1.6;
+        return (
+          <View key={opt} style={{ height: PICKER_ITEM_HEIGHT, alignItems: 'center', justifyContent: 'center' }}>
+            <Text style={{
+              fontSize: isSel ? 52 : isAdj ? 20 : 14,
+              fontWeight: isSel ? '700' : '400',
+              color: '#FFFFFF',
+              opacity: isSel ? 1 : isAdj ? 0.3 : 0,
+            }}>
+              {opt}
+            </Text>
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
 function AnimatedOption({ index, children, style, onPress, activeOpacity, disabled }: { index: number; children: React.ReactNode; style: any; onPress: () => void; activeOpacity?: number; disabled?: boolean; }) {
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(10)).current;
@@ -288,7 +347,7 @@ export default function TodayScreen() {
   const router = useRouter();
   const { plan, profile, completedDrills, currentDayIndex, loadFromStorage, setPlan, setProfile, setSkillLevels, setDescription, setOnboardingComplete } = usePlanStore();
 
-  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'readback' | 'focuspick' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'climax' | 'plan'>('loading');
+  const [appState, setAppState] = useState<'loading' | 'welcome' | 'onboarding' | 'readback' | 'focuspick' | 'scouting' | 'auth' | 'signin' | 'analyzing' | 'climax' | 'plan' | 'ageGate'>('loading');
   const [isReady, setIsReady] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -657,6 +716,24 @@ export default function TodayScreen() {
 
   if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
+  if (appState === 'ageGate') return (
+    <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }]}>
+      <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16, letterSpacing: -0.5 }}>
+        ATHLT is for ages 14 and up.
+      </Text>
+      <Text style={{ fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24, marginBottom: 48 }}>
+        You must be 14 or older to use this app.
+      </Text>
+      <TouchableOpacity
+        style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 16, paddingHorizontal: 40 }}
+        onPress={() => setAppState('onboarding')}
+        activeOpacity={0.85}
+      >
+        <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white }}>Go back</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   if (appState === 'welcome') return (
     <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={{ position: 'absolute', width: 300, height: 300, opacity: 0, top: -500, left: -500 }} pointerEvents="none">
@@ -750,11 +827,28 @@ export default function TodayScreen() {
       );
     }
 
-    // ===== NEW: wheel picker screens =====
+    // ===== wheel picker screens =====
     if (st.type === 'wheel') {
       const wheelOpts = st.wheelKind === 'age' ? AGE_OPTIONS : st.wheelKind === 'height' ? HEIGHT_OPTIONS : WEIGHT_OPTIONS;
-      const defaultIdx = st.wheelKind === 'age' ? 1 : st.wheelKind === 'height' ? HEIGHT_OPTIONS.indexOf("5'8\"") : WEIGHT_OPTIONS.indexOf('140 lbs');
-      const currentVal = (answers[st.id] as string) || wheelOpts[defaultIdx >= 0 ? defaultIdx : 0];
+      const defaultVal = st.wheelKind === 'age' ? '16' : st.wheelKind === 'height' ? "5'10\"" : '160 lbs';
+      const currentVal = (answers[st.id] as string) || defaultVal;
+
+      const handleContinue = () => {
+        const val = answers[st.id] || currentVal;
+        if (st.wheelKind === 'age') {
+          const age = parseInt(val, 10);
+          if (!isNaN(age) && age <= 13) {
+            setAppState('ageGate');
+            return;
+          }
+        }
+        if (!answers[st.id]) {
+          setAnswers({ ...answers, [st.id]: val });
+          setTimeout(() => goNext(), 50);
+        } else {
+          goNext();
+        }
+      };
 
       return (
         <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -772,31 +866,16 @@ export default function TodayScreen() {
             </View>
             <Text style={s.qq}>{st.question}</Text>
             {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
-            <View style={{ backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, marginTop: 12, overflow: 'hidden' }}>
-              <Picker
-                selectedValue={currentVal}
-                onValueChange={(v) => handleWheelChange(st.id, v as string)}
-                style={Platform.OS === 'ios' ? { height: 220 } : { color: Colors.textPrimary, height: 220, backgroundColor: Colors.surface }}
-                itemStyle={{ color: Colors.textPrimary, fontSize: 22, fontWeight: '700' }}
-                dropdownIconColor={Colors.primary}
-              >
-                {wheelOpts.map(o => <Picker.Item key={o} label={o} value={o} color={Platform.OS === 'android' ? '#000' : Colors.textPrimary} />)}
-              </Picker>
+            <View style={{ marginTop: 32 }}>
+              <ScrollPicker
+                options={wheelOpts}
+                value={currentVal}
+                onChange={(val) => handleWheelChange(st.id, val)}
+              />
             </View>
           </View>
           <View style={s.bn}>
-            <TouchableOpacity
-              style={s.cb}
-              onPress={() => {
-                if (!answers[st.id]) {
-                  setAnswers({ ...answers, [st.id]: currentVal });
-                  setTimeout(() => goNext(), 50);
-                } else {
-                  goNext();
-                }
-              }}
-              activeOpacity={0.85}
-            >
+            <TouchableOpacity style={s.cb} onPress={handleContinue} activeOpacity={0.85}>
               <Text style={s.ct}>Continue</Text>
             </TouchableOpacity>
           </View>
