@@ -20,6 +20,7 @@ import { usePlanStore } from '@/store/planStore';
 import { getDrillById } from '@/constants/drillLibrary';
 
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
+const COACH_X_FILM = require('@/assets/images/coach-x-film.png');
 const BACKEND_URL = 'https://www.tryparlai.com';
 const SUPABASE_URL = 'https://tvtojlwdpipntkktguck.supabase.co';
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -558,6 +559,12 @@ export default function FilmTab() {
           <Text style={styles.idleHeaderLabel}>FILM ROOM</Text>
           <Text style={styles.idleHeaderText}>Upload film. Get a full breakdown.</Text>
         </View>
+
+        <Image
+          source={COACH_X_FILM}
+          style={{ width: '100%', height: 220, alignSelf: 'center', marginBottom: 20, marginTop: 4 }}
+          resizeMode="contain"
+        />
 
         {/* Large upload drop-zone — fills the screen by being big, nothing moved */}
         <TouchableOpacity style={styles.uploadZone} onPress={handleUploadFilm} activeOpacity={0.85}>
