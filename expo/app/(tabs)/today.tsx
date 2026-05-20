@@ -846,33 +846,27 @@ export default function TodayScreen() {
       };
 
       return (
-        <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: '#0A0A0A' }]}>
+        <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={s.qh}>
-            <TouchableOpacity onPress={goBack} style={s.bb}>
-              <Text style={[s.bt, { color: 'rgba(255,255,255,0.55)' }]}>←</Text>
-            </TouchableOpacity>
-            <View style={s.pc}>
-              <View style={[s.pt, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
-                <View style={[s.pf, { width: (progress * 100) + '%' }]} />
-              </View>
-            </View>
+            <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+            <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
             <View style={{ width: 60 }} />
           </View>
           <View style={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140, flex: 1 }}>
             <View style={s.sectionRow}>
-              <View style={[s.sectionIconWrap, { backgroundColor: 'rgba(212,160,23,0.12)' }]}>
+              <View style={s.sectionIconWrap}>
                 <SectionIcon size={14} color={Colors.primary} />
               </View>
               <Text style={s.qs}>{st.section.toUpperCase()}</Text>
             </View>
-            <Text style={[s.qq, { color: '#FFFFFF' }]}>{st.question}</Text>
-            {st.subtitle ? <Text style={[s.qsub, { color: 'rgba(255,255,255,0.45)' }]}>{st.subtitle}</Text> : null}
+            <Text style={s.qq}>{st.question}</Text>
+            {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
             <View style={{ marginTop: 16 }}>
               <Picker
                 selectedValue={currentVal}
                 onValueChange={(v) => handleWheelChange(st.id, v as string)}
-                style={{ height: 230, backgroundColor: '#0A0A0A' }}
-                itemStyle={{ color: '#FFFFFF', fontSize: 28, fontWeight: '600' }}
+                style={{ height: 230 }}
+                itemStyle={{ color: Colors.textPrimary, fontSize: 28, fontWeight: '600' }}
               >
                 {wheelOpts.map(o => (
                   <Picker.Item key={o} label={o} value={o} />
@@ -880,12 +874,8 @@ export default function TodayScreen() {
               </Picker>
             </View>
           </View>
-          <View style={[s.bn, { backgroundColor: '#0A0A0A', borderTopColor: 'rgba(255,255,255,0.06)' }]}>
-            <TouchableOpacity
-              style={[s.cb, { backgroundColor: '#252525', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }]}
-              onPress={handleContinue}
-              activeOpacity={0.85}
-            >
+          <View style={s.bn}>
+            <TouchableOpacity style={s.cb} onPress={handleContinue} activeOpacity={0.85}>
               <Text style={s.ct}>Continue</Text>
             </TouchableOpacity>
           </View>
