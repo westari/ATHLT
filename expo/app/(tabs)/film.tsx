@@ -839,7 +839,7 @@ const styles = StyleSheet.create({
   },
   idleCoachImg: {
     position: 'absolute',
-    right: -20,
+    right: -80,
     top: 0,
     width: SCREEN_WIDTH * 0.80,
     height: 200,
