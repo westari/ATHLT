@@ -112,3 +112,62 @@ Run `git merge coach-x-postgame`. When session.tsx conflicts, manually keep main
 ---
 
 *Log written by Claude Code. Merge review complete — no destructive actions taken.*
+
+---
+
+## SESSION 9 — Cherry-pick good changes from coach-x-postgame → main (2026-05-19)
+
+**Status: COMPLETE. All intended changes on main, pushed.**
+
+---
+
+### Decision
+
+User chose Option C: cherry-pick specific good commits from coach-x-postgame onto main, skipping the post-game feature and preserving game-history files.
+
+### Commits cherry-picked
+
+#### `c4e9971` — "Fix onboarding tab bar visibility; bug fixes; dead file cleanup; CV plan + training scripts"
+
+Cherry-picked with `--no-commit`. One conflict: `WORK-LOG.md` (add/add — both branches added it). Resolved by keeping main's version (Session 8). Everything else auto-merged cleanly.
+
+**Changes applied:**
+- `expo/store/planStore.ts` — `onboardingComplete` flag added
+- `expo/app/(tabs)/_layout.tsx` — `CustomTabBar` returns null while `!onboardingComplete`
+- `expo/app/(tabs)/today.tsx` — sets `onboardingComplete: true` when appState transitions to `'plan'`
+- `expo/app/(tabs)/film.tsx` — BACKEND_URL fixed: `collectiq-xi.vercel.app` → `www.tryparlai.com`
+- `expo/app/drill/[id].tsx` — `toggleDrillComplete` → `toggleDrill`
+- `expo/app/edit-workout.tsx` — `/drill-library` crash → `Alert.alert('Coming soon', ...)`
+- `expo/components/TodayHome.tsx` — `/coach-x` → `/coachx` route
+- Deleted: `expo/components/CoachX.tsx`, `expo/components/ParlayCard.tsx`, `expo/components/TrackWithAIToggle.tsx`, `expo/lib/coachXLines.ts`, `expo/lib/coachXSelector.ts`, `expo/app/library-admin.tsx`
+- Added: `CV-PLAN.md`, `scripts/train_basketball_model.py`, `scripts/README.md`
+- Updated: `claude.md` with audit corrections
+
+**Typecheck:** 9 pre-existing errors on main (film.tsx, more.tsx, progress.tsx, today.tsx) — confirmed pre-existing by stash-and-check. Cherry-pick introduced zero new type errors.
+
+#### `34d5040` — "Use coach-x-film.png in film tab idle header"
+
+**SKIPPED.** This commit uses `coach-x-film.png` in an idle header layout (portrait + text) that no longer exists on main — main's film.tsx was redesigned to text-only. Cherry-pick conflicted at the idleHeader section with no clean resolution. Kept main's version per user instruction.
+
+**Note:** `coach-x-film.png` binary is already on main (commit `8a5f75e`). The image exists — it's just not used in film.tsx yet. To add it, a manual edit to film.tsx's idle header is needed.
+
+### Preserved
+
+- `expo/app/game-history.tsx` — untouched, still on main
+- `expo/components/GameHistory.tsx` — untouched, still on main
+- `expo/app/session.tsx` — untouched (no post-game code)
+- `api/coach-postgame.js` — does NOT exist on main (correct)
+
+### Final git log
+
+```
+d4e5bf6 Cherry-pick c4e9971: tab bar fix, bug fixes, dead file cleanup, CV plan, scripts
+9fab446 Log Session 8: merge review stopped — post-game feature and game history blockers
+8a5f75e Rename ChatGPT Image May 17, 2026, 06_47_35 PM.png to expo/assets/images/coach-x-film.png
+```
+
+Pushed to `origin/main` at `d4e5bf6`.
+
+---
+
+*Log written by Claude Code.*
