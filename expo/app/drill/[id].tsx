@@ -19,7 +19,7 @@ export default function DrillDetailScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { plan, currentDayIndex, completedDrills, toggleDrillComplete } = usePlanStore();
+  const { plan, currentDayIndex, completedDrills, toggleDrill } = usePlanStore();
 
   const idStr = String(id || '');
 
@@ -65,7 +65,7 @@ export default function DrillDetailScreen() {
   const handleComplete = () => {
     if (drillIndex < 0) return;
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    toggleDrillComplete(currentDayIndex, drillIndex);
+    toggleDrill(currentDayIndex, drillIndex);
   };
 
   const youtubeId: string = drill.youtubeId || '';

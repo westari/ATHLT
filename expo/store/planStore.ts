@@ -62,12 +62,14 @@ interface PlanStore {
   currentDayIndex: number;
   isGenerating: boolean;
   skillLevels: Record<string, number>;
+  onboardingComplete: boolean;
   setPlan: (plan: TrainingPlan) => void;
   setProfile: (profile: PlayerProfile) => void;
   setDescription: (description: string) => void;
   setSkillLevels: (skills: Record<string, number>) => void;
   setIsGenerating: (val: boolean) => void;
   setCurrentDayIndex: (i: number) => void;
+  setOnboardingComplete: (val: boolean) => void;
   toggleDrill: (dayIndex: number, drillIndex: number) => void;
   markDrillComplete: (dayIndex: number, drillIndex: number) => void;
   completeSession: (session: CompletedSession) => void;
@@ -155,6 +157,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   currentDayIndex: 0,
   isGenerating: false,
   skillLevels: {},
+  onboardingComplete: false,
 
   setPlan: (plan) => {
     // Reset day index on new plan
@@ -179,6 +182,9 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   setCurrentDayIndex: (i) => {
     set({ currentDayIndex: i });
     saveToStorage(get());
+  },
+  setOnboardingComplete: (val) => {
+    set({ onboardingComplete: val });
   },
   toggleDrill: (dayIndex, drillIndex) => {
     const key = `${dayIndex}-${drillIndex}`;
@@ -238,6 +244,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       totalSessions: 0,
       currentDayIndex: 0,
       skillLevels: {},
+      onboardingComplete: false,
     });
     AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
   },

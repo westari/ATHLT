@@ -91,7 +91,7 @@ export default function TodayHome() {
 
   const onCoachXTap = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/coach-x');
+    router.push('/coachx');
   };
 
   const onViewPast = () => {
