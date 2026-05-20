@@ -52,11 +52,6 @@ const HEIGHT_OPTIONS = (() => {
   }
   return arr;
 })(); // 4'6"–7'6"
-const WEIGHT_OPTIONS = (() => {
-  const arr: string[] = [];
-  for (let w = 70; w <= 280; w += 5) arr.push(w + ' lbs');
-  return arr;
-})();
 
 const FOCUS_OPTIONS = [
   { id: 'Ball handling', label: 'Ball Handling' },
@@ -313,7 +308,7 @@ function ScrollPicker({ options, value, onChange }: {
               fontSize: isSel ? 52 : isAdj ? 20 : 14,
               fontWeight: isSel ? '700' : '400',
               color: '#FFFFFF',
-              opacity: isSel ? 1 : isAdj ? 0.3 : 0,
+              opacity: isSel ? 1 : isAdj ? 0.45 : 0,
             }}>
               {opt}
             </Text>
@@ -717,20 +712,26 @@ export default function TodayScreen() {
   if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
   if (appState === 'ageGate') return (
-    <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }]}>
-      <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, textAlign: 'center', marginBottom: 16, letterSpacing: -0.5 }}>
-        ATHLT is for ages 14 and up.
-      </Text>
-      <Text style={{ fontSize: 16, color: Colors.textSecondary, textAlign: 'center', lineHeight: 24, marginBottom: 48 }}>
-        You must be 14 or older to use this app.
-      </Text>
-      <TouchableOpacity
-        style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 16, paddingHorizontal: 40 }}
-        onPress={() => setAppState('onboarding')}
-        activeOpacity={0.85}
-      >
-        <Text style={{ fontSize: 16, fontWeight: '600', color: Colors.white }}>Go back</Text>
-      </TouchableOpacity>
+    <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: '#0A0A0A' }]}>
+      <View style={s.qh}>
+        <TouchableOpacity onPress={() => setAppState('onboarding')} style={s.bb}>
+          <Text style={[s.bt, { color: 'rgba(255,255,255,0.55)' }]}>←</Text>
+        </TouchableOpacity>
+      </View>
+      <View style={{ flex: 1, paddingHorizontal: 28, paddingTop: 32 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+          <View style={{ width: 4, height: 28, backgroundColor: Colors.primary, borderRadius: 2 }} />
+          <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5 }}>
+            AGE REQUIREMENT
+          </Text>
+        </View>
+        <Text style={{ fontSize: 26, fontWeight: '700', color: '#FFFFFF', letterSpacing: -0.8, lineHeight: 32, marginBottom: 16 }}>
+          ATHLT is for ages{'\n'}14 and up.
+        </Text>
+        <Text style={{ fontSize: 15, color: 'rgba(255,255,255,0.5)', lineHeight: 22, letterSpacing: -0.1 }}>
+          Come back when you're a little older — we'll be here.
+        </Text>
+      </View>
     </View>
   );
 
@@ -829,18 +830,70 @@ export default function TodayScreen() {
 
     // ===== wheel picker screens =====
     if (st.type === 'wheel') {
-      const wheelOpts = st.wheelKind === 'age' ? AGE_OPTIONS : st.wheelKind === 'height' ? HEIGHT_OPTIONS : WEIGHT_OPTIONS;
-      const defaultVal = st.wheelKind === 'age' ? '16' : st.wheelKind === 'height' ? "5'10\"" : '160 lbs';
+
+      // Weight → text input (light screen, standard styling)
+      if (st.wheelKind === 'weight') {
+        const weightVal = (answers[st.id] as string) || '';
+        return (
+          <KeyboardAvoidingView style={s.c} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={0}>
+            <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+              <View style={s.qh}>
+                <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
+                <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
+                <View style={{ width: 60 }} />
+              </View>
+              <View style={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140, flex: 1 }}>
+                <View style={s.sectionRow}>
+                  <View style={s.sectionIconWrap}>
+                    <SectionIcon size={14} color={Colors.primary} />
+                  </View>
+                  <Text style={s.qs}>{st.section.toUpperCase()}</Text>
+                </View>
+                <Text style={s.qq}>{st.question}</Text>
+                {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
+                <View style={{ alignItems: 'center', marginTop: 40 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+                    <TextInput
+                      value={weightVal}
+                      onChangeText={(v) => handleWheelChange(st.id, v.replace(/[^0-9]/g, ''))}
+                      keyboardType="number-pad"
+                      maxLength={3}
+                      style={{
+                        fontSize: 56, fontWeight: '700', color: weightVal ? Colors.textPrimary : Colors.textMuted,
+                        textAlign: 'center', minWidth: 120, letterSpacing: -2,
+                      }}
+                      placeholder="000"
+                      placeholderTextColor={Colors.textMuted}
+                      autoFocus
+                    />
+                    <Text style={{ fontSize: 22, fontWeight: '600', color: Colors.textMuted, paddingBottom: 10 }}>lbs</Text>
+                  </View>
+                </View>
+              </View>
+              <View style={s.bn}>
+                <TouchableOpacity
+                  style={[s.cb, !weightVal && s.cbDisabled]}
+                  onPress={() => { if (weightVal) goNext(); }}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[s.ct, !weightVal && s.ctDisabled]}>Continue</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        );
+      }
+
+      // Age / Height → dark floating scroll picker
+      const wheelOpts = st.wheelKind === 'age' ? AGE_OPTIONS : HEIGHT_OPTIONS;
+      const defaultVal = st.wheelKind === 'age' ? '16' : "5'10\"";
       const currentVal = (answers[st.id] as string) || defaultVal;
 
       const handleContinue = () => {
         const val = answers[st.id] || currentVal;
         if (st.wheelKind === 'age') {
           const age = parseInt(val, 10);
-          if (!isNaN(age) && age <= 13) {
-            setAppState('ageGate');
-            return;
-          }
+          if (!isNaN(age) && age <= 13) { setAppState('ageGate'); return; }
         }
         if (!answers[st.id]) {
           setAnswers({ ...answers, [st.id]: val });
@@ -851,21 +904,27 @@ export default function TodayScreen() {
       };
 
       return (
-        <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+        <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: '#0A0A0A' }]}>
           <View style={s.qh}>
-            <TouchableOpacity onPress={goBack} style={s.bb}><Text style={s.bt}>←</Text></TouchableOpacity>
-            <View style={s.pc}><View style={s.pt}><View style={[s.pf, { width: (progress * 100) + '%' }]} /></View></View>
+            <TouchableOpacity onPress={goBack} style={s.bb}>
+              <Text style={[s.bt, { color: 'rgba(255,255,255,0.55)' }]}>←</Text>
+            </TouchableOpacity>
+            <View style={s.pc}>
+              <View style={[s.pt, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
+                <View style={[s.pf, { width: (progress * 100) + '%' }]} />
+              </View>
+            </View>
             <View style={{ width: 60 }} />
           </View>
           <View style={{ paddingHorizontal: 24, paddingTop: 12, paddingBottom: 140, flex: 1 }}>
             <View style={s.sectionRow}>
-              <View style={s.sectionIconWrap}>
+              <View style={[s.sectionIconWrap, { backgroundColor: 'rgba(212,160,23,0.12)' }]}>
                 <SectionIcon size={14} color={Colors.primary} />
               </View>
               <Text style={s.qs}>{st.section.toUpperCase()}</Text>
             </View>
-            <Text style={s.qq}>{st.question}</Text>
-            {st.subtitle ? <Text style={s.qsub}>{st.subtitle}</Text> : null}
+            <Text style={[s.qq, { color: '#FFFFFF' }]}>{st.question}</Text>
+            {st.subtitle ? <Text style={[s.qsub, { color: 'rgba(255,255,255,0.45)' }]}>{st.subtitle}</Text> : null}
             <View style={{ marginTop: 32 }}>
               <ScrollPicker
                 options={wheelOpts}
@@ -874,8 +933,12 @@ export default function TodayScreen() {
               />
             </View>
           </View>
-          <View style={s.bn}>
-            <TouchableOpacity style={s.cb} onPress={handleContinue} activeOpacity={0.85}>
+          <View style={[s.bn, { backgroundColor: '#0A0A0A', borderTopColor: 'rgba(255,255,255,0.06)' }]}>
+            <TouchableOpacity
+              style={[s.cb, { backgroundColor: '#252525', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }]}
+              onPress={handleContinue}
+              activeOpacity={0.85}
+            >
               <Text style={s.ct}>Continue</Text>
             </TouchableOpacity>
           </View>
