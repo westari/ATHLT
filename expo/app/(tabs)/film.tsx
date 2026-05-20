@@ -242,13 +242,8 @@ export default function FilmTab() {
     if (Platform.OS !== 'web') void Haptics.selectionAsync();
   };
 
-  const handleNextMoment = () => {
-    goToMoment(activeMomentIndex + 1);
-  };
-
-  const handlePrevMoment = () => {
-    goToMoment(activeMomentIndex - 1);
-  };
+  const handleNextMoment = () => { goToMoment(activeMomentIndex + 1); };
+  const handlePrevMoment = () => { goToMoment(activeMomentIndex - 1); };
 
   const handlePlayPause = () => {
     if (!player) return;
@@ -337,7 +332,6 @@ export default function FilmTab() {
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
-          {/* ===== Top bar with back ===== */}
           <View style={styles.topBar}>
             <TouchableOpacity
               onPress={() => { setState('idle'); setCurrentAnalysis(null); player?.pause(); }}
@@ -349,7 +343,6 @@ export default function FilmTab() {
             </TouchableOpacity>
           </View>
 
-          {/* ===== VIDEO PLAYER ===== */}
           <View style={styles.videoContainer}>
             <VideoView
               style={styles.videoPlayer}
@@ -370,7 +363,6 @@ export default function FilmTab() {
             </TouchableOpacity>
           </View>
 
-          {/* ===== TIMELINE WITH MOMENT MARKERS ===== */}
           {moments.length > 0 && (
             <View style={styles.timelineWrap}>
               <View style={styles.timelineTrack}>
@@ -404,7 +396,6 @@ export default function FilmTab() {
             </View>
           )}
 
-          {/* ===== MOMENT NAVIGATION ===== */}
           {moments.length > 0 && activeMoment && (
             <View style={styles.momentNav}>
               <TouchableOpacity
@@ -435,7 +426,6 @@ export default function FilmTab() {
             </View>
           )}
 
-          {/* ===== ACTIVE MOMENT — COACH X COMMENTARY ===== */}
           {activeMoment && (
             <View style={styles.commentaryBox}>
               <View style={styles.commentaryHeader}>
@@ -462,7 +452,6 @@ export default function FilmTab() {
             </View>
           )}
 
-          {/* ===== COACH X PEEKS OUT — opening line + summary + grade ===== */}
           {(currentAnalysis.openingLine || currentAnalysis.summary) && (
             <View style={styles.coachSpeakWrap}>
               <Image source={COACH_X_PORTRAIT} style={styles.coachSpeakPortrait} resizeMode="contain" />
@@ -484,7 +473,6 @@ export default function FilmTab() {
             </View>
           )}
 
-          {/* ===== DRILL RECOMMENDATIONS ===== */}
           {currentAnalysis.drillRecommendations.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -543,7 +531,6 @@ export default function FilmTab() {
             </View>
           )}
 
-          {/* COACH X SAYS box removed — opening line + speech bubble already serves this role */}
         </ScrollView>
       </View>
     );
@@ -551,22 +538,23 @@ export default function FilmTab() {
 
   // ===== IDLE SCREEN =====
   return (
-    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: '#0F0F0F' }]}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
-        <View style={[styles.idleHeader, { paddingBottom: 0 }]}>
+        <View style={styles.idleHeader}>
           <Text style={styles.idleHeaderLabel}>FILM ROOM</Text>
-          <Text style={[styles.idleHeaderText, { color: '#FFFFFF' }]}>Upload film. Get a full breakdown.</Text>
+          <Text style={styles.idleHeaderText}>Upload film. Get a full breakdown.</Text>
         </View>
 
+        {/* Coach X peeks from the right edge — negative right margin clips it intentionally */}
         <Image
           source={COACH_X_FILM}
-          style={{ width: '55%', height: 180, alignSelf: 'flex-end', marginTop: 4, marginBottom: 20 }}
+          style={styles.idleCoachImg}
           resizeMode="contain"
         />
 
         {/* Primary action cards */}
-        <View style={{ paddingHorizontal: 20, gap: 14 }}>
+        <View style={styles.actionCards}>
           <TouchableOpacity style={styles.actionCard} onPress={handleUploadFilm} activeOpacity={0.82}>
             <View style={styles.actionCardIcon}>
               <Upload size={28} color={Colors.primary} />
@@ -703,9 +691,7 @@ const styles = StyleSheet.create({
   navBtnText: {
     fontSize: 14, fontWeight: '600', color: Colors.white, letterSpacing: -0.1,
   },
-  momentCounter: {
-    paddingHorizontal: 12,
-  },
+  momentCounter: { paddingHorizontal: 12 },
   momentCounterText: {
     fontSize: 13, color: '#999', fontWeight: '600', letterSpacing: 0.3,
   },
@@ -719,74 +705,59 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   commentaryHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    marginBottom: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12,
   },
   commentaryPortrait: { width: 48, height: 48 },
   commentaryLabelRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginBottom: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4,
   },
   commentaryTimestamp: {
     fontSize: 12, fontWeight: '800', color: Colors.primary,
     letterSpacing: 0.5, fontVariant: ['tabular-nums'],
   },
   commentaryTypeTag: {
-    paddingHorizontal: 7, paddingVertical: 2,
-    borderRadius: 100,
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 100,
   },
   commentaryTypeTagText: {
     fontSize: 9, fontWeight: '800', letterSpacing: 1,
   },
   commentaryLabel: {
-    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.3,
+    fontSize: 16, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3,
   },
   commentaryDetail: {
-    fontSize: 14, color: Colors.textPrimary, lineHeight: 20,
-    fontStyle: 'italic',
+    fontSize: 14, color: Colors.textPrimary, lineHeight: 20, fontStyle: 'italic',
   },
 
-  // ===== COACH X SPEECH BUBBLE (opening line + summary) =====
+  // ===== COACH X SPEECH BUBBLE =====
   coachSpeakWrap: {
     flexDirection: 'row', alignItems: 'flex-start',
-    paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8,
-    gap: 0,
+    paddingHorizontal: 16, paddingTop: 24, paddingBottom: 8, gap: 0,
   },
   coachSpeakPortrait: {
-    width: 56, height: 56,
-    marginTop: 8,
-    marginRight: -8,
-    zIndex: 2,
+    width: 56, height: 56, marginTop: 8, marginRight: -8, zIndex: 2,
   },
   coachSpeakBubble: {
     flex: 1,
     backgroundColor: '#FBF5E2',
     borderWidth: 1, borderColor: Colors.primary,
     borderRadius: 16,
-    paddingHorizontal: 18, paddingVertical: 16,
-    paddingLeft: 24,
+    paddingHorizontal: 18, paddingVertical: 16, paddingLeft: 24,
     position: 'relative',
   },
   coachSpeakHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10,
   },
   coachSpeakLabel: {
-    fontSize: 10, fontWeight: '800', color: Colors.primary,
-    letterSpacing: 1.5,
+    fontSize: 10, fontWeight: '800', color: Colors.primary, letterSpacing: 1.5,
   },
   coachSpeakGrade: {
-    backgroundColor: Colors.primary,
-    paddingHorizontal: 10, paddingVertical: 3,
-    borderRadius: 100,
+    backgroundColor: Colors.primary, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 100,
   },
   coachSpeakGradeText: {
     fontSize: 12, fontWeight: '800', color: Colors.white, letterSpacing: -0.2,
   },
   coachSpeakArrow: {
-    position: 'absolute',
-    left: -7, top: 18,
+    position: 'absolute', left: -7, top: 18,
     width: 14, height: 14,
     backgroundColor: '#FBF5E2',
     borderTopWidth: 1, borderLeftWidth: 1,
@@ -795,46 +766,42 @@ const styles = StyleSheet.create({
   },
   coachSpeakOpening: {
     fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.3, lineHeight: 22, marginBottom: 8,
-    fontStyle: 'italic',
+    letterSpacing: -0.3, lineHeight: 22, marginBottom: 8, fontStyle: 'italic',
   },
   coachSpeakSummary: {
     fontSize: 13, color: Colors.textSecondary, lineHeight: 19,
   },
 
   // ===== DRILLS =====
-  section: {
-    paddingHorizontal: 20, paddingTop: 20, paddingBottom: 4,
-  },
+  section: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 4 },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 11, fontWeight: '700', letterSpacing: 1.5, color: Colors.textMuted,
   },
-
   drillRecCard: {
     backgroundColor: Colors.surface, borderRadius: 14,
     borderWidth: 1, borderColor: Colors.surfaceBorder,
     marginBottom: 10, overflow: 'hidden',
   },
   drillRecMain: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    padding: 14, paddingBottom: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 8, padding: 14, paddingBottom: 4,
   },
   drillRecName: {
     fontSize: 15, fontWeight: '700', color: Colors.textPrimary,
     letterSpacing: -0.3, marginBottom: 3,
   },
   drillRecMeta: {
-    fontSize: 11, color: Colors.textMuted, textTransform: 'capitalize', marginBottom: 6,
+    fontSize: 12, color: Colors.textMuted, letterSpacing: -0.1, marginBottom: 6,
   },
   drillRecReason: {
-    fontSize: 13, color: Colors.primary, fontStyle: 'italic', lineHeight: 18,
+    fontSize: 13, color: Colors.textSecondary, lineHeight: 18, fontStyle: 'italic',
   },
   drillRecActions: {
     flexDirection: 'row', gap: 8,
     paddingHorizontal: 14, paddingBottom: 14, paddingTop: 10,
+    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
   },
   drillActionBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -852,7 +819,7 @@ const styles = StyleSheet.create({
 
   // ===== IDLE =====
   idleHeader: {
-    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 20,
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8,
   },
   idleHeaderLabel: {
     fontSize: 10, fontWeight: '700', color: Colors.primary,
@@ -862,40 +829,52 @@ const styles = StyleSheet.create({
     fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
     letterSpacing: -0.5, lineHeight: 28,
   },
+  // Coach X peeking from right edge — negative margin clips the right side intentionally
+  idleCoachImg: {
+    width: '70%',
+    height: 180,
+    alignSelf: 'flex-end',
+    marginRight: -20,
+    marginTop: 4,
+    marginBottom: 20,
+  },
 
-  // ===== ACTION CARDS (upload / record) =====
+  // ===== ACTION CARDS (upload / record) — light theme =====
+  actionCards: {
+    paddingHorizontal: 20, gap: 14,
+  },
   actionCard: {
-    backgroundColor: '#1C1C1C',
+    backgroundColor: Colors.surface,
     borderRadius: 20,
-    paddingVertical: 32,
-    paddingHorizontal: 24,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    paddingVertical: 32, paddingHorizontal: 24,
     alignItems: 'center',
   },
   actionCardIcon: {
     width: 72, height: 72, borderRadius: 36,
-    backgroundColor: '#0F0F0F',
+    backgroundColor: Colors.background,
     borderWidth: 2, borderColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 18,
   },
   actionCardTitle: {
-    fontSize: 20, fontWeight: '700', color: '#FFFFFF',
+    fontSize: 20, fontWeight: '700', color: Colors.textPrimary,
     letterSpacing: -0.4, marginBottom: 8, textAlign: 'center',
   },
   actionCardSub: {
-    fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'center', lineHeight: 20,
+    fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20,
   },
 
   // ===== PAST FILM =====
   pastFilmsSection: { paddingHorizontal: 20, paddingTop: 24 },
   pastFilmsTitle: {
-    fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.4)',
+    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
     letterSpacing: 1.5, marginBottom: 12, marginTop: 8,
   },
   pastFilmCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#1C1C1C',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: Colors.surface,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
     borderRadius: 14, padding: 14, marginBottom: 8,
   },
   pastFilmThumbWrap: {
@@ -903,9 +882,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden', position: 'relative',
     backgroundColor: '#000',
   },
-  pastFilmThumb: {
-    width: '100%', height: '100%',
-  },
+  pastFilmThumb: { width: '100%', height: '100%' },
   pastFilmThumbFallback: {
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.surface,
@@ -913,23 +890,21 @@ const styles = StyleSheet.create({
   pastFilmThumbGradeOverlay: {
     position: 'absolute', bottom: 4, right: 4,
     backgroundColor: 'rgba(0,0,0,0.75)',
-    paddingHorizontal: 6, paddingVertical: 2,
-    borderRadius: 6,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
   },
   pastFilmThumbGradeText: {
     fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: -0.2,
   },
   pastFilmDate: {
-    fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 3, fontWeight: '600', letterSpacing: 0.5,
+    fontSize: 11, color: Colors.textMuted, marginBottom: 3, fontWeight: '600', letterSpacing: 0.5,
   },
   pastFilmSummary: {
-    fontSize: 13, color: 'rgba(255,255,255,0.85)', lineHeight: 18,
+    fontSize: 13, color: Colors.textPrimary, lineHeight: 18,
   },
 
   // ===== LOADING =====
   loadingWrap: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 32,
+    flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32,
   },
   loadingPortrait: { width: 100, height: 100, marginBottom: 16 },
   loadingTitle: {
@@ -947,16 +922,11 @@ const styles = StyleSheet.create({
     height: '100%', backgroundColor: Colors.primary, borderRadius: 3,
   },
   loadingSteps: { width: '100%', gap: 12 },
-  loadingStep: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-  },
+  loadingStep: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stepDot: {
-    width: 10, height: 10, borderRadius: 5,
-    backgroundColor: Colors.surfaceBorder,
+    width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.surfaceBorder,
   },
   stepDotDone: { backgroundColor: Colors.primary },
-  stepLabel: {
-    fontSize: 14, color: Colors.textMuted, letterSpacing: -0.2,
-  },
+  stepLabel: { fontSize: 14, color: Colors.textMuted, letterSpacing: -0.2 },
   stepLabelDone: { color: Colors.textPrimary, fontWeight: '600' },
 });
