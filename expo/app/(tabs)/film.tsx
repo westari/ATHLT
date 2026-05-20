@@ -562,7 +562,7 @@ export default function FilmTab() {
 
         <Image
           source={COACH_X_FILM}
-          style={{ width: '100%', height: 150, alignSelf: 'center', marginTop: 16, marginBottom: 16 }}
+          style={{ width: '60%', height: 180, alignSelf: 'flex-end', marginTop: 8, marginBottom: 12 }}
           resizeMode="contain"
         />
 
