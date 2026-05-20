@@ -551,30 +551,42 @@ export default function FilmTab() {
 
   // ===== IDLE SCREEN =====
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { paddingTop: insets.top, backgroundColor: '#0F0F0F' }]}>
       <ScrollView contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}>
 
-        {/* Clean header — no Coach X portrait, no statement, no pill */}
-        <View style={styles.idleHeader}>
+        <View style={[styles.idleHeader, { paddingBottom: 0 }]}>
           <Text style={styles.idleHeaderLabel}>FILM ROOM</Text>
-          <Text style={styles.idleHeaderText}>Upload film. Get a full breakdown.</Text>
+          <Text style={[styles.idleHeaderText, { color: '#FFFFFF' }]}>Upload film. Get a full breakdown.</Text>
         </View>
 
         <Image
           source={COACH_X_FILM}
-          style={{ width: '60%', height: 180, alignSelf: 'flex-end', marginTop: 8, marginBottom: 12 }}
+          style={{ width: '55%', height: 180, alignSelf: 'flex-end', marginTop: 4, marginBottom: 20 }}
           resizeMode="contain"
         />
 
-        {/* Large upload drop-zone — fills the screen by being big, nothing moved */}
-        <TouchableOpacity style={styles.uploadZone} onPress={handleUploadFilm} activeOpacity={0.85}>
-          <View style={styles.uploadZoneIcon}>
-            <Upload size={30} color={Colors.primary} />
-          </View>
-          <Text style={styles.uploadZoneTitle}>Upload film</Text>
-          <Text style={styles.uploadZoneSub}>Tap to pick a clip from your camera roll</Text>
-          <Text style={styles.uploadZoneHint}>Up to 60 seconds · game footage works best</Text>
-        </TouchableOpacity>
+        {/* Primary action cards */}
+        <View style={{ paddingHorizontal: 20, gap: 14 }}>
+          <TouchableOpacity style={styles.actionCard} onPress={handleUploadFilm} activeOpacity={0.82}>
+            <View style={styles.actionCardIcon}>
+              <Upload size={28} color={Colors.primary} />
+            </View>
+            <Text style={styles.actionCardTitle}>Upload from Camera Roll</Text>
+            <Text style={styles.actionCardSub}>Select a game clip (under 2 minutes)</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.actionCard}
+            onPress={() => Alert.alert('Coming soon', 'In-app recording will be available in a future update.')}
+            activeOpacity={0.82}
+          >
+            <View style={styles.actionCardIcon}>
+              <Film size={28} color={Colors.primary} />
+            </View>
+            <Text style={styles.actionCardTitle}>Record New Clip</Text>
+            <Text style={styles.actionCardSub}>Film yourself or a game right now</Text>
+          </TouchableOpacity>
+        </View>
 
         {pastFilms.length > 0 && (
           <View style={styles.pastFilmsSection}>
@@ -851,46 +863,39 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5, lineHeight: 28,
   },
 
-  // ===== LARGE UPLOAD DROP-ZONE =====
-  uploadZone: {
-    marginHorizontal: 20,
-    minHeight: 320,
-    backgroundColor: Colors.surface,
-    borderWidth: 2, borderColor: Colors.surfaceBorder,
-    borderStyle: 'dashed',
+  // ===== ACTION CARDS (upload / record) =====
+  actionCard: {
+    backgroundColor: '#1C1C1C',
     borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
   },
-  uploadZoneIcon: {
+  actionCardIcon: {
     width: 72, height: 72, borderRadius: 36,
-    backgroundColor: Colors.background,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: '#0F0F0F',
+    borderWidth: 2, borderColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 18,
   },
-  uploadZoneTitle: {
-    fontSize: 20, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.4, marginBottom: 8,
+  actionCardTitle: {
+    fontSize: 20, fontWeight: '700', color: '#FFFFFF',
+    letterSpacing: -0.4, marginBottom: 8, textAlign: 'center',
   },
-  uploadZoneSub: {
-    fontSize: 14, color: Colors.textSecondary, textAlign: 'center',
-    lineHeight: 20, marginBottom: 14,
-  },
-  uploadZoneHint: {
-    fontSize: 12, color: Colors.textMuted, textAlign: 'center', letterSpacing: 0.2,
+  actionCardSub: {
+    fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'center', lineHeight: 20,
   },
 
   // ===== PAST FILM =====
   pastFilmsSection: { paddingHorizontal: 20, paddingTop: 24 },
   pastFilmsTitle: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
+    fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.4)',
     letterSpacing: 1.5, marginBottom: 12, marginTop: 8,
   },
   pastFilmCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: '#1C1C1C',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
     borderRadius: 14, padding: 14, marginBottom: 8,
   },
   pastFilmThumbWrap: {
@@ -915,10 +920,10 @@ const styles = StyleSheet.create({
     fontSize: 11, fontWeight: '800', color: Colors.primary, letterSpacing: -0.2,
   },
   pastFilmDate: {
-    fontSize: 11, color: Colors.textMuted, marginBottom: 3, fontWeight: '600', letterSpacing: 0.5,
+    fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 3, fontWeight: '600', letterSpacing: 0.5,
   },
   pastFilmSummary: {
-    fontSize: 13, color: Colors.textPrimary, lineHeight: 18,
+    fontSize: 13, color: 'rgba(255,255,255,0.85)', lineHeight: 18,
   },
 
   // ===== LOADING =====
