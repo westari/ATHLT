@@ -21,7 +21,7 @@ import { getDrillById } from '@/constants/drillLibrary';
 
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
 const COACH_X_FILM = require('@/assets/images/coach-x-film.png');
-const BACKEND_URL = 'https://www.tryparlai.com';Fi
+const BACKEND_URL = 'https://www.tryparlai.com';
 const SUPABASE_URL = 'https://tvtojlwdpipntkktguck.supabase.co';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
