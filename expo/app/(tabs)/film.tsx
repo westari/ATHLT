@@ -546,12 +546,14 @@ export default function FilmTab() {
           <Text style={styles.idleHeaderText}>Upload film. Get a full breakdown.</Text>
         </View>
 
-        {/* Coach X peeks from the right edge — negative right margin clips it intentionally */}
-        <Image
-          source={COACH_X_FILM}
-          style={styles.idleCoachImg}
-          resizeMode="contain"
-        />
+        {/* Coach X flush to right screen edge */}
+        <View style={styles.idleCoachImgWrap}>
+          <Image
+            source={COACH_X_FILM}
+            style={styles.idleCoachImg}
+            resizeMode="contain"
+          />
+        </View>
 
         {/* Primary action cards */}
         <View style={styles.actionCards}>
@@ -829,14 +831,18 @@ const styles = StyleSheet.create({
     fontSize: 22, fontWeight: '700', color: Colors.textPrimary,
     letterSpacing: -0.5, lineHeight: 28,
   },
-  // Coach X peeking from right edge — negative margin clips the right side intentionally
-  idleCoachImg: {
-    width: '70%',
-    height: 180,
-    alignSelf: 'flex-end',
-    marginRight: -20,
+  idleCoachImgWrap: {
+    height: 200,
     marginTop: 4,
     marginBottom: 20,
+    overflow: 'visible',
+  },
+  idleCoachImg: {
+    position: 'absolute',
+    right: -20,
+    top: 0,
+    width: SCREEN_WIDTH * 0.80,
+    height: 200,
   },
 
   // ===== ACTION CARDS (upload / record) — light theme =====
