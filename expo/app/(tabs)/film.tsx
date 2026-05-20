@@ -21,7 +21,7 @@ import { getDrillById } from '@/constants/drillLibrary';
 
 const COACH_X_PORTRAIT = require('@/assets/images/coach-x-small.png');
 const COACH_X_FILM = require('@/assets/images/coach-x-film.png');
-const BACKEND_URL = 'https://www.tryparlai.com';
+const BACKEND_URL = 'https://www.tryparlai.com';Fi
 const SUPABASE_URL = 'https://tvtojlwdpipntkktguck.supabase.co';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -839,7 +839,7 @@ const styles = StyleSheet.create({
   },
   idleCoachImg: {
     position: 'absolute',
-    right: -80,
+    right: -60,
     top: 0,
     width: SCREEN_WIDTH * 0.80,
     height: 200,
