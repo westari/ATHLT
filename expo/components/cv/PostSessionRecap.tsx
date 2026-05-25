@@ -15,7 +15,7 @@ import {
   ActivityIndicator, Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Check, TrendingUp, Target, Zap } from 'lucide-react-native';
+import { Zap } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import type { SessionRecap } from '@/lib/cv/ShotSync';
 import type { TrackerSummary } from '@/lib/cv/ShotTracker';

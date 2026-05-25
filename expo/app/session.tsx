@@ -114,14 +114,12 @@ export default function SessionScreen() {
   useEffect(() => {
     if (cvEnabled && !cvStartedRef.current) {
       cvStartedRef.current = true;
-      supabase.auth.getUser().then(({ data: { user } }) => {
-        sync.start({
-          drillId:     (currentDrill as any).id ?? currentDrill.name,
-          drillName:   currentDrill.name,
-          dayIndex:    currentDayIndex,
-          drillIndex:  drillIdx,
-          sessionType: 'guided',
-        });
+      sync.start({
+        drillId:     (currentDrill as any).id ?? currentDrill.name,
+        drillName:   currentDrill.name,
+        dayIndex:    currentDayIndex,
+        drillIndex:  drillIdx,
+        sessionType: 'guided',
       });
     }
   }, [cvEnabled, drillIdx]);

@@ -43,7 +43,6 @@ export default function OpenRunScreen() {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     tracker.reset();
 
-    const { data: { user } } = await supabase.auth.getUser();
     await sync.start({
       sessionType: 'open_run',
     });

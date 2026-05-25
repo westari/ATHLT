@@ -17,7 +17,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator,
-  Linking,
 } from 'react-native';
 import Colors from '@/constants/colors';
 import ShotOverlay from './ShotOverlay';
@@ -39,7 +38,7 @@ try {
   useCameraPermission = VC.useCameraPermission;
   useFrameProcessor = VC.useFrameProcessor;
   Worklets         = require('react-native-worklets-core').Worklets;
-  detectShots      = require('@/modules/shot-detector').detectShots;
+  detectShots      = require('@/modules/shot-detector/src').detectShots;
 } catch {
   // VisionCamera not yet installed — show placeholder in dev
 }
