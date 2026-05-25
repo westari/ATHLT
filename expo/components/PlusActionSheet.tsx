@@ -1,7 +1,6 @@
 // expo/components/PlusActionSheet.tsx
 // Bottom action sheet shown when user taps the + button.
-// 3 options for v1: Ask Coach X / Build a Workout / Log a Game.
-// (Track Shots removed — coming when CV ships.)
+// 4 options: Ask Coach X / Build a Workout / Log a Game / Track Shots (CV).
 
 import React from 'react';
 import {
@@ -9,7 +8,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MessageSquare, Dumbbell, ClipboardList, X } from 'lucide-react-native';
+import { MessageSquare, Dumbbell, ClipboardList, X, Camera } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
@@ -92,6 +91,21 @@ export default function PlusActionSheet({ visible, onClose }: Props) {
               <View style={styles.actionTextWrap}>
                 <Text style={styles.actionTitle}>Log a Game</Text>
                 <Text style={styles.actionSub}>Quick stats from your last game</Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Track Shots — CV open run */}
+            <TouchableOpacity
+              style={styles.action}
+              onPress={() => handleNav('/open-run')}
+              activeOpacity={0.85}
+            >
+              <View style={styles.iconWrap}>
+                <Camera size={20} color={Colors.textPrimary} />
+              </View>
+              <View style={styles.actionTextWrap}>
+                <Text style={styles.actionTitle}>Track Shots</Text>
+                <Text style={styles.actionSub}>Live make/miss tracking — no drill guide</Text>
               </View>
             </TouchableOpacity>
           </View>

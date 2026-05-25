@@ -1,54 +1,40 @@
 // expo/app/session.tsx
 //
-// SESSION SCREEN — Portrait redesign (2026-05-20)
+// SESSION SCREEN — Portrait + CV Integration (2026-05-25)
 //
-// Research studied:
-//   Nike Training Club — dominant timer center, drill name large at top, segmented
-//     progress bar, persistent "Up next" preview, bottom-zone thumb-reachable controls.
-//   Fitbod — "Drill X of Y" pill beats progress % in gym lighting; category tags color-coded;
-//     rest timer expands full-screen between exercises.
-//   Strong — post-set RPE collection immediately before advancing, 3 options, one tap.
-//   Peloton — tap targets in bottom 25% of screen only (mid-screen missed during exercise);
-//     progress pill stays visible throughout entire drill.
-//   HomeCourt — basketball-specific minimal overlay: drill name + timer + coaching cue,
-//     one-thumb operation.
+// CV additions (v2):
+//   - Shooting and Finishing drills now show live camera feed (top ~40% of screen)
+//   - ShotTracker runs in background during those drills
+//   - At session end, PostSessionRecap replaces the static complete screen
+//     if any shots were tracked
+//   - Non-shooting drills (ball handling, conditioning, defense) keep the
+//     existing UI with no camera
 //
-// Design decisions:
-//   1. PORTRAIT mode — removed landscape lock entirely. Players hold phones in portrait
-//      at the gym. The old "Rotate phone" overlay is gone.
-//   2. Full-circle SVG ring timer as the dominant visual. Ring depletes as time runs out,
-//      giving spatial urgency without needing to read numbers. Tap to pause.
-//   3. Color-coded drill type tags: warmup=amber, skill=blue, shooting=gold, conditioning=red.
-//      Visual category scan at a glance without reading the tag text.
-//   4. Coaching points inline (top 3 shown) — visible while the drill is active so players
-//      can glance down mid-rep without navigating anywhere.
-//   5. Persistent "Up next" preview card above bottom controls — players know what's coming
-//      and can mentally/physically prepare.
-//   6. Post-drill feedback modal (Too Easy / Just Right / Too Hard) — collected locally for
-//      future plan-adaptation use. One tap, auto-advances.
-//   7. Full drill list accessible via top-right button — shows completion state at a glance.
-//   8. Light theme throughout — all hardcoded dark colors replaced with Colors.* constants.
-//   9. Bug fix: was calling nonexistent toggleDrillComplete() — now uses markDrillComplete()
-//      with correct (dayIndex, drillIndex) signature.
+// Original design decisions still apply (see commit history for rationale):
+//   - Portrait, SVG circular timer, color-coded type tags, post-drill feedback modal
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal,
-  Platform,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Platform,
 } from 'react-native';
 import Svg, { Circle as SvgCircle } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import { X, ChevronLeft, ChevronRight, Check, Play, Pause, List } from 'lucide-react-native';
+import { X, ChevronLeft, ChevronRight, Check, Play, List } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
 import CountdownOverlay from '@/components/CountdownOverlay';
+import CVCameraView from '@/components/cv/CameraView';
+import PostSessionRecap from '@/components/cv/PostSessionRecap';
+import { ShotTracker, type ShotEvent } from '@/lib/cv/ShotTracker';
+import { CVSessionSync, type SessionRecap } from '@/lib/cv/ShotSync';
+import { supabase } from '@/constants/supabase';
 
 // ===== Constants =====
 
-const TIMER_R = 54;
+const TIMER_R    = 54;
 const TIMER_CIRC = 2 * Math.PI * TIMER_R;
 
 const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
@@ -60,18 +46,31 @@ const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string }> =
 
 const FEEDBACK_OPTIONS: Array<{ rating: FeedbackRating; label: string; emoji: string }> = [
   { rating: 'too_easy',   label: 'Too Easy',   emoji: 'E' },
-  { rating: 'just_right', label: 'Just Right', emoji: '✓'  },
+  { rating: 'just_right', label: 'Just Right', emoji: '✓' },
   { rating: 'too_hard',   label: 'Too Hard',   emoji: 'H' },
 ];
+
+// Drills with these types or categories get live CV tracking
+const CV_DRILL_TYPES = new Set<string>(['shooting']);
+const CV_DRILL_CATEGORIES = new Set<string>(['Shooting', 'Finishing']);
 
 type Phase = 'countdown' | 'active' | 'feedback' | 'complete';
 type FeedbackRating = 'too_easy' | 'just_right' | 'too_hard';
 
+// ===== CV helpers =====
+
+function drillNeedsCV(drill: NonNullable<ReturnType<typeof resolvePlanDrill>>): boolean {
+  return (
+    CV_DRILL_TYPES.has(drill.type) ||
+    CV_DRILL_CATEGORIES.has((drill as any).category ?? '')
+  );
+}
+
 // ===== Component =====
 
 export default function SessionScreen() {
-  const insets = useSafeAreaInsets();
-  const router = useRouter();
+  const insets  = useSafeAreaInsets();
+  const router  = useRouter();
   const {
     plan, currentDayIndex, completedDrills,
     markDrillComplete, completeSession,
@@ -85,23 +84,52 @@ export default function SessionScreen() {
     [day]
   );
 
-  const [drillIdx, setDrillIdx]         = useState(0);
-  const [phase, setPhase]               = useState<Phase>('countdown');
+  const [drillIdx, setDrillIdx]           = useState(0);
+  const [phase, setPhase]                 = useState<Phase>('countdown');
   const [timeRemaining, setTimeRemaining] = useState(0);
-  const [timeTotal, setTimeTotal]       = useState(0);
-  const [isPaused, setIsPaused]         = useState(false);
+  const [timeTotal, setTimeTotal]         = useState(0);
+  const [isPaused, setIsPaused]           = useState(false);
   const [showDrillList, setShowDrillList] = useState(false);
   const [feedbackRatings, setFeedbackRatings] = useState<Record<number, FeedbackRating>>({});
 
-  // Use refs so timer callbacks always have current values without stale closures
-  const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
-  const drillIdxRef  = useRef(0);
+  // CV state
+  const tracker         = useMemo(() => new ShotTracker(), []);
+  const sync            = useMemo(() => new CVSessionSync(), []);
+  const [recap, setRecap]     = useState<SessionRecap | null>(null);
+  const [recapLoading, setRecapLoading] = useState(false);
+  const [showRecap, setShowRecap] = useState(false);
+  const cvStartedRef    = useRef(false);
+
+  const timerRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  const drillIdxRef = useRef(0);
   const sessionStart = useRef(Date.now());
 
-  drillIdxRef.current = drillIdx; // keep in sync every render
+  drillIdxRef.current = drillIdx;
 
   const currentDrill = resolvedDrills[drillIdx];
   const nextDrill    = resolvedDrills[drillIdx + 1] ?? null;
+  const cvEnabled    = !!currentDrill && drillNeedsCV(currentDrill);
+
+  // Start/stop CV sync when drill changes
+  useEffect(() => {
+    if (cvEnabled && !cvStartedRef.current) {
+      cvStartedRef.current = true;
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        sync.start({
+          drillId:     (currentDrill as any).id ?? currentDrill.name,
+          drillName:   currentDrill.name,
+          dayIndex:    currentDayIndex,
+          drillIndex:  drillIdx,
+          sessionType: 'guided',
+        });
+      });
+    }
+  }, [cvEnabled, drillIdx]);
+
+  const handleShotDetected = useCallback((event: ShotEvent) => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    sync.recordShot(event);
+  }, [sync]);
 
   // ===== Timer =====
 
@@ -139,20 +167,11 @@ export default function SessionScreen() {
     startTimerInterval();
   };
 
-  const pauseTimer = () => {
-    clearTimer();
-    setIsPaused(true);
-  };
-
-  const resumeTimer = () => {
-    setIsPaused(false);
-    startTimerInterval();
-  };
-
+  const pauseTimer  = () => { clearTimer(); setIsPaused(true); };
+  const resumeTimer = () => { setIsPaused(false); startTimerInterval(); };
   const togglePause = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    if (isPaused) resumeTimer();
-    else pauseTimer();
+    if (isPaused) resumeTimer(); else pauseTimer();
   };
 
   useEffect(() => () => clearTimer(), []);
@@ -202,7 +221,7 @@ export default function SessionScreen() {
     setPhase('countdown');
   };
 
-  const handleFinishSession = () => {
+  const handleFinishSession = async () => {
     const elapsed = Math.floor((Date.now() - sessionStart.current) / 1000);
     completeSession({
       date: new Date().toISOString(),
@@ -211,7 +230,21 @@ export default function SessionScreen() {
       drillsCompleted: resolvedDrills.length,
       drillsTotal: resolvedDrills.length,
     });
-    setPhase('complete');
+
+    // If any shots were tracked, show PostSessionRecap instead of static complete
+    const summary = tracker.getSummary();
+    if (summary.totalShots > 0) {
+      setPhase('complete');
+      setRecapLoading(true);
+      setShowRecap(true);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const sessionRecap = await sync.finish(summary, user?.id);
+      setRecap(sessionRecap);
+      setRecapLoading(false);
+    } else {
+      setPhase('complete');
+    }
   };
 
   const onExit = () => {
@@ -243,11 +276,28 @@ export default function SessionScreen() {
     );
   }
 
-  // ===== Complete screen =====
+  // ===== CV Recap screen (replaces static complete when shots were tracked) =====
+
+  if (phase === 'complete' && showRecap) {
+    const summary = tracker.getSummary();
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <Stack.Screen options={{ headerShown: false }} />
+        <PostSessionRecap
+          recap={recap}
+          summary={summary}
+          loading={recapLoading}
+          onDone={onExit}
+        />
+      </View>
+    );
+  }
+
+  // ===== Static complete screen (no shots tracked) =====
 
   if (phase === 'complete') {
     const elapsed = Math.floor((Date.now() - sessionStart.current) / 1000);
-    const ratings  = Object.values(feedbackRatings);
+    const ratings = Object.values(feedbackRatings);
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -262,7 +312,6 @@ export default function SessionScreen() {
             Day {currentDayIndex + 1} of {plan.days.length}
           </Text>
 
-          {/* Stats */}
           <View style={styles.completeStats}>
             <View style={styles.completeStat}>
               <Text style={styles.completeStatVal}>{resolvedDrills.length}</Text>
@@ -286,7 +335,6 @@ export default function SessionScreen() {
             )}
           </View>
 
-          {/* Drill review list */}
           <View style={styles.completeDrillCard}>
             {resolvedDrills.map((drill, i) => {
               const tc = TYPE_CONFIG[drill.type] ?? TYPE_CONFIG.skill;
@@ -335,7 +383,6 @@ export default function SessionScreen() {
           <X size={18} color={Colors.textPrimary} />
         </TouchableOpacity>
 
-        {/* Segmented drill progress */}
         <View style={styles.segments}>
           {resolvedDrills.map((_, i) => (
             <View
@@ -360,9 +407,24 @@ export default function SessionScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Scrollable body */}
+      {/* CV camera for shooting/finishing drills */}
+      {cvEnabled && (
+        <View style={styles.cameraContainer}>
+          <CVCameraView
+            tracker={tracker}
+            active={phase === 'active'}
+            onShotDetected={handleShotDetected}
+          />
+        </View>
+      )}
+
+      {/* Scrollable drill body */}
       <ScrollView
-        contentContainerStyle={[styles.body, { paddingBottom: 120 + insets.bottom }]}
+        contentContainerStyle={[
+          styles.body,
+          { paddingBottom: 120 + insets.bottom },
+          cvEnabled && styles.bodyCompact,
+        ]}
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
@@ -375,68 +437,79 @@ export default function SessionScreen() {
           <Text style={styles.drillTime}>{currentDrill?.time ?? ''}</Text>
         </View>
 
-        {/* Circular timer */}
-        <TouchableOpacity
-          style={styles.timerWrap}
-          onPress={phase === 'active' ? togglePause : undefined}
-          activeOpacity={phase === 'active' ? 0.85 : 1}
-        >
-          <Svg width={200} height={200} viewBox="0 0 120 120">
-            {/* Background track */}
-            <SvgCircle
-              cx={60} cy={60} r={TIMER_R}
-              fill="none"
-              stroke={Colors.surfaceBorder}
-              strokeWidth={7}
-            />
-            {/* Progress arc — depletes left-to-right as time runs out */}
-            {phase === 'active' && (
+        {/* Circular timer — hidden on CV drills to save vertical space */}
+        {!cvEnabled && (
+          <TouchableOpacity
+            style={styles.timerWrap}
+            onPress={phase === 'active' ? togglePause : undefined}
+            activeOpacity={phase === 'active' ? 0.85 : 1}
+          >
+            <Svg width={200} height={200} viewBox="0 0 120 120">
               <SvgCircle
                 cx={60} cy={60} r={TIMER_R}
-                fill="none"
-                stroke={isPaused ? Colors.textMuted : Colors.primary}
-                strokeWidth={7}
-                strokeDasharray={String(TIMER_CIRC)}
-                strokeDashoffset={dashOffset}
-                strokeLinecap="round"
-                transform="rotate(-90 60 60)"
+                fill="none" stroke={Colors.surfaceBorder} strokeWidth={7}
               />
-            )}
-            {/* Idle full ring for countdown phase */}
-            {phase === 'countdown' && (
-              <SvgCircle
-                cx={60} cy={60} r={TIMER_R}
-                fill="none"
-                stroke={Colors.primary}
-                strokeWidth={7}
-                opacity={0.25}
-              />
-            )}
-          </Svg>
+              {phase === 'active' && (
+                <SvgCircle
+                  cx={60} cy={60} r={TIMER_R}
+                  fill="none"
+                  stroke={isPaused ? Colors.textMuted : Colors.primary}
+                  strokeWidth={7}
+                  strokeDasharray={String(TIMER_CIRC)}
+                  strokeDashoffset={dashOffset}
+                  strokeLinecap="round"
+                  transform="rotate(-90 60 60)"
+                />
+              )}
+              {phase === 'countdown' && (
+                <SvgCircle
+                  cx={60} cy={60} r={TIMER_R}
+                  fill="none" stroke={Colors.primary}
+                  strokeWidth={7} opacity={0.25}
+                />
+              )}
+            </Svg>
 
-          <View style={styles.timerInner} pointerEvents="none">
-            {phase === 'active' ? (
-              isPaused ? (
-                <Play size={40} color={Colors.primary} fill={Colors.primary} />
+            <View style={styles.timerInner} pointerEvents="none">
+              {phase === 'active' ? (
+                isPaused ? (
+                  <Play size={40} color={Colors.primary} fill={Colors.primary} />
+                ) : (
+                  <>
+                    <Text style={styles.timerDigits}>{formatTime(timeRemaining)}</Text>
+                    <Text style={styles.timerHint}>TAP TO PAUSE</Text>
+                  </>
+                )
               ) : (
-                <>
-                  <Text style={styles.timerDigits}>{formatTime(timeRemaining)}</Text>
-                  <Text style={styles.timerHint}>TAP TO PAUSE</Text>
-                </>
-              )
-            ) : (
-              <Text style={styles.timerDigitsMuted}>
-                {formatTime(drillDurationToSeconds(currentDrill?.time))}
-              </Text>
+                <Text style={styles.timerDigitsMuted}>
+                  {formatTime(drillDurationToSeconds(currentDrill?.time))}
+                </Text>
+              )}
+            </View>
+          </TouchableOpacity>
+        )}
+
+        {/* Compact timer for CV drills */}
+        {cvEnabled && (
+          <TouchableOpacity
+            style={styles.timerCompact}
+            onPress={phase === 'active' ? togglePause : undefined}
+            activeOpacity={phase === 'active' ? 0.85 : 1}
+          >
+            <Text style={styles.timerCompactDigits}>
+              {phase === 'active' ? formatTime(timeRemaining) : formatTime(drillDurationToSeconds(currentDrill?.time))}
+            </Text>
+            {phase === 'active' && (
+              <Text style={styles.timerCompactHint}>{isPaused ? 'TAP TO RESUME' : 'TAP TO PAUSE'}</Text>
             )}
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        )}
 
         {/* Coaching points */}
         {(currentDrill?.coachingPoints?.length ?? 0) > 0 && (
           <View style={styles.coachSection}>
             <Text style={styles.coachSectionHeader}>COACHING POINTS</Text>
-            {currentDrill!.coachingPoints.slice(0, 3).map((pt, i) => (
+            {currentDrill!.coachingPoints.slice(0, cvEnabled ? 2 : 3).map((pt, i) => (
               <View key={i} style={styles.coachRow}>
                 <View style={styles.coachDot} />
                 <Text style={styles.coachText}>{pt}</Text>
@@ -446,7 +519,7 @@ export default function SessionScreen() {
         )}
 
         {/* Next drill preview */}
-        {nextDrill && (
+        {nextDrill && !cvEnabled && (
           <View style={styles.nextWrap}>
             <Text style={styles.nextLabel}>UP NEXT</Text>
             <Text style={styles.nextName} numberOfLines={1}>{nextDrill.name}</Text>
@@ -455,7 +528,7 @@ export default function SessionScreen() {
         )}
       </ScrollView>
 
-      {/* Bottom controls — always visible above keyboard/nav */}
+      {/* Bottom controls */}
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
         <TouchableOpacity
           style={[styles.sideBtn, drillIdx === 0 && styles.sideBtnDisabled]}
@@ -476,11 +549,7 @@ export default function SessionScreen() {
           <Text style={styles.primaryBtnText}>{isLastDrill ? 'Finish' : 'Complete'}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.sideBtn}
-          onPress={handleSkip}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity style={styles.sideBtn} onPress={handleSkip} activeOpacity={0.7}>
           <Text style={styles.sideBtnText}>Skip</Text>
           <ChevronRight size={18} color={Colors.textPrimary} />
         </TouchableOpacity>
@@ -495,13 +564,8 @@ export default function SessionScreen() {
         />
       )}
 
-      {/* Feedback bottom sheet */}
-      <Modal
-        visible={phase === 'feedback'}
-        transparent
-        animationType="slide"
-        statusBarTranslucent
-      >
+      {/* Feedback modal */}
+      <Modal visible={phase === 'feedback'} transparent animationType="slide" statusBarTranslucent>
         <View style={styles.modalOverlay}>
           <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
             <View style={styles.sheetHandle} />
@@ -527,7 +591,7 @@ export default function SessionScreen() {
         </View>
       </Modal>
 
-      {/* Drill list bottom sheet */}
+      {/* Drill list modal */}
       <Modal
         visible={showDrillList}
         transparent
@@ -539,10 +603,7 @@ export default function SessionScreen() {
             <View style={styles.sheetHandle} />
             <View style={styles.listSheetHeader}>
               <Text style={styles.listSheetTitle}>Today's Drills</Text>
-              <TouchableOpacity
-                onPress={() => setShowDrillList(false)}
-                hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
-              >
+              <TouchableOpacity onPress={() => setShowDrillList(false)} hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}>
                 <X size={20} color={Colors.textMuted} />
               </TouchableOpacity>
             </View>
@@ -552,14 +613,8 @@ export default function SessionScreen() {
                 const isCurrent = i === drillIdx;
                 const tc        = TYPE_CONFIG[drill.type] ?? TYPE_CONFIG.skill;
                 return (
-                  <View
-                    key={drill.id + i}
-                    style={[styles.listRow, isCurrent && styles.listRowCurrent]}
-                  >
-                    <View style={[
-                      styles.listNum,
-                      isDone && styles.listNumDone,
-                    ]}>
+                  <View key={drill.id + i} style={[styles.listRow, isCurrent && styles.listRowCurrent]}>
+                    <View style={[styles.listNum, isDone && styles.listNumDone]}>
                       {isDone
                         ? <Check size={11} color={Colors.white} strokeWidth={3} />
                         : <Text style={[styles.listNumText, isCurrent && { color: Colors.primary }]}>{i + 1}</Text>
@@ -607,12 +662,10 @@ function drillDurationToSeconds(timeStr?: string): number {
 // ===== Styles =====
 
 const styles = StyleSheet.create({
+  container:   { flex: 1, backgroundColor: Colors.background },
+  body:        { paddingHorizontal: 20, paddingTop: 4 },
+  bodyCompact: { paddingTop: 2 },
 
-  // ── Layout ──
-  container: { flex: 1, backgroundColor: Colors.background },
-  body: { paddingHorizontal: 20, paddingTop: 4 },
-
-  // ── Empty state ──
   emptyText: {
     color: Colors.textSecondary, fontSize: 16, textAlign: 'center',
     marginTop: 120, paddingHorizontal: 24,
@@ -624,7 +677,6 @@ const styles = StyleSheet.create({
   },
   emptyBtnText: { color: Colors.buttonDarkText, fontWeight: '700', fontSize: 14 },
 
-  // ── Top bar ──
   topBar: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, paddingTop: 8, paddingBottom: 12, gap: 12,
@@ -636,7 +688,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   segments: { flex: 1, flexDirection: 'row', gap: 4, height: 4 },
-  seg: { flex: 1, height: 4, borderRadius: 2, backgroundColor: Colors.surfaceBorder },
+  seg:       { flex: 1, height: 4, borderRadius: 2, backgroundColor: Colors.surfaceBorder },
   segDone:   { backgroundColor: Colors.primary },
   segActive: { backgroundColor: Colors.primary, opacity: 0.45 },
   listBtnWrap: { flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -644,17 +696,24 @@ const styles = StyleSheet.create({
     fontSize: 12, fontWeight: '700', color: Colors.textMuted, letterSpacing: 0.2,
   },
 
-  // ── Shared type tag ──
+  // CV camera
+  cameraContainer: {
+    height: 240,
+    marginHorizontal: 0,
+    backgroundColor: '#000',
+    overflow: 'hidden',
+  },
+
+  // Shared type tag
   typeTag: {
     paddingHorizontal: 9, paddingVertical: 4, borderRadius: 100, alignSelf: 'flex-start',
   },
   typeTagText: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
 
-  // ── Drill info card ──
   drillCard: {
     backgroundColor: Colors.surface,
     borderRadius: 20, borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 20, marginBottom: 20,
+    padding: 20, marginBottom: 16,
   },
   drillName: {
     fontSize: 26, fontWeight: '800', color: Colors.textPrimary,
@@ -662,54 +721,51 @@ const styles = StyleSheet.create({
   },
   drillTime: { fontSize: 14, color: Colors.textMuted, fontWeight: '500' },
 
-  // ── Circular timer ──
+  // Full timer (non-CV drills)
   timerWrap: {
     width: 200, height: 200,
     alignSelf: 'center', alignItems: 'center', justifyContent: 'center',
     marginBottom: 20,
   },
-  timerInner: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  timerDigits: {
-    fontSize: 44, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1.5,
+  timerInner:      { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
+  timerDigits:     { fontSize: 44, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1.5 },
+  timerDigitsMuted:{ fontSize: 44, fontWeight: '800', color: Colors.textMuted, letterSpacing: -1.5 },
+  timerHint:       { fontSize: 9, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginTop: 4 },
+
+  // Compact timer (CV drills)
+  timerCompact: {
+    alignSelf: 'center', alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    paddingVertical: 10, paddingHorizontal: 20, marginBottom: 12,
   },
-  timerDigitsMuted: {
-    fontSize: 44, fontWeight: '800', color: Colors.textMuted, letterSpacing: -1.5,
+  timerCompactDigits: {
+    fontSize: 32, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1,
   },
-  timerHint: {
-    fontSize: 9, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.2, marginTop: 4,
+  timerCompactHint: {
+    fontSize: 9, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginTop: 2,
   },
 
-  // ── Coaching points ──
-  coachSection: { marginBottom: 16 },
+  coachSection:       { marginBottom: 16 },
   coachSectionHeader: {
-    fontSize: 10, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 10,
+    fontSize: 10, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5, marginBottom: 10,
   },
-  coachRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
-  coachDot: {
+  coachRow:  { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 8 },
+  coachDot:  {
     width: 5, height: 5, borderRadius: 3, backgroundColor: Colors.primary,
     marginTop: 7, flexShrink: 0,
   },
   coachText: { flex: 1, fontSize: 14, color: Colors.textSecondary, lineHeight: 20 },
 
-  // ── Next drill ──
   nextWrap: {
     backgroundColor: Colors.surface,
     borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder,
     padding: 14, marginTop: 4,
   },
-  nextLabel: {
-    fontSize: 9, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.2, marginBottom: 4,
-  },
-  nextName: {
-    fontSize: 14, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.2, marginBottom: 2,
-  },
-  nextTime: { fontSize: 12, color: Colors.textMuted, fontWeight: '500' },
+  nextLabel: { fontSize: 9, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginBottom: 4 },
+  nextName:  { fontSize: 14, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.2, marginBottom: 2 },
+  nextTime:  { fontSize: 12, color: Colors.textMuted, fontWeight: '500' },
 
-  // ── Bottom controls ──
   bottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     flexDirection: 'row', alignItems: 'center',
@@ -724,20 +780,15 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface, minWidth: 76, justifyContent: 'center',
   },
   sideBtnDisabled: { opacity: 0.35 },
-  sideBtnText: { fontSize: 13, fontWeight: '600', color: Colors.textPrimary },
+  sideBtnText:     { fontSize: 13, fontWeight: '600', color: Colors.textPrimary },
   primaryBtn: {
     flex: 1, marginHorizontal: 10,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: Colors.buttonDark, paddingVertical: 14, borderRadius: 100,
   },
-  primaryBtnText: {
-    fontSize: 15, fontWeight: '700', color: Colors.buttonDarkText, letterSpacing: -0.2,
-  },
+  primaryBtnText: { fontSize: 15, fontWeight: '700', color: Colors.buttonDarkText, letterSpacing: -0.2 },
 
-  // ── Modal shared ──
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end',
-  },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.42)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
@@ -747,91 +798,62 @@ const styles = StyleSheet.create({
     width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.surfaceBorder,
     alignSelf: 'center', marginBottom: 20,
   },
-  sheetTitle: {
-    fontSize: 18, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.3, marginBottom: 4,
-  },
-  sheetSub: { fontSize: 13, color: Colors.textMuted, marginBottom: 20 },
+  sheetTitle: { fontSize: 18, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3, marginBottom: 4 },
+  sheetSub:   { fontSize: 13, color: Colors.textMuted, marginBottom: 20 },
 
-  // ── Feedback sheet ──
   feedbackBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
     backgroundColor: Colors.background,
     borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder,
     paddingVertical: 14, paddingHorizontal: 18, marginBottom: 10,
   },
-  feedbackEmoji: { fontSize: 20 },
+  feedbackEmoji:   { fontSize: 20 },
   feedbackBtnText: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary },
-  skipFeedback: { alignItems: 'center', paddingVertical: 12, marginTop: 2 },
-  skipFeedbackText: { fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
+  skipFeedback:    { alignItems: 'center', paddingVertical: 12, marginTop: 2 },
+  skipFeedbackText:{ fontSize: 13, color: Colors.textMuted, fontWeight: '500' },
 
-  // ── Drill list sheet ──
   listSheet: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: 28, borderTopRightRadius: 28,
     paddingHorizontal: 20, paddingTop: 12, maxHeight: '82%',
   },
   listSheetHeader: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16,
   },
-  listSheetTitle: {
-    fontSize: 16, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3,
-  },
+  listSheetTitle: { fontSize: 16, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3 },
   listRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
   },
   listRowCurrent: {
-    backgroundColor: Colors.primary + '0D',
-    borderRadius: 10, paddingHorizontal: 8, marginHorizontal: -8,
+    backgroundColor: Colors.primary + '0D', borderRadius: 10, paddingHorizontal: 8, marginHorizontal: -8,
   },
   listNum: {
     width: 26, height: 26, borderRadius: 13, flexShrink: 0,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
-  listNumDone: {
-    backgroundColor: Colors.primary, borderColor: Colors.primary,
-  },
-  listNumText: { fontSize: 11, fontWeight: '700', color: Colors.textMuted },
-  listInfo: { flex: 1 },
-  listDrillName: {
-    fontSize: 14, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2,
-  },
-  listDrillTime: { fontSize: 12, color: Colors.textMuted, marginTop: 1 },
+  listNumDone:  { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  listNumText:  { fontSize: 11, fontWeight: '700', color: Colors.textMuted },
+  listInfo:     { flex: 1 },
+  listDrillName:{ fontSize: 14, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2 },
+  listDrillTime:{ fontSize: 12, color: Colors.textMuted, marginTop: 1 },
 
-  // ── Complete screen ──
-  completeScroll: { paddingHorizontal: 24, paddingTop: 28, alignItems: 'center' },
-  completeAccent: {
-    width: 48, height: 4, borderRadius: 2,
-    backgroundColor: Colors.primary, marginBottom: 28,
-  },
-  completeTag: {
-    fontSize: 11, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 2, marginBottom: 10,
-  },
-  completeTitle: {
-    fontSize: 42, fontWeight: '900', color: Colors.textPrimary,
-    letterSpacing: -1.5, marginBottom: 6,
-  },
-  completeSub: { fontSize: 14, fontWeight: '500', color: Colors.textMuted, marginBottom: 32 },
+  completeScroll:    { paddingHorizontal: 24, paddingTop: 28, alignItems: 'center' },
+  completeAccent:    { width: 48, height: 4, borderRadius: 2, backgroundColor: Colors.primary, marginBottom: 28 },
+  completeTag:       { fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 2, marginBottom: 10 },
+  completeTitle:     { fontSize: 42, fontWeight: '900', color: Colors.textPrimary, letterSpacing: -1.5, marginBottom: 6 },
+  completeSub:       { fontSize: 14, fontWeight: '500', color: Colors.textMuted, marginBottom: 32 },
   completeStats: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.surface,
     borderRadius: 20, borderWidth: 1, borderColor: Colors.surfaceBorder,
-    paddingVertical: 20, paddingHorizontal: 28, width: '100%',
-    marginBottom: 24, gap: 20,
+    paddingVertical: 20, paddingHorizontal: 28, width: '100%', marginBottom: 24, gap: 20,
   },
-  completeStat: { alignItems: 'center' },
-  completeStatVal: {
-    fontSize: 28, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1,
-  },
-  completeStatLbl: {
-    fontSize: 10, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginTop: 2,
-  },
-  completeStatDiv: { width: 1, height: 40, backgroundColor: Colors.surfaceBorder },
+  completeStat:      { alignItems: 'center' },
+  completeStatVal:   { fontSize: 28, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -1 },
+  completeStatLbl:   { fontSize: 10, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginTop: 2 },
+  completeStatDiv:   { width: 1, height: 40, backgroundColor: Colors.surfaceBorder },
   completeDrillCard: {
     width: '100%', marginBottom: 28,
     backgroundColor: Colors.surface,
@@ -847,12 +869,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary + '1A', borderWidth: 1.5, borderColor: Colors.primary,
     alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  completeDrillName: {
-    flex: 1, fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2,
-  },
+  completeDrillName: { flex: 1, fontSize: 13, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2 },
   completeBtn: {
-    backgroundColor: Colors.buttonDark,
-    paddingHorizontal: 56, paddingVertical: 16, borderRadius: 100, marginBottom: 8,
+    backgroundColor: Colors.buttonDark, paddingHorizontal: 56, paddingVertical: 16, borderRadius: 100, marginBottom: 8,
   },
   completeBtnText: { color: Colors.buttonDarkText, fontWeight: '700', fontSize: 15 },
 });
