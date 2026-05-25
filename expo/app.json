@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "athlt",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -20,7 +20,7 @@
         "NSMicrophoneUsageDescription": "ATHLT may record audio during shooting sessions for performance analysis.",
         "ITSAppUsesNonExemptEncryption": false
       },
-      "bundleIdentifier": "com.1westari4.soq1hf2k3yx1ie9heuqn3"
+      "bundleIdentifier": "com.athlt.app"
     },
     "android": {
       "adaptiveIcon": {
