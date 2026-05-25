@@ -59,9 +59,9 @@ const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string }> =
 };
 
 const FEEDBACK_OPTIONS: Array<{ rating: FeedbackRating; label: string; emoji: string }> = [
-  { rating: 'too_easy',   label: 'Too Easy',   emoji: '💪' },
+  { rating: 'too_easy',   label: 'Too Easy',   emoji: 'E' },
   { rating: 'just_right', label: 'Just Right', emoji: '✓'  },
-  { rating: 'too_hard',   label: 'Too Hard',   emoji: '😅' },
+  { rating: 'too_hard',   label: 'Too Hard',   emoji: 'H' },
 ];
 
 type Phase = 'countdown' | 'active' | 'feedback' | 'complete';
