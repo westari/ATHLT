@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat \"C:\\\\Users\\\\arize\\\\ATHLT\\\\api\\\\build-workout.js\")",
+      "Read(//c/Users/arize/ATHLT/api/**)",
+      "Bash(ls \"C:\\\\Users\\\\arize\\\\ATHLT\")",
+      "Read(//c/Users/arize/ATHLT/**)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(git *)",
+      "Bash(npm *)",
+      "Bash(npx tsc *)"
+    ]
+  }
+}

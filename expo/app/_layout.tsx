@@ -1,4 +1,5 @@
 import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import {
@@ -58,6 +59,8 @@ export default function RootLayout() {
 
   return (
     <View style={s.container} onLayout={onLayoutRootView}>
+      {/* dark = dark icons/text on light background */}
+      <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="session" />
