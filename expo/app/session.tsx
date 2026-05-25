@@ -234,7 +234,7 @@ export default function SessionScreen() {
       <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <Stack.Screen options={{ headerShown: false }} />
         <Text style={styles.emptyText}>
-          {!plan || !day ? 'No plan loaded.' : 'No drills in today's workout.'}
+          {!plan || !day ? 'No plan loaded.' : "No drills in today's workout."}
         </Text>
         <TouchableOpacity style={styles.emptyBtn} onPress={onExit} activeOpacity={0.8}>
           <Text style={styles.emptyBtnText}>Back home</Text>
