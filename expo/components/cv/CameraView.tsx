@@ -116,7 +116,10 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
   const frameProcessor = hasCameraPackage && useFrameProcessor && onDetectionsJS
     ? useFrameProcessor((frame: any) => {
         'worklet';
-        if (!activeRef.current) return;
+        // No activeRef check here — React refs are not accessible in the worklet
+        // thread context. VisionCamera's isActive={active} prop stops frame delivery
+        // when active is false. The check in onDetectionsJS (JS thread) handles any
+        // stale frames that arrive during the transition.
         const result = detectShots(frame, { minConfidence: 0.35 });
         onDetectionsJS(result.detections, result.timestampMs);
       }, [onDetectionsJS])
