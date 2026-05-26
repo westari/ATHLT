@@ -121,7 +121,7 @@ plan generation context (optional future integration)
 Install after Apple Developer account is active and EAS dev client is set up:
 
 ```bash
-npm install react-native-vision-camera@5.0.10 react-native-worklets-core --legacy-peer-deps --save
+npm install react-native-vision-camera@4.3.1 react-native-worklets-core --legacy-peer-deps --save
 ```
 
 Then add the worklets Babel plugin to `babel.config.js`:
@@ -132,8 +132,10 @@ plugins: ['react-native-worklets-core/plugin']
 Then EAS build (each package that adds native iOS code requires a fresh build).
 
 **Package roles:**
-- `react-native-vision-camera@5.0.10` — camera feed + frame processor pipeline
+- `react-native-vision-camera@4.3.1` — camera feed + frame processor pipeline (v4 API)
 - `react-native-worklets-core` — runs frame processor on a C++ thread (not main/JS thread)
+
+**Why 4.3.1, not 5.x:** VisionCamera 5.0.10+ is the Nitro Modules rewrite with a completely different API — no `useFrameProcessor`, no `FrameProcessorPlugin`. The Swift plugin uses the v4 `FrameProcessorPluginRegistry` API which only exists in v4.
 
 **Not yet installed** (Phase 2):
 - `react-native-mediapipe-posedetection` — 33-landmark pose for release angle
