@@ -93,25 +93,3 @@ public class ShotDetectorFrameProcessor: FrameProcessorPlugin {
   }
 }
 
-// MARK: - Plugin Registration
-
-/// Registers "detectShots" with VisionCamera's plugin registry.
-///
-/// The @objc + NSObject + static func load() pattern triggers via ObjC +load,
-/// which the runtime calls when the binary is loaded — before any app code runs.
-/// This guarantees the plugin is available before the first camera frame.
-///
-/// If the linker dead-strips this class in a release build, add
-/// "-ObjC" to Other Linker Flags in the Xcode target's Build Settings.
-
-@objc(ShotDetectorFrameProcessorRegister)
-class ShotDetectorFrameProcessorRegister: NSObject {
-  @objc static func load() {
-    FrameProcessorPluginRegistry.addFrameProcessorPlugin(
-      "detectShots",
-      withInitializer: { proxy, options in
-        ShotDetectorFrameProcessor(proxy: proxy, options: options)
-      }
-    )
-  }
-}
