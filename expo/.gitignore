@@ -9,9 +9,9 @@ dist/
 web-build/
 expo-env.d.ts
 
-# Native
-ios/
-android/
+# Native (anchored to repo root — preserves modules/shot-detector/ios/ tracking)
+/ios/
+/android/
 *.orig.*
 *.jks
 *.p8
