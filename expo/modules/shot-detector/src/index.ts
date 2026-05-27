@@ -1,45 +1,24 @@
-/**
- * JS bindings for the ShotDetector native module.
- *
- * The native module exposes two things:
- *  1. ShotDetectorModule — Expo native module with loadModel() for startup init
- *  2. detectShots — VisionCamera frame processor plugin for per-frame inference
- *
- * Usage:
- *   import { loadModel, detectShots } from '@/modules/shot-detector';
- *
- *   // At app startup (e.g., in _layout.tsx or when CV session starts):
- *   const result = await loadModel();
- *
- *   // Inside a VisionCamera useFrameProcessor:
- *   const frameProcessor = useFrameProcessor((frame) => {
- *     'worklet';
- *     const result = detectShots(frame, { minConfidence: 0.35 });
- *     onResult(result.detections);
- *   }, []);
- */
-
-import { requireNativeModule, requireOptionalNativeModule } from 'expo-modules-core';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import type { ModelLoadResult, Detection, FrameProcessorResult, FrameProcessorArgs } from './ShotDetector.types';
 
-// ---- Native Module (Expo Modules API) ----
-// Gracefully no-ops when the native module isn't compiled in (Expo Go, web).
+// ---- Native Module (loadModel) ----
 
 const ShotDetectorNative = requireOptionalNativeModule<{
   loadModel(): Promise<ModelLoadResult>;
 }>('ShotDetector');
 
 /**
- * Load the CoreML model into memory. Call this once before starting any CV
- * session. The model is bundled via the withCoreMLModel config plugin.
- *
- * Returns { loaded: true } on success, { loaded: false, error: '...' } on failure.
- * On platforms without the native module (Expo Go, web), returns a stub result.
+ * Load the CoreML model into memory. Call once before starting a CV session.
+ * Returns { loaded: false, error: '...' } gracefully when native module is absent
+ * (Expo Go, web, simulator without the dev client build).
  */
 export async function loadModel(): Promise<ModelLoadResult> {
   if (!ShotDetectorNative) {
-    console.warn('[ShotDetector] Native module not available. Running in stub mode.');
-    return { loaded: false, modelName: 'stub', error: 'Native module not compiled in. Use EAS dev client build.' };
+    return {
+      loaded: false,
+      modelName: 'stub',
+      error: 'Native module not compiled in. Use EAS dev client build.',
+    };
   }
   try {
     return await ShotDetectorNative.loadModel();
@@ -48,45 +27,39 @@ export async function loadModel(): Promise<ModelLoadResult> {
   }
 }
 
-// ---- Frame Processor Plugin (VisionCamera) ----
-// The `detectShots` function is registered as a VisionCamera frame processor
-// plugin in ShotDetectorFrameProcessor.swift. It runs synchronously on the
-// VisionCamera JS-Runtime thread (not main thread, not UI thread).
+// ---- Frame Processor Plugin (detectShots) ----
 //
-// The `plugin()` import from 'react-native-vision-camera' creates a worklet-
-// compatible function reference backed by the native Swift implementation.
+// VisionCamera 4.x: VisionCameraProxy.initFrameProcessorPlugin returns a
+// FrameProcessorPlugin object. Call it via plugin.call(frame, options).
+// Must be initialized outside the worklet (module scope), then captured.
 
-let _detectShots: ((frame: any, args?: FrameProcessorArgs) => FrameProcessorResult) | null = null;
+let _plugin: any = null;
 
 try {
-  // Only import if VisionCamera is installed
-  const VisionCamera = require('react-native-vision-camera');
-  if (VisionCamera.VisionCameraProxy) {
-    _detectShots = VisionCamera.VisionCameraProxy.initFrameProcessorPlugin('detectShots', {});
+  const VC = require('react-native-vision-camera');
+  if (VC?.VisionCameraProxy?.initFrameProcessorPlugin) {
+    _plugin = VC.VisionCameraProxy.initFrameProcessorPlugin('detectShots', {});
   }
 } catch {
-  // VisionCamera not installed yet — this is fine, will be installed before EAS build
+  // VisionCamera not installed — fine, guarded below
 }
 
 /**
- * VisionCamera frame processor plugin.
+ * VisionCamera 4.x frame processor plugin.
  *
- * Must be called inside a `useFrameProcessor` worklet:
+ * Call inside useFrameProcessor:
  *   const frameProcessor = useFrameProcessor((frame) => {
  *     'worklet';
- *     const result = detectShots(frame, { minConfidence: 0.4 });
- *     ...
+ *     const result = detectShots(frame, { minConfidence: 0.35 });
+ *     onResult(result.detections, result.timestampMs);
  *   }, []);
- *
- * Returns detections array + frame metadata.
- * Returns empty detections when the model is not loaded or plugin is unavailable.
  */
 export function detectShots(frame: any, args?: FrameProcessorArgs): FrameProcessorResult {
   'worklet';
-  if (_detectShots == null) {
+  if (_plugin == null) {
     return { detections: [], timestampMs: 0, frameWidth: 0, frameHeight: 0 };
   }
-  return _detectShots(frame, args) as FrameProcessorResult;
+  return _plugin.call(frame, args ?? {}) as FrameProcessorResult;
 }
 
 export type { ModelLoadResult, Detection, FrameProcessorResult, FrameProcessorArgs };

@@ -1,9 +1,6 @@
 {
-  "name": "shot-detector",
   "platforms": ["ios"],
   "ios": {
-    "modules": ["ShotDetectorModule"],
-    "appDelegateSubscribers": [],
-    "reactNativeComponentNames": []
+    "modules": ["ShotDetectorModule"]
   }
 }

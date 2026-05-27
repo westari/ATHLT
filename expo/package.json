@@ -47,6 +47,7 @@
     "react-native-svg": "^15.12.1",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-vision-camera": "^4.3.1",
+    "shot-detector": "file:./modules/shot-detector",
     "react-native-web": "^0.21.0",
     "react-native-web-webview": "^1.0.2",
     "react-native-webview": "^13.15.0",
