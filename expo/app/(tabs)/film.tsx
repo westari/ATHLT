@@ -783,8 +783,8 @@ const styles = StyleSheet.create({
     fontSize: 11, fontWeight: '700', letterSpacing: 1.5, color: Colors.textMuted,
   },
   drillRecCard: {
-    backgroundColor: Colors.surface, borderRadius: 14,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.hairline,
     marginBottom: 10, overflow: 'hidden',
   },
   drillRecMain: {
@@ -847,19 +847,18 @@ const styles = StyleSheet.create({
 
   // ===== ACTION CARDS (upload / record) — light theme =====
   actionCards: {
-    paddingHorizontal: 20, gap: 14,
+    paddingHorizontal: 20, gap: 12,
   },
   actionCard: {
     backgroundColor: Colors.surface,
-    borderRadius: 20,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    borderRadius: 22,
+    borderWidth: 1, borderColor: Colors.hairline,
     paddingVertical: 32, paddingHorizontal: 24,
     alignItems: 'center',
   },
   actionCardIcon: {
     width: 72, height: 72, borderRadius: 36,
-    backgroundColor: Colors.background,
-    borderWidth: 2, borderColor: Colors.primary,
+    backgroundColor: Colors.primarySoft,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 18,
   },
@@ -880,8 +879,8 @@ const styles = StyleSheet.create({
   pastFilmCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: Colors.surface,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
-    borderRadius: 14, padding: 14, marginBottom: 8,
+    borderWidth: 1, borderColor: Colors.hairline,
+    borderRadius: 16, padding: 14, marginBottom: 8,
   },
   pastFilmThumbWrap: {
     width: 76, height: 56, borderRadius: 8,

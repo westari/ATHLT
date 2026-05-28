@@ -5,14 +5,15 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import {
-  Home, Video, BookOpen, BarChart3, Plus,
+  Home, Video, Clock, User, Plus,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import PlusActionSheet from '@/components/PlusActionSheet';
 import { usePlanStore } from '@/store/planStore';
+import Colors from '@/constants/colors';
 
-const GOLD = '#D4AF37';
+const GOLD = Colors.primary;
 
 function CustomTabBar({ state, navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -22,23 +23,21 @@ function CustomTabBar({ state, navigation }: any) {
   if (!onboardingComplete) return null;
 
   const tabs = [
-    { name: 'today', label: 'Today', Icon: Home },
-    { name: 'film', label: 'Film', Icon: Video },
-    { name: 'library', label: 'Library', Icon: BookOpen },
-    { name: 'progress', label: 'Progress', Icon: BarChart3 },
+    { name: 'today', label: 'Home', Icon: Home },
+    { name: 'film', label: 'Record', Icon: Video },
+    { name: 'progress', label: 'History', Icon: Clock },
+    { name: 'more', label: 'Profile', Icon: User },
   ];
 
   return (
     <>
       <View style={[styles.barWrap, { paddingBottom: insets.bottom + 10 }]}>
-        {/* Pill — dark forced tint with subtle blur for depth */}
         <View style={styles.pillOuter}>
           <BlurView
             intensity={Platform.OS === 'ios' ? 60 : 90}
             tint="dark"
             style={styles.pillBlur}
           >
-            {/* Dark overlay forces tint regardless of what's behind */}
             <View style={styles.darkOverlay} />
             <View style={styles.pillInner}>
               {tabs.map((tab) => {
@@ -69,7 +68,7 @@ function CustomTabBar({ state, navigation }: any) {
                     <Icon
                       size={22}
                       color={isFocused ? GOLD : 'rgba(255,255,255,0.6)'}
-                      strokeWidth={isFocused ? 2.5 : 2}
+                      strokeWidth={isFocused ? 2.2 : 1.8}
                     />
                     <Text style={[
                       styles.tabLabel,
@@ -85,7 +84,6 @@ function CustomTabBar({ state, navigation }: any) {
           </BlurView>
         </View>
 
-        {/* Plus button */}
         <TouchableOpacity
           style={styles.plusBtn}
           onPress={() => {
@@ -94,7 +92,7 @@ function CustomTabBar({ state, navigation }: any) {
           }}
           activeOpacity={0.85}
         >
-          <Plus size={28} color="#000000" strokeWidth={2.5} />
+          <Plus size={28} color={Colors.textPrimary} strokeWidth={2.5} />
         </TouchableOpacity>
       </View>
 
@@ -111,11 +109,10 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="today" />
       <Tabs.Screen name="film" />
-      <Tabs.Screen name="library" />
       <Tabs.Screen name="progress" />
-      <Tabs.Screen name="more" options={{ href: null }} />
+      <Tabs.Screen name="more" />
+      <Tabs.Screen name="library" options={{ href: null }} />
       <Tabs.Screen name="coachx" options={{ href: null }} />
-      <Tabs.Screen name="_layout" options={{ href: null }} />
     </Tabs>
   );
 }

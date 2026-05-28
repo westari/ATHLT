@@ -82,22 +82,22 @@ export default function ProgressScreen() {
 
         <View style={s.statsRow}>
           <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: '#FBF5E2' }]}>
+            <View style={[s.statIcon, { backgroundColor: Colors.primarySoft }]}>
               <Target size={20} color={Colors.primary} />
             </View>
             <Text style={s.statValue}>{totalSessions}</Text>
             <Text style={s.statLabel}>Sessions</Text>
           </View>
           <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: '#FBE9E9' }]}>
-              <Flame size={20} color={Colors.danger} />
+            <View style={[s.statIcon, { backgroundColor: Colors.courtSoft }]}>
+              <Flame size={20} color={Colors.court} />
             </View>
             <Text style={s.statValue}>{currentStreak}</Text>
             <Text style={s.statLabel}>Day Streak</Text>
           </View>
           <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: '#E8F2EB' }]}>
-              <TrendingUp size={20} color={Colors.success} />
+            <View style={[s.statIcon, { backgroundColor: Colors.primarySoft }]}>
+              <TrendingUp size={20} color={Colors.primary} />
             </View>
             <Text style={s.statValue}>{completionRate}%</Text>
             <Text style={s.statLabel}>Complete</Text>
@@ -207,21 +207,24 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll: { paddingHorizontal: 20 },
   headerTitle: {
-    fontSize: 28, fontWeight: '800', color: Colors.textPrimary,
-    paddingTop: 16, marginBottom: 20,
+    fontSize: 28, fontWeight: '700', color: Colors.textPrimary,
+    letterSpacing: -0.6, paddingTop: 16, marginBottom: 20,
   },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
   statCard: {
-    flex: 1, backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    flex: 1, backgroundColor: Colors.surface, borderRadius: 20,
+    borderWidth: 1, borderColor: Colors.hairline,
     padding: 16, alignItems: 'center',
   },
   statIcon: {
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center', marginBottom: 10,
   },
-  statValue: { fontSize: 24, fontWeight: '800', color: Colors.textPrimary, marginBottom: 4 },
-  statLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500' },
+  statValue: {
+    fontSize: 30, fontWeight: '300', color: Colors.textPrimary,
+    letterSpacing: -1.2, marginBottom: 4, fontVariant: ['tabular-nums'],
+  },
+  statLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500', letterSpacing: 0.5 },
 
   gamesHeader: {
     flexDirection: 'row',
@@ -247,8 +250,8 @@ const s = StyleSheet.create({
   },
 
   section: {
-    backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface, borderRadius: 22,
+    borderWidth: 1, borderColor: Colors.hairline,
     padding: 20, marginBottom: 14, marginTop: 14,
   },
   sectionTitle: {

@@ -146,7 +146,13 @@ export default function MoreScreen() {
         {/* Account card */}
         <View style={s.accountCard}>
           <View style={s.accountIcon}>
-            <User size={24} color={Colors.primary} />
+            {userEmail ? (
+              <Text style={s.accountInitials}>
+                {userEmail.slice(0, 2).toUpperCase()}
+              </Text>
+            ) : (
+              <User size={22} color={Colors.primary} />
+            )}
           </View>
           <View style={s.accountInfo}>
             {isLoadingAuth ? (
@@ -157,7 +163,7 @@ export default function MoreScreen() {
             ) : userEmail ? (
               <>
                 <Text style={s.accountEmail}>{userEmail}</Text>
-                <Text style={s.accountType}>ATHLT Account</Text>
+                <Text style={s.accountType}>ATHLT Member</Text>
               </>
             ) : (
               <>
@@ -255,30 +261,32 @@ const s = StyleSheet.create({
 
   accountCard: {
     flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface, borderRadius: 22,
+    borderWidth: 1, borderColor: Colors.hairline,
     padding: 18, marginBottom: 24,
   },
   accountIcon: {
-    width: 48, height: 48, borderRadius: 24,
-    backgroundColor: '#FBF5E2',
-    borderWidth: 2, borderColor: Colors.primary,
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: Colors.primarySoft,
     alignItems: 'center', justifyContent: 'center',
+  },
+  accountInitials: {
+    fontSize: 18, fontWeight: '700', color: Colors.primary, letterSpacing: -0.3,
   },
   accountInfo: { flex: 1 },
   accountEmail: {
-    fontSize: 16, fontWeight: '700', color: Colors.textPrimary,
+    fontSize: 15, fontWeight: '600', color: Colors.textPrimary,
     marginBottom: 2, letterSpacing: -0.3,
   },
-  accountType: { fontSize: 12, color: Colors.textMuted },
+  accountType: { fontSize: 12, color: Colors.textMuted, letterSpacing: 0.2 },
 
   groupLabel: {
     fontSize: 11, fontWeight: '700', color: Colors.textMuted,
     letterSpacing: 1.5, marginBottom: 10, marginLeft: 4,
   },
   group: {
-    backgroundColor: Colors.surface, borderRadius: 16,
-    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    backgroundColor: Colors.surface, borderRadius: 22,
+    borderWidth: 1, borderColor: Colors.hairline,
     marginBottom: 24, overflow: 'hidden',
   },
   groupItem: {
@@ -287,11 +295,11 @@ const s = StyleSheet.create({
   },
   itemIcon: {
     width: 36, height: 36, borderRadius: 10,
-    backgroundColor: Colors.surfaceBorder,
+    backgroundColor: Colors.inkA8,
     alignItems: 'center', justifyContent: 'center',
   },
   itemIconDanger: {
-    backgroundColor: 'rgba(196, 69, 69, 0.12)',
+    backgroundColor: 'rgba(224, 72, 72, 0.10)',
   },
   itemTextWrap: { flex: 1 },
   itemTitle: {
@@ -306,10 +314,10 @@ const s = StyleSheet.create({
     fontSize: 12, fontWeight: '500', color: Colors.textMuted,
   },
   divider: {
-    height: 1, backgroundColor: Colors.surfaceBorder, marginLeft: 66,
+    height: 1, backgroundColor: Colors.hairline, marginLeft: 66,
   },
 
   version: {
-    fontSize: 12, color: Colors.textMuted, textAlign: 'center', marginBottom: 10,
+    fontSize: 12, color: Colors.textMuted, textAlign: 'center', letterSpacing: 0.3, marginBottom: 10,
   },
 });

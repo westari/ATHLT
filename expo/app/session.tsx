@@ -38,10 +38,10 @@ const TIMER_R    = 54;
 const TIMER_CIRC = 2 * Math.PI * TIMER_R;
 
 const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-  warmup:       { bg: '#FFF3E0', text: '#BF5700', label: 'WARMUP' },
-  skill:        { bg: '#EBF4FF', text: '#1A56DB', label: 'SKILL WORK' },
-  shooting:     { bg: '#FFFBEB', text: '#926000', label: 'SHOOTING' },
-  conditioning: { bg: '#FEF2F2', text: '#B91C1C', label: 'CONDITIONING' },
+  warmup:       { bg: Colors.primarySoft,  text: Colors.primaryPressed, label: 'WARMUP' },
+  skill:        { bg: Colors.marineSoft,   text: Colors.marine,         label: 'SKILL WORK' },
+  shooting:     { bg: Colors.primarySoft,  text: '#926000',             label: 'SHOOTING' },
+  conditioning: { bg: Colors.courtSoft,    text: Colors.court,          label: 'CONDITIONING' },
 };
 
 const FEEDBACK_OPTIONS: Array<{ rating: FeedbackRating; label: string; emoji: string }> = [

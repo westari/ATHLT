@@ -654,10 +654,10 @@ export default function TodayScreen() {
   if (appState === 'loading') return <View style={[s.c, { paddingTop: insets.top }]} />;
 
   if (appState === 'ageGate') return (
-    <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: '#0A0A0A' }]}>
+    <View style={[s.c, { paddingTop: insets.top, paddingBottom: insets.bottom, backgroundColor: Colors.background }]}>
       <View style={s.qh}>
         <TouchableOpacity onPress={() => setAppState('onboarding')} style={s.bb}>
-          <Text style={[s.bt, { color: 'rgba(255,255,255,0.55)' }]}>←</Text>
+          <Text style={[s.bt, { color: Colors.textSecondary }]}>←</Text>
         </TouchableOpacity>
       </View>
       <View style={{ flex: 1, paddingHorizontal: 28, paddingTop: 32 }}>
@@ -667,10 +667,10 @@ export default function TodayScreen() {
             AGE REQUIREMENT
           </Text>
         </View>
-        <Text style={{ fontSize: 26, fontWeight: '700', color: '#FFFFFF', letterSpacing: -0.8, lineHeight: 32, marginBottom: 16 }}>
+        <Text style={{ fontSize: 26, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.8, lineHeight: 32, marginBottom: 16 }}>
           ATHLT is for ages{'\n'}14 and up.
         </Text>
-        <Text style={{ fontSize: 15, color: 'rgba(255,255,255,0.5)', lineHeight: 22, letterSpacing: -0.1 }}>
+        <Text style={{ fontSize: 15, color: Colors.textSecondary, lineHeight: 22, letterSpacing: -0.1 }}>
           Come back when you're a little older — we'll be here.
         </Text>
       </View>
@@ -696,7 +696,7 @@ export default function TodayScreen() {
           Answer a few questions. Get a plan that matches your level, role, and goals — not generic drills.
         </Text>
         <TouchableOpacity
-          style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center' }}
+          style={{ backgroundColor: Colors.buttonDark, borderRadius: 100, paddingVertical: 18, alignItems: 'center' }}
           onPress={() => {
             if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setStepIndex(0);
@@ -722,7 +722,7 @@ export default function TodayScreen() {
         <TouchableOpacity
           style={{
             marginTop: 32, paddingVertical: 14, paddingHorizontal: 16,
-            backgroundColor: '#FBF5E2', borderRadius: 12, borderWidth: 1,
+            backgroundColor: Colors.primarySoft, borderRadius: 12, borderWidth: 1,
             borderColor: Colors.primary, alignItems: 'center',
           }}
           onPress={debugJumpToClimax}
@@ -1020,7 +1020,7 @@ export default function TodayScreen() {
           <Text style={{ fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.5, marginBottom: 14, textAlign: 'center' }}>DID I READ YOU RIGHT?</Text>
 
           <TouchableOpacity
-            style={{ backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center', marginBottom: 10 }}
+            style={{ backgroundColor: Colors.buttonDark, borderRadius: 100, paddingVertical: 18, alignItems: 'center', marginBottom: 10 }}
             onPress={handleReadbackYes}
             activeOpacity={0.85}
           >
@@ -1152,7 +1152,7 @@ export default function TodayScreen() {
             <Text style={{ fontSize: 22, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.5 }}>{loadingProgress}%</Text>
           </View>
           <View style={{ width: '100%', height: 6, backgroundColor: Colors.surfaceBorder, borderRadius: 3, overflow: 'hidden' }}>
-            <Animated.View style={{ height: 6, backgroundColor: '#1A1A1A', borderRadius: 3, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
+            <Animated.View style={{ height: 6, backgroundColor: Colors.buttonDark, borderRadius: 3, width: progressAnim.interpolate({ inputRange: [0, 100], outputRange: ['0%', '100%'] }) }} />
           </View>
         </View>
         <Text style={{ fontSize: 28, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8, letterSpacing: -0.8 }}>Coach X is working</Text>
@@ -1164,9 +1164,9 @@ export default function TodayScreen() {
             const isPending = i > currentLoadingStep;
             return (
               <View key={i} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, opacity: isPending ? 0.35 : 1 }}>
-                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isDone ? '#1A1A1A' : 'transparent', borderWidth: isDone ? 0 : 1.5, borderColor: isCurrent ? '#1A1A1A' : Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
+                <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: isDone ? Colors.buttonDark : 'transparent', borderWidth: isDone ? 0 : 1.5, borderColor: isCurrent ? Colors.buttonDark : Colors.surfaceBorder, alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
                   {isDone && <Text style={{ color: Colors.white, fontSize: 13, fontWeight: '700' }}>✓</Text>}
-                  {isCurrent && <ActivityIndicator size="small" color="#1A1A1A" />}
+                  {isCurrent && <ActivityIndicator size="small" color={Colors.buttonDark} />}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontSize: 16, fontWeight: isCurrent ? '600' : '500', color: isDone ? Colors.textPrimary : isCurrent ? Colors.textPrimary : Colors.textMuted, letterSpacing: -0.2 }}>{step}</Text>
@@ -1207,12 +1207,12 @@ const s = StyleSheet.create({
   pt: { height: 4, backgroundColor: Colors.surfaceBorder, borderRadius: 2, overflow: 'hidden' },
   pf: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-  sectionIconWrap: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#FBF5E2', borderWidth: 1, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
+  sectionIconWrap: { width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.primarySoft, borderWidth: 1, borderColor: Colors.primary, alignItems: 'center', justifyContent: 'center' },
   qs: { fontSize: 11, fontWeight: '700', color: Colors.primary, letterSpacing: 1.5 },
   qq: { fontSize: 26, fontWeight: '700', color: Colors.textPrimary, lineHeight: 32, marginBottom: 8, letterSpacing: -0.8 },
   qsub: { fontSize: 14, color: Colors.textMuted, lineHeight: 20, marginBottom: 20, letterSpacing: -0.1 },
   opt: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface, borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder, paddingHorizontal: 18, paddingVertical: 16, marginBottom: 10 },
-  optSel: { borderColor: Colors.primary, backgroundColor: '#FBF5E2' },
+  optSel: { borderColor: Colors.primary, backgroundColor: Colors.primarySoft },
   optDisabled: { opacity: 0.4 },
   optTxt: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2 },
   optTxtSel: { color: Colors.primary },
@@ -1228,7 +1228,7 @@ const s = StyleSheet.create({
   sgLabel: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, flex: 1, letterSpacing: -0.2 },
   sgInput: { width: 80, textAlign: 'center', fontSize: 16, fontWeight: '700', color: Colors.textPrimary, backgroundColor: Colors.background, borderRadius: 10, paddingVertical: 10, borderWidth: 1, borderColor: Colors.surfaceBorder, letterSpacing: -0.3 },
   bn: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 24, paddingTop: 16, backgroundColor: Colors.background, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder },
-  cb: { backgroundColor: '#1A1A1A', borderRadius: 100, paddingVertical: 18, alignItems: 'center' },
+  cb: { backgroundColor: Colors.buttonDark, borderRadius: 100, paddingVertical: 18, alignItems: 'center' },
   cbDisabled: { backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.surfaceBorder },
   ct: { fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: 0.2 },
   ctDisabled: { color: Colors.textMuted },
