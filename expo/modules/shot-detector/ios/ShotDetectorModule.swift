@@ -37,26 +37,24 @@ public final class ShotDetectorPipeline {
 
   private init() {}
 
-  /// Load and compile the CoreML model. Safe to call multiple times —
-  /// iOS caches the compiled artifact after the first run (~200–400 ms).
+  /// Load the CoreML model from the app bundle.
+  ///
+  /// Xcode compiles .mlpackage → .mlmodelc at build time, so the bundle
+  /// contains best.mlmodelc (not best.mlpackage). We load the compiled
+  /// artifact directly — no runtime compilation needed.
   func loadModel(named resourceName: String = "best", extension ext: String = "mlpackage") throws -> String {
-    guard let modelURL = Bundle.main.url(forResource: resourceName, withExtension: ext) else {
-      throw ShotDetectorError.modelNotFound("\(resourceName).\(ext)")
-    }
-
-    let compiledURL: URL
-    do {
-      compiledURL = try MLModel.compileModel(at: modelURL)
-    } catch {
-      throw ShotDetectorError.compilationFailed(error.localizedDescription)
+    // Xcode compiles .mlpackage to .mlmodelc; look for the compiled form first.
+    guard let modelURL = Bundle.main.url(forResource: resourceName, withExtension: "mlmodelc")
+                      ?? Bundle.main.url(forResource: resourceName, withExtension: ext) else {
+      throw ShotDetectorError.modelNotFound("\(resourceName).mlmodelc")
     }
 
     let config = MLModelConfiguration()
-    config.computeUnits = .all   // uses Neural Engine on iPhone 11+
+    config.computeUnits = .all
 
     let mlModel: MLModel
     do {
-      mlModel = try MLModel(contentsOf: compiledURL, configuration: config)
+      mlModel = try MLModel(contentsOf: modelURL, configuration: config)
     } catch {
       throw ShotDetectorError.compilationFailed(error.localizedDescription)
     }
