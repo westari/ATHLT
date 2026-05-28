@@ -5,7 +5,7 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-14  # Apple Silicon M1 runner — free for public repos
+    runs-on: macos-15  # Apple Silicon M1 runner — free for public repos
     timeout-minutes: 60
 
     steps:
