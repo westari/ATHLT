@@ -11,7 +11,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
-import CoachXBubble from '@/components/CoachXBubble';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -121,11 +120,6 @@ export default function TodayHome() {
     router.push('/edit-workout');
   };
 
-  const onCoachXTap = () => {
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/coachx');
-  };
-
   const statCards = [
     { label: 'STREAK', value: String(weekStats.streak), unit: 'd', pct: Math.min(100, weekStats.streak * 14) },
     { label: 'SESSIONS', value: String(weekStats.sessionsCompleted), unit: '', pct: (weekStats.sessionsCompleted / 7) * 100 },
@@ -218,11 +212,6 @@ export default function TodayHome() {
               </View>
             </View>
           ))}
-        </View>
-
-        {/* Coach X bubble */}
-        <View style={styles.bubbleWrap}>
-          <CoachXBubble onPress={onCoachXTap} />
         </View>
 
         {/* Today's Plan */}
@@ -478,11 +467,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '300',
     color: Colors.textMuted,
-  },
-
-  bubbleWrap: {
-    paddingHorizontal: 24,
-    marginBottom: 20,
   },
 
   sectionHeader: {
