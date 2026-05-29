@@ -11,7 +11,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEvent } from 'expo';
 import {
   Upload, Play, Pause, Plus, Bookmark, MessageCircle,
-  TrendingUp, AlertCircle, ChevronRight, ChevronLeft, Film,
+  TrendingUp, AlertCircle, ChevronRight, ChevronLeft, Film, Camera,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import CoachXPill from '@/components/CoachXPill';
@@ -555,6 +555,25 @@ export default function FilmTab() {
           />
         </View>
 
+        {/* Track Shots — CV test entry */}
+        <TouchableOpacity
+          style={styles.trackShotsCard}
+          onPress={() => {
+            if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            router.push('/open-run' as any);
+          }}
+          activeOpacity={0.82}
+        >
+          <View style={styles.trackShotsIcon}>
+            <Camera size={22} color={Colors.primary} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.trackShotsTitle}>Track Shots</Text>
+            <Text style={styles.trackShotosSub}>Live make/miss tracking with CV</Text>
+          </View>
+          <ChevronRight size={18} color={Colors.textMuted} />
+        </TouchableOpacity>
+
         {/* Primary action cards */}
         <View style={styles.actionCards}>
           <TouchableOpacity style={styles.actionCard} onPress={handleUploadFilm} activeOpacity={0.82}>
@@ -843,6 +862,40 @@ const styles = StyleSheet.create({
     top: 0,
     width: SCREEN_WIDTH * 0.80,
     height: 200,
+  },
+
+  // ===== TRACK SHOTS CARD =====
+  trackShotsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: Colors.surface,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: Colors.hairline,
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+    marginHorizontal: 20,
+    marginBottom: 12,
+  },
+  trackShotsIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: Colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trackShotsTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    letterSpacing: -0.3,
+    marginBottom: 2,
+  },
+  trackShotosSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
   },
 
   // ===== ACTION CARDS (upload / record) — light theme =====

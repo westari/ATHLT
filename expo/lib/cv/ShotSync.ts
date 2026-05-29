@@ -60,8 +60,8 @@ export class CVSessionSync {
   private startTime = Date.now();
   private config: CVSessionConfig | null = null;
 
-  /** Start a new tracking session. Returns the Supabase session ID (or null on failure). */
-  async start(config: CVSessionConfig): Promise<string | null> {
+  /** Start a new tracking session. Returns a session ID (Supabase or local fallback). */
+  async start(config: CVSessionConfig): Promise<string> {
     this.config    = config;
     this.shotIndex = 0;
     this.startTime = Date.now();
@@ -74,7 +74,12 @@ export class CVSessionSync {
       startedAt:  new Date(),
     };
 
-    this.sessionId = await createShotSession(input);
+    try {
+      this.sessionId = await createShotSession(input);
+    } catch (e) {
+      this.sessionId = 'local_' + Date.now();
+      console.error('[CVSessionSync] start failed, using local id:', this.sessionId, e);
+    }
     return this.sessionId;
   }
 

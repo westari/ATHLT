@@ -3,27 +3,15 @@ import CoreMedia
 
 /// VisionCamera v5 frame processor plugin — runs YOLOv11n inference per frame.
 ///
-/// Registered as "detectShots". Call from a JS useFrameProcessor worklet:
-///
-///   const frameProcessor = useFrameProcessor((frame) => {
-///     'worklet';
-///     const result = detectShots(frame, { minConfidence: 0.35 });
-///     runOnJS(onDetections)(result.detections, result.timestampMs);
-///   }, []);
+/// Registered as "detectShots" via ShotDetectorFrameProcessorRegister.m (+load).
 ///
 /// Return shape:
 ///   {
 ///     detections:  Array<{ className, confidence, bbox: { x, y, width, height } }>,
-///     timestampMs: number,   // milliseconds since device boot
-///     frameWidth:  number,   // pixels
+///     timestampMs: number,
+///     frameWidth:  number,
 ///     frameHeight: number,
 ///   }
-///
-/// VisionCamera v5 frame processor API:
-///   - Extend FrameProcessorPlugin
-///   - Override callback(_:withArguments:) returning Any
-///   - Register via FrameProcessorPluginRegistry in a +load ObjC method
-///   - Import: import VisionCamera (not react_native_vision_camera)
 
 @objc(ShotDetectorFrameProcessor)
 public class ShotDetectorFrameProcessor: FrameProcessorPlugin {
@@ -32,6 +20,7 @@ public class ShotDetectorFrameProcessor: FrameProcessorPlugin {
 
   public override init(proxy: VisionCameraProxyHolder, options: [AnyHashable: Any]! = [:]) {
     super.init(proxy: proxy, options: options)
+    NSLog("[ShotDetectorFP] plugin initialized")
   }
 
   // MARK: - Per-frame callback
@@ -48,6 +37,13 @@ public class ShotDetectorFrameProcessor: FrameProcessorPlugin {
     let frameWidth  = Int(frame.width)
     let frameHeight = Int(frame.height)
 
+    // Guard: model must be loaded before attempting inference
+    guard ShotDetectorPipeline.shared.isLoaded else {
+      // Log once so device console confirms the plugin is firing but model isn't ready
+      NSLog("[ShotDetectorFP] frame arrived but model not loaded yet — skipping")
+      return emptyResult(ts: timestampMs, w: frameWidth, h: frameHeight)
+    }
+
     // Parse optional minConfidence argument (default 0.35)
     let minConfidence: Float
     if let args = arguments, let mc = args["minConfidence"] as? NSNumber {
@@ -56,12 +52,14 @@ public class ShotDetectorFrameProcessor: FrameProcessorPlugin {
       minConfidence = 0.35
     }
 
-    // Extract CVPixelBuffer from CMSampleBuffer
+    // Extract CVPixelBuffer — guard prevents crash if buffer is invalid
     guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else {
+      NSLog("[ShotDetectorFP] CMSampleBufferGetImageBuffer returned nil — skipping frame")
       return emptyResult(ts: timestampMs, w: frameWidth, h: frameHeight)
     }
 
-    // Run YOLOv11n inference via the shared pipeline
+    // Run inference through the serial-queue-protected pipeline.
+    // Any errors are caught here; the frame processor must never throw.
     let detections: [[String: Any]]
     do {
       detections = try ShotDetectorPipeline.shared.runInference(
@@ -69,7 +67,7 @@ public class ShotDetectorFrameProcessor: FrameProcessorPlugin {
         minConfidence: minConfidence
       )
     } catch {
-      // Model not yet loaded or inference error — return empty, don't crash
+      NSLog("[ShotDetectorFP] runInference error: %@", error.localizedDescription)
       return emptyResult(ts: timestampMs, w: frameWidth, h: frameHeight)
     }
 
@@ -92,4 +90,3 @@ public class ShotDetectorFrameProcessor: FrameProcessorPlugin {
     ]
   }
 }
-

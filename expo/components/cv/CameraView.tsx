@@ -163,13 +163,18 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
     );
   }
 
+  // ---- DIAGNOSTIC: set true to confirm camera opens without frame processor ----
+  // If the camera stays open with this true, the crash is in the frame processor.
+  // If it still crashes, the crash is in VisionCamera init / device selection.
+  const DISABLE_FRAME_PROCESSOR = false;
+
   return (
     <View style={styles.container}>
       <Camera
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={active}
-        frameProcessor={frameProcessor}
+        frameProcessor={DISABLE_FRAME_PROCESSOR ? undefined : frameProcessor}
         pixelFormat="yuv"
         fps={30}
       />

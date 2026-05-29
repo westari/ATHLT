@@ -84,15 +84,20 @@ const queuePending = async (payload: PendingPayload) => {
  */
 export async function createShotSession(
   input: ShotSessionInput
-): Promise<string | null> {
+): Promise<string> {
+  // Always return a local fallback ID so in-memory tracking works even without auth.
+  const localId = 'local_' + Date.now();
+
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const authResult = await supabase.auth.getUser();
+    const user = authResult.data?.user ?? null;
+
     if (!user) {
-      console.warn('[shotSync] no user, cannot create session');
-      return null;
+      console.log('[shotSync] no authenticated user — using local session id:', localId);
+      return localId;
     }
+
+    console.log('[shotSync] creating session for user:', user.id);
 
     const { data, error } = await supabase
       .from('shot_sessions')
@@ -110,13 +115,15 @@ export async function createShotSession(
       .single();
 
     if (error) {
-      console.error('[shotSync] createShotSession error:', error.message);
-      return null;
+      console.error('[shotSync] createShotSession insert error:', error.message, '— falling back to local id:', localId);
+      return localId;
     }
+
+    console.log('[shotSync] session created in Supabase, id:', data.id);
     return data.id;
   } catch (e) {
-    console.error('[shotSync] createShotSession failed:', e);
-    return null;
+    console.error('[shotSync] createShotSession failed:', e, '— falling back to local id:', localId);
+    return localId;
   }
 }
 

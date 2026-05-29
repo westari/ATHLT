@@ -41,12 +41,13 @@ export default function OpenRunScreen() {
 
   const handleStart = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    tracker.reset();
-
-    await sync.start({
-      sessionType: 'open_run',
-    });
-
+    try {
+      tracker.reset();
+      await sync.start({ sessionType: 'open_run' });
+    } catch (e) {
+      console.error('[open-run] handleStart error:', e);
+      // Don't let a sync failure block the camera from starting
+    }
     setPhase('tracking');
   };
 
@@ -55,13 +56,28 @@ export default function OpenRunScreen() {
     setPhase('finishing');
     setRecapLoading(true);
 
-    const summary = tracker.getSummary();
-    const { data: { user } } = await supabase.auth.getUser();
+    try {
+      const summary = tracker.getSummary();
 
-    const sessionRecap = await sync.finish(summary, user?.id);
-    setRecap(sessionRecap);
-    setRecapLoading(false);
-    setPhase('recap');
+      // Safe auth lookup — never crash if Supabase is unreachable
+      let userId: string | undefined;
+      try {
+        const authResult = await supabase.auth.getUser();
+        userId = authResult.data?.user?.id ?? undefined;
+      } catch (authErr) {
+        console.warn('[open-run] auth lookup failed, finishing without userId:', authErr);
+      }
+
+      const sessionRecap = await sync.finish(summary, userId);
+      setRecap(sessionRecap);
+    } catch (e) {
+      console.error('[open-run] handleStop error:', e);
+      // Still navigate to recap — ShotTracker has in-memory stats even if sync failed
+      setRecap(null);
+    } finally {
+      setRecapLoading(false);
+      setPhase('recap');
+    }
   };
 
   const handleDone = () => {
