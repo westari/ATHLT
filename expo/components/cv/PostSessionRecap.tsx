@@ -1,325 +1,320 @@
 /**
  * PostSessionRecap — shown after a CV shooting session ends.
  *
- * Displays:
- *  - Overall FG% + makes/attempts
- *  - Best streak
- *  - Zone breakdown
- *  - Coach X analysis (loading → text reveal)
- *  - "Done" button
+ * Layout (spec: PostSessionScreen.jsx):
+ *  - Hero: big FG% number (64px / weight 300) + makes/attempts breakdown
+ *  - Quick stats row: Streak / Duration / Shots
+ *  - Zone breakdown card: bar-chart style per zone
+ *  - Shot timeline: make/miss dot strip in chronological order
+ *  - Coach X analysis card: gold-tinted, insight + plan adjustment
+ *  - Done button
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Animated,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Zap } from 'lucide-react-native';
+import { Zap, TrendingUp } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import type { SessionRecap } from '@/lib/cv/ShotSync';
 import type { TrackerSummary } from '@/lib/cv/ShotTracker';
 
 interface Props {
-  recap: SessionRecap | null;
+  recap:   SessionRecap | null;
   summary: TrackerSummary;
   loading: boolean;
-  onDone: () => void;
+  onDone:  () => void;
 }
 
 export default function PostSessionRecap({ recap, summary, loading, onDone }: Props) {
-  const insets  = useSafeAreaInsets();
-  const fadeIn  = useRef(new Animated.Value(0)).current;
+  const insets = useSafeAreaInsets();
+  const fadeIn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(fadeIn, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+    Animated.timing(fadeIn, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   }, []);
 
-  const makes      = recap?.makes ?? summary.makes;
+  const makes      = recap?.makes      ?? summary.makes;
   const total      = recap?.totalShots ?? summary.totalShots;
-  const fgPct      = total > 0 ? ((makes / total) * 100).toFixed(1) : '0';
+  const fgPct      = total > 0 ? ((makes / total) * 100).toFixed(1) : '0.0';
   const bestStreak = recap?.bestStreak ?? summary.bestStreak;
-  const duration   = recap?.durationSeconds ?? Math.floor(summary.durationMs / 1000);
-  const durationStr = duration >= 60
-    ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`
-    : `${duration}s`;
+
+  const rawDuration = recap?.durationSeconds ?? Math.floor((summary as any).durationMs / 1000 ?? 0);
+  const durationStr = rawDuration >= 60
+    ? `${Math.floor(rawDuration / 60)}m ${String(rawDuration % 60).padStart(2, '0')}s`
+    : `${rawDuration}s`;
 
   const zoneStats = summary.sessionStats.byZone
-    .filter(z => z.attempts >= 2)
+    .filter(z => z.attempts >= 1)
     .sort((a, b) => b.attempts - a.attempts)
-    .slice(0, 5);
+    .slice(0, 6);
 
-  const analysis = recap?.coachAnalysis;
+  const analysis   = recap?.coachAnalysis;
+  const isPositive = parseFloat(fgPct) >= 50;
 
   return (
-    <Animated.View style={[styles.container, { paddingTop: insets.top, opacity: fadeIn }]}>
+    <Animated.View style={[s.container, { opacity: fadeIn }]}>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[s.scroll, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View style={styles.accentBar} />
-          <Text style={styles.tagline}>SESSION COMPLETE</Text>
-          <Text style={styles.headline}>
-            {parseFloat(fgPct) >= 50 ? 'Shooting.' : 'Get back in the gym.'}
+        {/* Header label */}
+        <View style={s.header}>
+          <View style={s.accentBar} />
+          <Text style={s.tagline}>SESSION COMPLETE</Text>
+          <Text style={s.headline}>
+            {isPositive ? 'Shooting.' : 'Get back in the gym.'}
           </Text>
         </View>
 
-        {/* FG% hero card */}
-        <View style={styles.heroCard}>
-          <Text style={styles.heroFg}>{fgPct}%</Text>
-          <Text style={styles.heroLabel}>FIELD GOAL</Text>
-          <View style={styles.heroRow}>
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatVal}>{makes}</Text>
-              <Text style={styles.heroStatLbl}>MAKES</Text>
+        {/* Hero FG% card */}
+        <View style={s.heroCard}>
+          <Text style={s.heroLabel}>FIELD GOAL %</Text>
+          <View style={s.heroNumRow}>
+            <Text style={s.heroNum}>{fgPct.split('.')[0]}</Text>
+            <View style={s.heroNumSuffix}>
+              <Text style={s.heroNumDecimal}>.{fgPct.split('.')[1]}</Text>
+              <Text style={s.heroNumPct}>%</Text>
             </View>
-            <View style={styles.heroDiv} />
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatVal}>{total}</Text>
-              <Text style={styles.heroStatLbl}>ATTEMPTS</Text>
+          </View>
+          <Text style={s.heroBreakdown}>{makes} makes / {total} attempts</Text>
+
+          {/* Quick stats row */}
+          <View style={s.heroStatsRow}>
+            <View style={s.heroStat}>
+              <Text style={s.heroStatVal}>{bestStreak}</Text>
+              <Text style={s.heroStatLbl}>STREAK</Text>
             </View>
-            <View style={styles.heroDiv} />
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatVal}>{bestStreak}</Text>
-              <Text style={styles.heroStatLbl}>STREAK</Text>
+            <View style={s.heroStatDiv} />
+            <View style={s.heroStat}>
+              <Text style={s.heroStatVal}>{durationStr}</Text>
+              <Text style={s.heroStatLbl}>TIME</Text>
             </View>
-            <View style={styles.heroDiv} />
-            <View style={styles.heroStat}>
-              <Text style={styles.heroStatVal}>{durationStr}</Text>
-              <Text style={styles.heroStatLbl}>TIME</Text>
+            <View style={s.heroStatDiv} />
+            <View style={s.heroStat}>
+              <Text style={s.heroStatVal}>{total}</Text>
+              <Text style={s.heroStatLbl}>SHOTS</Text>
             </View>
           </View>
         </View>
 
+        {/* Zone breakdown */}
+        {zoneStats.length > 0 && (
+          <View style={s.card}>
+            <Text style={s.cardTitle}>BY ZONE</Text>
+            {zoneStats.map(z => {
+              const pct = z.pct;
+              const barWidth = Math.max(2, Math.min(100, pct));
+              const barColor = pct >= 50 ? Colors.success : pct >= 33 ? Colors.primary : Colors.danger;
+              return (
+                <View key={z.zone} style={s.zoneRow}>
+                  <Text style={s.zoneName} numberOfLines={1}>{z.zone}</Text>
+                  <View style={s.zoneBarTrack}>
+                    <View style={[s.zoneBarFill, { width: `${barWidth}%`, backgroundColor: barColor }]} />
+                  </View>
+                  <Text style={s.zonePct}>{pct.toFixed(0)}%</Text>
+                  <Text style={s.zoneFraction}>{z.makes}/{z.attempts}</Text>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
         {/* Shot timeline */}
         {summary.shotEvents.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>SHOT CHART</Text>
-            <View style={styles.timeline}>
+          <View style={s.card}>
+            <Text style={s.cardTitle}>SHOT TIMELINE</Text>
+            <View style={s.timeline}>
               {summary.shotEvents.map((ev, i) => (
                 <View
                   key={i}
                   style={[
-                    styles.timelineDot,
-                    ev.type === 'make' ? styles.dotMake : styles.dotMiss,
+                    s.timelineDot,
+                    ev.type === 'make' ? s.dotMake : s.dotMiss,
                   ]}
                 />
               ))}
             </View>
-            <View style={styles.timelineLegend}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, styles.dotMake]} />
-                <Text style={styles.legendText}>Make</Text>
+            <View style={s.timelineLegend}>
+              <View style={s.legendRow}>
+                <View style={[s.legendDot, s.dotMake]} />
+                <Text style={s.legendText}>Make</Text>
               </View>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, styles.dotMiss]} />
-                <Text style={styles.legendText}>Miss</Text>
+              <View style={s.legendRow}>
+                <View style={[s.legendDot, s.dotMiss]} />
+                <Text style={s.legendText}>Miss</Text>
               </View>
-            </View>
-          </View>
-        )}
-
-        {/* Zone breakdown */}
-        {zoneStats.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>BY ZONE</Text>
-            <View style={styles.zoneList}>
-              {zoneStats.map((z) => {
-                const pct = z.pct.toFixed(0);
-                const barWidth = Math.max(4, z.pct);
-                return (
-                  <View key={z.zone} style={styles.zoneRow}>
-                    <Text style={styles.zoneName} numberOfLines={1}>{z.zone}</Text>
-                    <View style={styles.zoneBarWrap}>
-                      <View style={[styles.zoneBar, { width: `${barWidth}%` }]} />
-                    </View>
-                    <Text style={styles.zonePct}>{pct}%</Text>
-                    <Text style={styles.zoneAttempts}>{z.makes}/{z.attempts}</Text>
-                  </View>
-                );
-              })}
             </View>
           </View>
         )}
 
         {/* Coach X analysis */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>COACH X</Text>
-          <View style={styles.coachCard}>
-            {loading ? (
-              <View style={styles.coachLoading}>
-                <ActivityIndicator size="small" color={Colors.primary} />
-                <Text style={styles.coachLoadingText}>Coach X is breaking down your session...</Text>
-              </View>
-            ) : analysis ? (
-              <>
-                <Text style={styles.coachMessage}>{analysis.message}</Text>
-                {analysis.planAdjustment.shouldAdjust && (
-                  <View style={styles.adjustBadge}>
-                    <Zap size={12} color={Colors.primary} />
-                    <Text style={styles.adjustText}>
-                      Plan adjusted: {analysis.planAdjustment.suggestedFocus}
-                    </Text>
-                  </View>
-                )}
-              </>
-            ) : total < 3 ? (
-              <Text style={styles.coachNoData}>Shoot at least 3 shots to get Coach X feedback.</Text>
-            ) : (
-              <Text style={styles.coachNoData}>Analysis unavailable. Check your connection.</Text>
-            )}
+        <View style={s.coachCard}>
+          <View style={s.coachHeader}>
+            <View style={s.coachLabelRow}>
+              <Zap size={12} color={Colors.primary} />
+              <Text style={s.coachLabel}>COACH X</Text>
+            </View>
           </View>
+          {loading ? (
+            <View style={s.coachLoading}>
+              <ActivityIndicator size="small" color={Colors.primary} />
+              <Text style={s.coachLoadingText}>Breaking down your session...</Text>
+            </View>
+          ) : analysis ? (
+            <>
+              <Text style={s.coachMessage}>"{analysis.message}"</Text>
+              {analysis.planAdjustment?.shouldAdjust && (
+                <View style={s.adjustBadge}>
+                  <TrendingUp size={12} color={Colors.primary} />
+                  <Text style={s.adjustText}>
+                    Next focus: {analysis.planAdjustment.suggestedFocus}
+                  </Text>
+                </View>
+              )}
+            </>
+          ) : total < 3 ? (
+            <Text style={s.coachEmpty}>Shoot at least 3 shots to get feedback from Coach X.</Text>
+          ) : (
+            <Text style={s.coachEmpty}>Analysis unavailable — check your connection.</Text>
+          )}
         </View>
 
         {/* Done button */}
-        <TouchableOpacity style={styles.doneBtn} onPress={onDone} activeOpacity={0.85}>
-          <Text style={styles.doneBtnText}>Done</Text>
+        <TouchableOpacity style={s.doneBtn} onPress={onDone} activeOpacity={0.85}>
+          <Text style={s.doneBtnText}>Done</Text>
         </TouchableOpacity>
+
       </ScrollView>
     </Animated.View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  scroll: {
-    paddingHorizontal: 20,
-    paddingTop: 12,
-  },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.background },
+  scroll: { paddingHorizontal: 24, paddingTop: 16 },
 
-  // Header
-  header: { alignItems: 'center', paddingVertical: 16, gap: 8 },
+  header: { alignItems: 'center', paddingVertical: 12, gap: 6, marginBottom: 8 },
   accentBar: {
-    width: 40, height: 4, borderRadius: 2,
-    backgroundColor: Colors.primary, marginBottom: 8,
+    width: 36, height: 3, borderRadius: 2, backgroundColor: Colors.primary, marginBottom: 6,
   },
   tagline: {
-    fontSize: 11, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 2,
+    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
+    letterSpacing: 1.1, textTransform: 'uppercase',
   },
   headline: {
-    fontSize: 32, fontWeight: '900', color: Colors.textPrimary,
-    letterSpacing: -1, textAlign: 'center',
+    fontSize: 22, fontWeight: '300', color: Colors.textPrimary,
+    letterSpacing: -0.5,
   },
 
-  // Hero FG card
   heroCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: 20, borderWidth: 1, borderColor: Colors.surfaceBorder,
-    padding: 24, alignItems: 'center', marginBottom: 20,
-  },
-  heroFg: {
-    fontSize: 64, fontWeight: '900', color: Colors.textPrimary,
-    letterSpacing: -3, lineHeight: 72,
+    backgroundColor: Colors.surface, borderRadius: 22,
+    borderWidth: 1, borderColor: Colors.hairline,
+    padding: 24, marginBottom: 14, alignItems: 'center',
   },
   heroLabel: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 2, marginBottom: 20,
+    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
+    letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 4,
   },
-  heroRow: {
-    flexDirection: 'row', alignItems: 'center',
-    width: '100%', justifyContent: 'space-around',
+  heroNumRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  heroNum: {
+    fontSize: 64, fontWeight: '300', color: Colors.textPrimary,
+    letterSpacing: -2.5, fontVariant: ['tabular-nums'], lineHeight: 72,
   },
-  heroStat: { alignItems: 'center', flex: 1 },
+  heroNumSuffix: { paddingTop: 8, paddingLeft: 2 },
+  heroNumDecimal: {
+    fontSize: 28, fontWeight: '300', color: Colors.textMuted,
+    fontVariant: ['tabular-nums'],
+  },
+  heroNumPct: { fontSize: 20, fontWeight: '300', color: Colors.textMuted, marginTop: 4 },
+  heroBreakdown: {
+    fontSize: 14, color: Colors.textMuted, letterSpacing: -0.1, marginTop: 4, marginBottom: 20,
+  },
+
+  heroStatsRow: { flexDirection: 'row', width: '100%' },
+  heroStat: { flex: 1, alignItems: 'center' },
   heroStatVal: {
-    fontSize: 22, fontWeight: '800', color: Colors.textPrimary, letterSpacing: -0.5,
+    fontSize: 24, fontWeight: '300', color: Colors.textPrimary,
+    letterSpacing: -0.6, fontVariant: ['tabular-nums'],
   },
   heroStatLbl: {
-    fontSize: 9, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1.2, marginTop: 2,
+    fontSize: 10, fontWeight: '500', color: Colors.textMuted,
+    letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 3,
   },
-  heroDiv: { width: 1, height: 36, backgroundColor: Colors.surfaceBorder },
+  heroStatDiv: { width: 1, height: 36, backgroundColor: Colors.hairline, alignSelf: 'center' },
 
-  // Section
-  section: { marginBottom: 20 },
-  sectionTitle: {
-    fontSize: 10, fontWeight: '700', color: Colors.primary,
-    letterSpacing: 1.5, marginBottom: 12,
+  card: {
+    backgroundColor: Colors.surface, borderRadius: 22,
+    borderWidth: 1, borderColor: Colors.hairline,
+    padding: 20, marginBottom: 14,
+  },
+  cardTitle: {
+    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
+    letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 14,
   },
 
-  // Shot timeline
-  timeline: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 6,
-  },
-  timelineDot: {
-    width: 12, height: 12, borderRadius: 6,
-  },
-  dotMake: { backgroundColor: '#4CAF50' },
-  dotMiss: { backgroundColor: '#F44336' },
-  timelineLegend: {
-    flexDirection: 'row', gap: 16, marginTop: 10,
-  },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: Colors.textMuted, fontSize: 12, fontWeight: '500' },
-
-  // Zone breakdown
-  zoneList: {
-    backgroundColor: Colors.surface,
-    borderRadius: 14, borderWidth: 1, borderColor: Colors.surfaceBorder,
-    overflow: 'hidden',
-  },
   zoneRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingVertical: 10, paddingHorizontal: 14,
-    borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder, gap: 8,
-  },
-  zoneName: {
-    width: 110, fontSize: 12, fontWeight: '600', color: Colors.textPrimary,
-  },
-  zoneBarWrap: {
-    flex: 1, height: 5, backgroundColor: Colors.surfaceBorder, borderRadius: 3, overflow: 'hidden',
-  },
-  zoneBar: {
-    height: 5, backgroundColor: Colors.primary, borderRadius: 3,
-  },
-  zonePct: {
-    width: 36, fontSize: 12, fontWeight: '700', color: Colors.textPrimary, textAlign: 'right',
-  },
-  zoneAttempts: {
-    width: 32, fontSize: 11, color: Colors.textMuted, textAlign: 'right',
-  },
-
-  // Coach X card
-  coachCard: {
-    backgroundColor: 'rgba(212, 160, 23, 0.06)',
-    borderRadius: 14, borderWidth: 1,
-    borderColor: 'rgba(212, 160, 23, 0.25)',
-    padding: 16, gap: 10,
-  },
-  coachLoading: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginBottom: 10,
   },
-  coachLoadingText: {
-    color: Colors.textMuted, fontSize: 13, flex: 1,
+  zoneName: { fontSize: 13, color: Colors.textBody, width: 90, fontWeight: '500' },
+  zoneBarTrack: {
+    flex: 1, height: 6, backgroundColor: Colors.surfaceBorder,
+    borderRadius: 3, overflow: 'hidden',
   },
-  coachMessage: {
-    color: Colors.textPrimary, fontSize: 14, lineHeight: 20, fontWeight: '500',
+  zoneBarFill: { height: 6, borderRadius: 3 },
+  zonePct: {
+    width: 36, fontSize: 13, fontWeight: '300', color: Colors.textPrimary,
+    textAlign: 'right', fontVariant: ['tabular-nums'],
   },
-  coachNoData: {
-    color: Colors.textMuted, fontSize: 13,
-  },
-  adjustBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(212, 160, 23, 0.12)',
-    borderRadius: 100, paddingHorizontal: 10, paddingVertical: 5,
-    alignSelf: 'flex-start',
-  },
-  adjustText: {
-    color: Colors.primary, fontSize: 11, fontWeight: '700',
+  zoneFraction: {
+    width: 38, fontSize: 11, color: Colors.textMuted,
+    textAlign: 'right', fontVariant: ['tabular-nums'],
   },
 
-  // Done button
+  timeline: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 10,
+  },
+  timelineDot: { width: 12, height: 12, borderRadius: 6 },
+  dotMake: { backgroundColor: Colors.success },
+  dotMiss: { backgroundColor: Colors.danger },
+  timelineLegend: { flexDirection: 'row', gap: 16 },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 12, color: Colors.textMuted },
+
+  coachCard: {
+    backgroundColor: Colors.primarySoft,
+    borderRadius: 22, borderWidth: 1, borderColor: 'rgba(201,162,74,0.25)',
+    padding: 20, marginBottom: 20,
+  },
+  coachHeader: { marginBottom: 10 },
+  coachLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  coachLabel: {
+    fontSize: 11, fontWeight: '600', color: Colors.primary,
+    letterSpacing: 1.1, textTransform: 'uppercase',
+  },
+  coachLoading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  coachLoadingText: { fontSize: 14, color: Colors.textMuted, fontStyle: 'italic' },
+  coachMessage: {
+    fontSize: 15, color: Colors.primaryPressed, lineHeight: 22,
+    letterSpacing: -0.1, fontStyle: 'italic',
+  },
+  coachEmpty: { fontSize: 14, color: Colors.textMuted, fontStyle: 'italic' },
+  adjustBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(201,162,74,0.12)',
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100,
+    alignSelf: 'flex-start', marginTop: 10,
+  },
+  adjustText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
+
   doneBtn: {
-    backgroundColor: Colors.buttonDark,
-    paddingVertical: 16, borderRadius: 100, alignItems: 'center',
-    marginTop: 8,
+    backgroundColor: Colors.textPrimary, borderRadius: 100,
+    paddingVertical: 16, alignItems: 'center',
   },
   doneBtnText: {
-    color: Colors.buttonDarkText, fontSize: 16, fontWeight: '700',
+    fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: -0.2,
   },
 });

@@ -1,314 +1,352 @@
-// expo/app/(tabs)/progress.tsx
-// Progress tab.
-//
-// Changes:
-//  - ADDED a "GAMES" section: season summary + recent 5 games + "See all"
-//  - REMOVED the "TRAINING FOCUS" block (it just echoed onboarding answers —
-//    that lives nowhere now; it was redundant junk)
-//  - Kept the genuinely useful training analytics (stats row, this week,
-//    drill breakdown, day by day)
-
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { TrendingUp, Flame, Target, ChevronRight } from 'lucide-react-native';
+import { CalendarDays, Dumbbell, Gamepad2, Film, ChevronRight, TrendingUp } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
+import { resolvePlanDrill } from '@/lib/resolveDrill';
 import GameHistory from '@/components/GameHistory';
 
-export default function ProgressScreen() {
+type FilterTab = 'All' | 'Sessions' | 'Games' | 'Film';
+
+const FILTER_TABS: FilterTab[] = ['All', 'Sessions', 'Games', 'Film'];
+const DAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, completedDrills, totalSessions, currentStreak } = usePlanStore();
+  const { plan, completedDrills, completedSessions, currentStreak, totalSessions } = usePlanStore();
 
-  const totalDrillsCompleted = Object.keys(completedDrills).length;
-  const days = plan?.days || [];
-  const totalDrillsInPlan = days.reduce((sum, day) => sum + (day.drills?.length || 0), 0);
-  const completionRate = totalDrillsInPlan > 0 ? Math.round((totalDrillsCompleted / totalDrillsInPlan) * 100) : 0;
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
 
-  const dayStats = days.map((day, dayIndex) => {
-    const drillCount = day.drills?.length || 0;
-    const doneCount = day.drills?.filter((_, di) => completedDrills[dayIndex + '-' + di]).length || 0;
-    return {
-      day: day.day,
-      focus: day.focus,
-      isRest: day.isRest,
-      total: drillCount,
-      done: doneCount,
-      pct: drillCount > 0 ? Math.round((doneCount / drillCount) * 100) : 0,
-    };
-  });
-
-  const typeCount: Record<string, { total: number; done: number }> = {};
-  days.forEach((day, dayIndex) => {
-    (day.drills || []).forEach((drill, drillIndex) => {
-      const t = drill.type || 'other';
-      if (!typeCount[t]) typeCount[t] = { total: 0, done: 0 };
-      typeCount[t].total++;
-      if (completedDrills[dayIndex + '-' + drillIndex]) typeCount[t].done++;
-    });
-  });
-
-  const TYPE_LABELS: Record<string, string> = {
-    warmup: 'Warmup', skill: 'Skill Work', shooting: 'Shooting',
-    conditioning: 'Conditioning', other: 'Other',
-  };
-  const TYPE_COLORS: Record<string, string> = {
-    warmup: '#6F8A4B',
-    skill: Colors.primary,
-    shooting: '#A8733A',
-    conditioning: '#B8503C',
-    other: Colors.textMuted,
-  };
-
-  const goToGameHistory = () => {
+  const onFilter = (f: FilterTab) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    router.push('/game-history');
+    setActiveFilter(f);
   };
+
+  // Weekly activity dots — which days of the current plan have completed sessions
+  const weekActivity = (plan?.days ?? []).map((d, i) => {
+    if (d.isRest) return 'rest';
+    const drills = (d.drills || []).map(x => resolvePlanDrill(x)).filter(Boolean);
+    if (drills.length === 0) return 'empty';
+    const done = drills.filter((_, j) => completedDrills[`${i}-${j}`]).length;
+    if (done === drills.length) return 'done';
+    if (done > 0) return 'partial';
+    return 'none';
+  });
+
+  const showSessions = activeFilter === 'All' || activeFilter === 'Sessions';
+  const showGames    = activeFilter === 'All' || activeFilter === 'Games';
+  const showFilm     = activeFilter === 'All' || activeFilter === 'Film';
+
+  const hasSomething = completedSessions.length > 0 || totalSessions > 0;
 
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
-        <Text style={s.headerTitle}>Progress</Text>
 
-        <View style={s.statsRow}>
-          <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: Colors.primarySoft }]}>
-              <Target size={20} color={Colors.primary} />
-            </View>
-            <Text style={s.statValue}>{totalSessions}</Text>
-            <Text style={s.statLabel}>Sessions</Text>
-          </View>
-          <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: Colors.courtSoft }]}>
-              <Flame size={20} color={Colors.court} />
-            </View>
-            <Text style={s.statValue}>{currentStreak}</Text>
-            <Text style={s.statLabel}>Day Streak</Text>
-          </View>
-          <View style={s.statCard}>
-            <View style={[s.statIcon, { backgroundColor: Colors.primarySoft }]}>
-              <TrendingUp size={20} color={Colors.primary} />
-            </View>
-            <Text style={s.statValue}>{completionRate}%</Text>
-            <Text style={s.statLabel}>Complete</Text>
-          </View>
-        </View>
+        {/* Header */}
+        <Text style={s.pageTitle}>History</Text>
 
-        {/* GAMES — summary + recent 5, tap to see all */}
-        <View style={s.gamesHeader}>
-          <Text style={s.sectionTitleBare}>GAMES</Text>
-          <TouchableOpacity
-            onPress={goToGameHistory}
-            activeOpacity={0.7}
-            style={s.seeAllBtn}
-            hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
-          >
-            <Text style={s.seeAllText}>See all</Text>
-            <ChevronRight size={14} color={Colors.primary} />
-          </TouchableOpacity>
-        </View>
-        <GameHistory limit={5} />
+        {/* Filter pills */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.filterScroll} contentContainerStyle={s.filterRow}>
+          {FILTER_TABS.map(f => (
+            <TouchableOpacity
+              key={f}
+              style={[s.filterPill, activeFilter === f && s.filterPillActive]}
+              onPress={() => onFilter(f)}
+              activeOpacity={0.75}
+            >
+              <Text style={[s.filterPillText, activeFilter === f && s.filterPillTextActive]}>{f}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
+        {/* Weekly activity calendar */}
         {plan && (
-          <View style={s.section}>
-            <Text style={s.sectionTitle}>THIS WEEK</Text>
-            <Text style={s.weekTitle}>{plan.weekTitle}</Text>
-            <View style={s.weekBar}>
-              {dayStats.map((d, i) => (
-                <View key={i} style={s.weekDay}>
-                  <View style={s.weekBarOuter}>
-                    <View style={[s.weekBarInner, {
-                      height: d.isRest ? '0%' : (d.pct + '%'),
-                      backgroundColor: d.pct === 100 ? Colors.success : d.pct > 0 ? Colors.primary : 'transparent',
-                    }]} />
-                  </View>
-                  <Text style={[s.weekDayLabel, d.pct === 100 && { color: Colors.success }]}>{d.day}</Text>
+          <View style={s.weekCard}>
+            <Text style={s.weekLabel}>THIS WEEK</Text>
+            <View style={s.weekRow}>
+              {weekActivity.map((status, i) => (
+                <View key={i} style={s.weekDayCol}>
+                  <Text style={s.weekDayLetter}>{DAY_LABELS[i]}</Text>
+                  <View style={[
+                    s.weekDot,
+                    status === 'done'    && s.weekDotDone,
+                    status === 'partial' && s.weekDotPartial,
+                    status === 'rest'    && s.weekDotRest,
+                    status === 'none'    && s.weekDotNone,
+                  ]} />
                 </View>
               ))}
             </View>
-          </View>
-        )}
-
-        {Object.keys(typeCount).length > 0 && (
-          <View style={s.section}>
-            <Text style={s.sectionTitle}>DRILL BREAKDOWN</Text>
-            {Object.entries(typeCount).map(([type, counts], i) => {
-              const pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 0;
-              const color = TYPE_COLORS[type] || Colors.textMuted;
-              return (
-                <View key={i} style={s.breakdownRow}>
-                  <View style={s.breakdownInfo}>
-                    <View style={[s.breakdownDot, { backgroundColor: color }]} />
-                    <Text style={s.breakdownLabel}>{TYPE_LABELS[type] || type}</Text>
-                  </View>
-                  <View style={s.breakdownBarOuter}>
-                    <View style={[s.breakdownBarInner, { width: pct + '%', backgroundColor: color }]} />
-                  </View>
-                  <Text style={s.breakdownCount}>{counts.done}/{counts.total}</Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
-
-        {plan && (
-          <View style={s.section}>
-            <Text style={s.sectionTitle}>DAY BY DAY</Text>
-            {dayStats.map((d, i) => (
-              <View key={i} style={s.dayRow}>
-                <View style={s.dayInfo}>
-                  <Text style={s.dayName}>{d.day}</Text>
-                  <Text style={s.dayFocus}>{d.isRest ? 'Rest Day' : d.focus}</Text>
-                </View>
-                {d.isRest ? (
-                  <Text style={s.dayRest}>REST</Text>
-                ) : (
-                  <View style={s.dayProgress}>
-                    <View style={s.dayBarOuter}>
-                      <View style={[s.dayBarInner, {
-                        width: d.pct + '%',
-                        backgroundColor: d.pct === 100 ? Colors.success : Colors.primary,
-                      }]} />
-                    </View>
-                    <Text style={[s.dayPct, d.pct === 100 && { color: Colors.success }]}>
-                      {d.done}/{d.total}
-                    </Text>
-                  </View>
-                )}
+            <View style={s.weekLegend}>
+              <View style={s.legendItem}>
+                <View style={[s.legendDot, { backgroundColor: Colors.success }]} />
+                <Text style={s.legendText}>Done</Text>
               </View>
-            ))}
+              <View style={s.legendItem}>
+                <View style={[s.legendDot, { backgroundColor: Colors.primary }]} />
+                <Text style={s.legendText}>Partial</Text>
+              </View>
+              <View style={s.legendItem}>
+                <View style={[s.legendDot, { backgroundColor: Colors.surfaceBorder }]} />
+                <Text style={s.legendText}>Rest</Text>
+              </View>
+            </View>
           </View>
         )}
 
-        {!plan && (
-          <View style={s.emptyState}>
-            <Text style={s.emptyTitle}>No training data yet</Text>
-            <Text style={s.emptyBody}>Complete your first session to start tracking progress.</Text>
+        {/* Summary stats row */}
+        <View style={s.statsRow}>
+          <View style={s.statBox}>
+            <Text style={s.statBoxVal}>{currentStreak}</Text>
+            <Text style={s.statBoxLabel}>STREAK</Text>
+          </View>
+          <View style={s.statBoxDivider} />
+          <View style={s.statBox}>
+            <Text style={s.statBoxVal}>{totalSessions}</Text>
+            <Text style={s.statBoxLabel}>SESSIONS</Text>
+          </View>
+          <View style={s.statBoxDivider} />
+          <View style={s.statBox}>
+            <Text style={s.statBoxVal}>{Object.keys(completedDrills).length}</Text>
+            <Text style={s.statBoxLabel}>DRILLS</Text>
+          </View>
+        </View>
+
+        {/* Sessions section */}
+        {showSessions && (
+          <>
+            {completedSessions.length > 0 ? (
+              <>
+                <Text style={s.sectionLabel}>SESSIONS</Text>
+                {completedSessions.slice().reverse().slice(0, 10).map((session, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={s.sessionCard}
+                    onPress={() => router.push('/progress' as any)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={s.sessionIconWrap}>
+                      <Dumbbell size={16} color={Colors.primary} />
+                    </View>
+                    <View style={s.sessionInfo}>
+                      <Text style={s.sessionName}>{session.focus || 'Workout'}</Text>
+                      <Text style={s.sessionMeta}>
+                        {new Date(session.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {session.drillsCompleted != null
+                          ? ` · ${session.drillsCompleted}/${session.drillsTotal} drills`
+                          : ''}
+                        {session.duration ? ` · ${session.duration}` : ''}
+                      </Text>
+                    </View>
+                    <View style={s.sessionRight}>
+                      {session.drillsCompleted === session.drillsTotal && session.drillsTotal > 0 && (
+                        <View style={s.completedBadge}>
+                          <Text style={s.completedBadgeText}>Done</Text>
+                        </View>
+                      )}
+                      <ChevronRight size={15} color={Colors.textMuted} />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </>
+            ) : activeFilter === 'Sessions' ? (
+              <EmptyState
+                Icon={Dumbbell}
+                title="No sessions yet"
+                body="Complete a workout from the Home tab to start tracking."
+              />
+            ) : null}
+          </>
+        )}
+
+        {/* Games section */}
+        {showGames && (
+          <>
+            <View style={s.gamesSectionHeader}>
+              <Text style={s.sectionLabel}>GAMES</Text>
+              <TouchableOpacity
+                onPress={() => router.push('/game-history')}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
+              >
+                <Text style={s.seeAll}>See all</Text>
+              </TouchableOpacity>
+            </View>
+            <GameHistory limit={3} />
+          </>
+        )}
+
+        {/* Film section */}
+        {showFilm && (
+          <View style={s.filmSection}>
+            <Text style={s.sectionLabel}>FILM</Text>
+            <TouchableOpacity
+              style={s.filmCta}
+              onPress={() => router.push('/(tabs)/film')}
+              activeOpacity={0.82}
+            >
+              <View style={s.filmCtaIcon}>
+                <Film size={20} color={Colors.primary} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.filmCtaTitle}>Go to Film Room</Text>
+                <Text style={s.filmCtaSub}>Upload clips and analyze your game with AI</Text>
+              </View>
+              <ChevronRight size={16} color={Colors.textMuted} />
+            </TouchableOpacity>
           </View>
         )}
 
-        <View style={{ height: 30 }} />
+        {/* Global empty state */}
+        {!hasSomething && activeFilter === 'All' && !plan && (
+          <EmptyState
+            Icon={CalendarDays}
+            title="No training history yet"
+            body="Complete your first session from Home to start building your record."
+          />
+        )}
+
+        <View style={{ height: 24 }} />
       </ScrollView>
+    </View>
+  );
+}
+
+function EmptyState({ Icon, title, body }: { Icon: any; title: string; body: string }) {
+  return (
+    <View style={s.emptyState}>
+      <Icon size={36} color={Colors.textMuted} strokeWidth={1.5} />
+      <Text style={s.emptyTitle}>{title}</Text>
+      <Text style={s.emptyBody}>{body}</Text>
     </View>
   );
 }
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: 20 },
-  headerTitle: {
-    fontSize: 28, fontWeight: '700', color: Colors.textPrimary,
-    letterSpacing: -0.6, paddingTop: 16, marginBottom: 20,
+  scroll: { paddingHorizontal: 0 },
+
+  pageTitle: {
+    fontSize: 28, fontWeight: '300', color: Colors.textPrimary,
+    letterSpacing: -0.6, paddingTop: 16, marginBottom: 16, paddingHorizontal: 24,
   },
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  statCard: {
-    flex: 1, backgroundColor: Colors.surface, borderRadius: 20,
+
+  filterScroll: { marginBottom: 20 },
+  filterRow: { paddingHorizontal: 24, gap: 8, flexDirection: 'row' },
+  filterPill: {
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 999, backgroundColor: Colors.surface,
     borderWidth: 1, borderColor: Colors.hairline,
-    padding: 16, alignItems: 'center',
   },
-  statIcon: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 10,
-  },
-  statValue: {
-    fontSize: 30, fontWeight: '300', color: Colors.textPrimary,
-    letterSpacing: -1.2, marginBottom: 4, fontVariant: ['tabular-nums'],
-  },
-  statLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: '500', letterSpacing: 0.5 },
+  filterPillActive: { backgroundColor: Colors.textPrimary, borderColor: Colors.textPrimary },
+  filterPillText: { fontSize: 14, fontWeight: '500', color: Colors.textSecondary },
+  filterPillTextActive: { color: Colors.white, fontWeight: '600' },
 
-  gamesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 2,
-  },
-  sectionTitleBare: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5,
-  },
-  seeAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  seeAllText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
-    letterSpacing: 0.2,
-  },
-
-  section: {
+  weekCard: {
     backgroundColor: Colors.surface, borderRadius: 22,
     borderWidth: 1, borderColor: Colors.hairline,
-    padding: 20, marginBottom: 14, marginTop: 14,
+    padding: 20, marginHorizontal: 24, marginBottom: 16,
   },
-  sectionTitle: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted,
-    letterSpacing: 1.5, marginBottom: 14,
+  weekLabel: {
+    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
+    letterSpacing: 0.96, textTransform: 'uppercase', marginBottom: 14,
   },
-  weekTitle: { fontSize: 17, fontWeight: '700', color: Colors.textPrimary, marginBottom: 18 },
-  weekBar: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-end', height: 120,
+  weekRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  weekDayCol: { alignItems: 'center', gap: 6 },
+  weekDayLetter: { fontSize: 11, fontWeight: '500', color: Colors.textMuted },
+  weekDot: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: Colors.surfaceBorder,
   },
-  weekDay: { alignItems: 'center', flex: 1 },
-  weekBarOuter: {
-    width: 24, height: 100, backgroundColor: Colors.surfaceBorder, borderRadius: 12,
-    overflow: 'hidden', justifyContent: 'flex-end', marginBottom: 8,
+  weekDotDone:    { backgroundColor: Colors.success },
+  weekDotPartial: { backgroundColor: Colors.primary },
+  weekDotRest:    { backgroundColor: Colors.surfaceBorder, borderStyle: 'dashed', borderWidth: 1 },
+  weekDotNone:    { backgroundColor: Colors.surfaceBorder },
+  weekLegend: { flexDirection: 'row', gap: 16 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendText: { fontSize: 11, color: Colors.textMuted },
+
+  statsRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.surface, borderRadius: 22,
+    borderWidth: 1, borderColor: Colors.hairline,
+    marginHorizontal: 24, marginBottom: 24, paddingVertical: 20,
   },
-  weekBarInner: { width: '100%', borderRadius: 12, minHeight: 4 },
-  weekDayLabel: { fontSize: 11, fontWeight: '600', color: Colors.textMuted },
-  breakdownRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10,
-    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
+  statBox: { flex: 1, alignItems: 'center' },
+  statBoxVal: {
+    fontSize: 30, fontWeight: '300', color: Colors.textPrimary,
+    letterSpacing: -0.9, fontVariant: ['tabular-nums'],
   },
-  breakdownInfo: { flexDirection: 'row', alignItems: 'center', gap: 8, width: 100 },
-  breakdownDot: { width: 8, height: 8, borderRadius: 4 },
-  breakdownLabel: { fontSize: 13, color: Colors.textSecondary, fontWeight: '500' },
-  breakdownBarOuter: {
-    flex: 1, height: 6, backgroundColor: Colors.surfaceBorder,
-    borderRadius: 3, overflow: 'hidden',
+  statBoxLabel: {
+    fontSize: 10, fontWeight: '500', color: Colors.textMuted,
+    letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 3,
   },
-  breakdownBarInner: { height: 6, borderRadius: 3 },
-  breakdownCount: {
-    fontSize: 12, color: Colors.textMuted, fontWeight: '600',
-    width: 36, textAlign: 'right',
+  statBoxDivider: { width: 1, height: 36, backgroundColor: Colors.hairline },
+
+  sectionLabel: {
+    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
+    letterSpacing: 0.96, textTransform: 'uppercase',
+    paddingHorizontal: 24, marginBottom: 10,
   },
-  dayRow: {
+
+  sessionCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.hairline,
+    padding: 14, marginHorizontal: 24, marginBottom: 8,
+  },
+  sessionIconWrap: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: Colors.primarySoft,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sessionInfo: { flex: 1 },
+  sessionName: { fontSize: 15, fontWeight: '500', color: Colors.textPrimary, letterSpacing: -0.2 },
+  sessionMeta: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  sessionRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  completedBadge: {
+    backgroundColor: 'rgba(24,184,114,0.10)',
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 100,
+  },
+  completedBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.success },
+
+  gamesSectionHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
+    paddingHorizontal: 24, marginBottom: 10,
   },
-  dayInfo: { flex: 1 },
-  dayName: { fontSize: 13, fontWeight: '700', color: Colors.textPrimary, marginBottom: 2 },
-  dayFocus: { fontSize: 12, color: Colors.textMuted },
-  dayRest: {
-    fontSize: 11, fontWeight: '700', color: Colors.textMuted, letterSpacing: 1,
+  seeAll: { fontSize: 13, fontWeight: '500', color: Colors.primary },
+
+  filmSection: { marginBottom: 8 },
+  filmCta: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: Colors.surface, borderRadius: 16,
+    borderWidth: 1, borderColor: Colors.hairline,
+    padding: 16, marginHorizontal: 24,
   },
-  dayProgress: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  dayBarOuter: {
-    width: 80, height: 6, backgroundColor: Colors.surfaceBorder,
-    borderRadius: 3, overflow: 'hidden',
+  filmCtaIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: Colors.primarySoft,
+    alignItems: 'center', justifyContent: 'center',
   },
-  dayBarInner: { height: 6, borderRadius: 3 },
-  dayPct: {
-    fontSize: 12, color: Colors.textMuted, fontWeight: '600',
-    width: 30, textAlign: 'right',
+  filmCtaTitle: { fontSize: 15, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2 },
+  filmCtaSub: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+
+  emptyState: {
+    alignItems: 'center', paddingTop: 48, paddingBottom: 24, paddingHorizontal: 32,
   },
-  emptyState: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: {
-    fontSize: 20, fontWeight: '700', color: Colors.textPrimary, marginBottom: 8,
+    fontSize: 17, fontWeight: '300', color: Colors.textBody,
+    marginTop: 12, marginBottom: 6, letterSpacing: -0.3,
   },
-  emptyBody: { fontSize: 14, color: Colors.textMuted, textAlign: 'center' },
+  emptyBody: {
+    fontSize: 14, color: Colors.textMuted, textAlign: 'center', lineHeight: 20,
+  },
 });

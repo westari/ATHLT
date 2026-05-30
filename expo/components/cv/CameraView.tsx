@@ -14,9 +14,9 @@
  * The frame processor runs on the VisionCamera JS-Runtime (off main thread).
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import Colors from '@/constants/colors';
 import ShotOverlay from './ShotOverlay';
@@ -163,9 +163,7 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
     );
   }
 
-  // ---- DIAGNOSTIC: set true to confirm camera opens without frame processor ----
-  // If the camera stays open with this true, the crash is in the frame processor.
-  // If it still crashes, the crash is in VisionCamera init / device selection.
+  // Flip to true to test camera without inference (diagnostic only)
   const DISABLE_FRAME_PROCESSOR = false;
 
   return (
@@ -173,8 +171,8 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
       <Camera
         style={StyleSheet.absoluteFill}
         device={device}
-        isActive={active}
-        frameProcessor={DISABLE_FRAME_PROCESSOR ? undefined : frameProcessor}
+        isActive={true}
+        frameProcessor={(DISABLE_FRAME_PROCESSOR || !active) ? undefined : frameProcessor}
         pixelFormat="yuv"
         fps={30}
       />

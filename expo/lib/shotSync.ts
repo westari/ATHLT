@@ -137,6 +137,10 @@ export async function saveShot(
   sessionId: string,
   shot: DetectedShot
 ): Promise<string | null> {
+  // Local sessions (no auth) use a timestamp-based id that isn't a valid UUID
+  if (sessionId.startsWith('local_')) {
+    return null;
+  }
   try {
     const {
       data: { user },
@@ -197,6 +201,11 @@ interface FinalizeInput {
  * on a session.
  */
 export async function finalizeShotSession(input: FinalizeInput): Promise<boolean> {
+  // Local sessions don't exist in Supabase — skip the update to avoid UUID errors
+  if (input.sessionId.startsWith('local_')) {
+    console.log('[shotSync] finalizeShotSession skipped — local session:', input.sessionId);
+    return true;
+  }
   try {
     const fgPercentage =
       input.totalShots > 0 ? (input.makes / input.totalShots) * 100 : 0;

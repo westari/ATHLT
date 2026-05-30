@@ -26,8 +26,6 @@ enum ShotDetectorError: Error, LocalizedError {
 
 // MARK: - Shared Inference Pipeline
 
-/// Singleton accessed by both the Expo module (JS loadModel call) and
-/// the VisionCamera frame processor plugin (per-frame inference).
 public final class ShotDetectorPipeline {
   public static let shared = ShotDetectorPipeline()
 
@@ -36,41 +34,42 @@ public final class ShotDetectorPipeline {
   private(set) var modelName = ""
 
   // Serial queue — VNCoreMLModel / VNRequest are NOT thread-safe.
-  // Frame processors run on VisionCamera's worklet thread; without serialization
-  // concurrent calls corrupt internal Vision state and cause EXC_BAD_ACCESS.
-  private let inferenceQueue = DispatchQueue(label: "com.athlt.shotdetector.inference", qos: .userInteractive)
+  // VisionCamera delivers frames on a worklet thread; without serialization,
+  // concurrent calls corrupt Vision internal state → EXC_BAD_ACCESS.
+  private let inferenceQueue = DispatchQueue(
+    label: "com.athlt.shotdetector.inference",
+    qos: .userInteractive
+  )
 
   private init() {
     NSLog("[ShotDetector] pipeline singleton created")
   }
 
-  /// Load the CoreML model from the app bundle.
-  ///
-  /// Xcode compiles .mlpackage → .mlmodelc at build time, so the bundle
-  /// contains best.mlmodelc (not best.mlpackage). We load the compiled
-  /// artifact directly — no runtime compilation needed.
+  // MARK: loadModel
+
   func loadModel(named resourceName: String = "best", extension ext: String = "mlpackage") throws -> String {
-    NSLog("[ShotDetector] loadModel called — looking for \(resourceName).mlmodelc")
+    NSLog("[ShotDetector] loadModel — searching for %@.mlmodelc", resourceName)
 
     guard let modelURL = Bundle.main.url(forResource: resourceName, withExtension: "mlmodelc")
                       ?? Bundle.main.url(forResource: resourceName, withExtension: ext) else {
-      NSLog("[ShotDetector] ERROR: model not found in bundle. Contents: %@",
-            (Bundle.main.urls(forResourcesWithExtension: "mlmodelc", subdirectory: nil) ?? [])
-              .map { $0.lastPathComponent }.joined(separator: ", "))
+      let bundleContents = (Bundle.main.urls(forResourcesWithExtension: "mlmodelc", subdirectory: nil) ?? [])
+        .map { $0.lastPathComponent }.joined(separator: ", ")
+      NSLog("[ShotDetector] ERROR: model not found. mlmodelc files in bundle: [%@]", bundleContents)
       throw ShotDetectorError.modelNotFound("\(resourceName).mlmodelc")
     }
 
-    NSLog("[ShotDetector] found model at: %@", modelURL.path)
+    NSLog("[ShotDetector] model URL: %@", modelURL.path)
 
     let config = MLModelConfiguration()
     config.computeUnits = .all
+    NSLog("[ShotDetector] MLModelConfiguration set — computeUnits: all")
 
     let mlModel: MLModel
     do {
       mlModel = try MLModel(contentsOf: modelURL, configuration: config)
       NSLog("[ShotDetector] MLModel loaded OK")
     } catch {
-      NSLog("[ShotDetector] MLModel load failed: %@", error.localizedDescription)
+      NSLog("[ShotDetector] MLModel load FAILED: %@", error.localizedDescription)
       throw ShotDetectorError.compilationFailed(error.localizedDescription)
     }
 
@@ -78,64 +77,97 @@ public final class ShotDetectorPipeline {
       coreMLModel = try VNCoreMLModel(for: mlModel)
       NSLog("[ShotDetector] VNCoreMLModel wrapped OK")
     } catch {
-      NSLog("[ShotDetector] VNCoreMLModel wrap failed: %@", error.localizedDescription)
+      NSLog("[ShotDetector] VNCoreMLModel wrap FAILED: %@", error.localizedDescription)
       throw ShotDetectorError.compilationFailed(error.localizedDescription)
     }
 
     isLoaded = true
     modelName = "\(resourceName).\(ext)"
-    NSLog("[ShotDetector] model ready — name: %@", modelName)
+    NSLog("[ShotDetector] model ready — modelName: %@", modelName)
     return modelName
   }
 
-  /// Run synchronous inference on a CVPixelBuffer.
+  // MARK: runInference
+
+  /// Runs synchronous CoreML inference on a CVPixelBuffer.
   ///
-  /// Serialized through inferenceQueue to prevent concurrent Vision calls
-  /// on the same VNCoreMLModel instance (not thread-safe → EXC_BAD_ACCESS).
+  /// Serialized through inferenceQueue — caller (VisionCamera worklet thread) blocks
+  /// until inference completes. Frame throttling in ShotDetectorFrameProcessor ensures
+  /// this happens at most every 3rd frame (~10fps) so the worklet thread is never
+  /// blocked for more than one inference window.
+  ///
+  /// Orientation: .right tells Vision the image top points right — correct for
+  /// the iPhone rear camera delivering portrait-captured frames. For landscape-locked
+  /// sessions the actual correct value may be .up; .right is the safe default that
+  /// prevents a 90° sideways YOLO input.
   func runInference(on pixelBuffer: CVPixelBuffer, minConfidence: Float = 0.35) throws -> [[String: Any]] {
-    // Capture model ref before entering the queue check
+    NSLog("[ShotDetector] runInference enter — isLoaded: %d", isLoaded ? 1 : 0)
+
     guard isLoaded else {
+      NSLog("[ShotDetector] runInference bailing — model not loaded")
       throw ShotDetectorError.modelNotLoaded
     }
 
     var result: [[String: Any]] = []
     var thrownError: Error? = nil
 
+    NSLog("[ShotDetector] entering inferenceQueue.sync")
+
     inferenceQueue.sync {
+      NSLog("[ShotDetector] inferenceQueue executing")
+
       guard let model = coreMLModel else {
+        NSLog("[ShotDetector] coreMLModel is nil inside sync — bailing")
         thrownError = ShotDetectorError.modelNotLoaded
         return
       }
 
-      // Lock the pixel buffer for the duration of the Vision request.
-      // VNImageRequestHandler retains it internally, but explicit locking
-      // prevents the buffer from being recycled by VisionCamera mid-inference.
+      // Lock pixel buffer so VisionCamera cannot recycle it mid-inference
+      NSLog("[ShotDetector] locking pixelBuffer — format: %u, size: %dx%d",
+            CVPixelBufferGetPixelFormatType(pixelBuffer),
+            CVPixelBufferGetWidth(pixelBuffer),
+            CVPixelBufferGetHeight(pixelBuffer))
       CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-      defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+      defer {
+        CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
+        NSLog("[ShotDetector] pixelBuffer unlocked")
+      }
 
+      // Create request each time — VNRequest is not reusable across calls
+      NSLog("[ShotDetector] creating VNCoreMLRequest")
       let request = VNCoreMLRequest(model: model)
       request.imageCropAndScaleOption = .scaleFit
 
-      let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
+      // .right: Vision orientation describing "top of image points to the right"
+      // This is the standard iPhone rear camera portrait-capture orientation.
+      // For landscape-locked sessions, try changing to .up if detections are rotated.
+      NSLog("[ShotDetector] creating VNImageRequestHandler with orientation .right")
+      let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+
+      NSLog("[ShotDetector] calling handler.perform")
       do {
         try handler.perform([request])
+        NSLog("[ShotDetector] handler.perform succeeded")
       } catch {
-        NSLog("[ShotDetector] inference perform error: %@", error.localizedDescription)
+        NSLog("[ShotDetector] handler.perform FAILED: %@", error.localizedDescription)
         thrownError = ShotDetectorError.inferenceFailed(error.localizedDescription)
         return
       }
 
+      NSLog("[ShotDetector] casting results to [VNRecognizedObjectObservation]")
       guard let observations = request.results as? [VNRecognizedObjectObservation] else {
+        NSLog("[ShotDetector] results cast returned nil — raw type: %@",
+              String(describing: type(of: request.results)))
         result = []
         return
       }
+
+      NSLog("[ShotDetector] raw observations count: %d", observations.count)
 
       result = observations.compactMap { obs -> [String: Any]? in
         guard let label = obs.labels.first, label.confidence >= minConfidence else {
           return nil
         }
-        // VNRecognizedObjectObservation bbox origin is bottom-left.
-        // Convert to top-left (UIKit/RN convention).
         let bb = obs.boundingBox
         return [
           "className":  label.identifier,
@@ -148,23 +180,25 @@ public final class ShotDetectorPipeline {
           ]
         ]
       }
+
+      NSLog("[ShotDetector] filtered detections (conf >= %.2f): %d", minConfidence, result.count)
     }
 
+    NSLog("[ShotDetector] inferenceQueue.sync returned — thrownError: %@",
+          thrownError?.localizedDescription ?? "none")
+
     if let err = thrownError { throw err }
+    NSLog("[ShotDetector] runInference returning %d detections", result.count)
     return result
   }
 }
 
 // MARK: - Expo Module
 
-/// Exposes loadModel(), isLoaded(), and getModelName() to JavaScript.
-/// Per-frame inference runs through ShotDetectorFrameProcessor (VisionCamera plugin).
 public class ShotDetectorModule: Module {
   public func definition() -> ModuleDefinition {
     Name("ShotDetector")
 
-    /// Load the CoreML model. Safe to call multiple times.
-    /// Returns { loaded: Bool, modelName: String, error?: String }
     AsyncFunction("loadModel") { () -> [String: Any] in
       do {
         let name = try ShotDetectorPipeline.shared.loadModel()
@@ -175,12 +209,10 @@ public class ShotDetectorModule: Module {
       }
     }
 
-    /// Returns true if the model has been loaded successfully.
     Function("isLoaded") { () -> Bool in
       return ShotDetectorPipeline.shared.isLoaded
     }
 
-    /// Returns the name of the loaded model, or empty string if not loaded.
     Function("getModelName") { () -> String in
       return ShotDetectorPipeline.shared.modelName
     }

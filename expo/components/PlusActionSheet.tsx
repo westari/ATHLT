@@ -2,6 +2,7 @@ import React from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal, Pressable, Platform,
 } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { MessageSquare, Dumbbell, ClipboardList } from 'lucide-react-native';
@@ -12,6 +13,36 @@ type Props = {
   visible: boolean;
   onClose: () => void;
 };
+
+const ACTIONS = [
+  {
+    icon: MessageSquare,
+    iconBg: Colors.primarySoft,
+    iconColor: Colors.primary,
+    title: 'Ask Coach',
+    sub: 'Chat with your AI coach',
+    route: '/coachx',
+    accent: true,
+  },
+  {
+    icon: Dumbbell,
+    iconBg: Colors.inkA8,
+    iconColor: Colors.textPrimary,
+    title: 'Build a Workout',
+    sub: 'Coach X builds it for you',
+    route: '/build-workout',
+    accent: false,
+  },
+  {
+    icon: ClipboardList,
+    iconBg: Colors.inkA8,
+    iconColor: Colors.textPrimary,
+    title: 'Log a Game',
+    sub: 'Quick stats from your last game',
+    route: '/log-game',
+    accent: false,
+  },
+] as const;
 
 export default function PlusActionSheet({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
@@ -24,144 +55,109 @@ export default function PlusActionSheet({ visible, onClose }: Props) {
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.handle} />
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={s.backdrop} onPress={onClose}>
+        <Pressable style={s.sheetWrap} onPress={e => e.stopPropagation()}>
+          <BlurView intensity={60} tint="light" style={[s.sheet, { paddingBottom: insets.bottom + 12 }]}>
 
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.action, styles.actionAccent]}
-              onPress={() => handleNav('/coachx')}
-              activeOpacity={0.82}
-            >
-              <View style={[styles.iconWrap, { backgroundColor: Colors.primarySoft }]}>
-                <MessageSquare size={20} color={Colors.primary} />
-              </View>
-              <View style={styles.actionTextWrap}>
-                <Text style={styles.actionTitle}>Ask Coach X</Text>
-                <Text style={styles.actionSub}>Chat with your AI coach</Text>
-              </View>
+            {/* Drag handle */}
+            <View style={s.handle} />
+
+            {/* Action rows */}
+            <View style={s.actions}>
+              {ACTIONS.map((action, i) => {
+                const Icon = action.icon;
+                return (
+                  <React.Fragment key={action.route}>
+                    <TouchableOpacity
+                      style={[s.row, action.accent && s.rowAccent]}
+                      onPress={() => handleNav(action.route)}
+                      activeOpacity={0.78}
+                    >
+                      <View style={[s.iconCircle, { backgroundColor: action.iconBg }]}>
+                        <Icon size={20} color={action.iconColor} />
+                      </View>
+                      <View style={s.rowText}>
+                        <Text style={s.rowTitle}>{action.title}</Text>
+                        <Text style={s.rowSub}>{action.sub}</Text>
+                      </View>
+                    </TouchableOpacity>
+                    {i < ACTIONS.length - 1 && <View style={s.rowDivider} />}
+                  </React.Fragment>
+                );
+              })}
+            </View>
+
+            {/* Cancel */}
+            <TouchableOpacity style={s.cancelBtn} onPress={onClose} activeOpacity={0.7}>
+              <Text style={s.cancelText}>Cancel</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.action}
-              onPress={() => handleNav('/build-workout')}
-              activeOpacity={0.82}
-            >
-              <View style={[styles.iconWrap, { backgroundColor: Colors.inkA8 }]}>
-                <Dumbbell size={20} color={Colors.textPrimary} />
-              </View>
-              <View style={styles.actionTextWrap}>
-                <Text style={styles.actionTitle}>Build a Workout</Text>
-                <Text style={styles.actionSub}>Coach X builds it for you</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.action}
-              onPress={() => handleNav('/log-game')}
-              activeOpacity={0.82}
-            >
-              <View style={[styles.iconWrap, { backgroundColor: Colors.inkA8 }]}>
-                <ClipboardList size={20} color={Colors.textPrimary} />
-              </View>
-              <View style={styles.actionTextWrap}>
-                <Text style={styles.actionTitle}>Log a Game</Text>
-                <Text style={styles.actionSub}>Quick stats from your last game</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={styles.cancelBtn} onPress={onClose} activeOpacity={0.7}>
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
+          </BlurView>
         </Pressable>
       </Pressable>
     </Modal>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(11,14,18,0.45)',
+    backgroundColor: 'rgba(11,14,18,0.40)',
     justifyContent: 'flex-end',
   },
+  sheetWrap: {
+    borderTopLeftRadius: 28, borderTopRightRadius: 28,
+    overflow: 'hidden',
+  },
   sheet: {
-    backgroundColor: Colors.paperA88,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
     paddingTop: 10,
     paddingHorizontal: 16,
     borderTopWidth: 1,
     borderTopColor: Colors.hairline,
   },
   handle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
+    width: 36, height: 4, borderRadius: 2,
     backgroundColor: Colors.inkA24,
     alignSelf: 'center',
     marginBottom: 20,
   },
   actions: {
-    gap: 10,
-    marginBottom: 12,
-  },
-  action: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.paperA88,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: Colors.hairline,
+    overflow: 'hidden',
+    marginBottom: 10,
   },
-  actionAccent: {
-    borderColor: Colors.glowGold,
-    backgroundColor: Colors.primarySoft,
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 16, paddingHorizontal: 16,
   },
-  iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  rowAccent: {
+    backgroundColor: 'rgba(201,162,74,0.07)',
   },
-  actionTextWrap: {
-    flex: 1,
+  rowDivider: {
+    height: 1, backgroundColor: Colors.hairline, marginLeft: 66,
   },
-  actionTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: Colors.textPrimary,
-    letterSpacing: -0.2,
-    marginBottom: 2,
+  iconCircle: {
+    width: 44, height: 44, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
   },
-  actionSub: {
-    fontSize: 12,
-    color: Colors.textSecondary,
+  rowText: { flex: 1 },
+  rowTitle: {
+    fontSize: 16, fontWeight: '600', color: Colors.textPrimary,
+    letterSpacing: -0.2, marginBottom: 2,
   },
+  rowSub: { fontSize: 13, color: Colors.textSecondary },
+
   cancelBtn: {
-    paddingVertical: 16,
+    backgroundColor: Colors.paperA88,
+    borderRadius: 18, paddingVertical: 16,
     alignItems: 'center',
-    borderRadius: 18,
-    backgroundColor: Colors.surface,
-    borderWidth: 1,
-    borderColor: Colors.hairline,
+    borderWidth: 1, borderColor: Colors.hairline,
   },
   cancelText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: Colors.textSecondary,
-    letterSpacing: -0.2,
+    fontSize: 16, fontWeight: '600', color: Colors.textSecondary, letterSpacing: -0.2,
   },
 });
