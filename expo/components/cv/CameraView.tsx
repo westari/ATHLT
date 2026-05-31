@@ -60,6 +60,10 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
   const [showDebugBoxes, setShowDebugBoxes] = useState(false);
   const [makes, setMakes]       = useState(0);
   const [totalShots, setTotal]  = useState(0);
+  // inferenceEnabled adds a 500ms settle delay after model load before the frame
+  // processor fires any inference. This prevents a crash window where the first
+  // frame arrives while CoreML is still initialising internal buffers.
+  const [inferenceEnabled, setInferenceEnabled] = useState(false);
 
   // Guards against referencing stale closures in worklet callbacks
   const activeRef = useRef(active);
@@ -73,6 +77,10 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
       if (result.loaded) {
         setModelState('ready');
         onCameraReady?.();
+        // Allow 500ms for the CoreML runtime to fully settle before inference starts.
+        setTimeout(() => {
+          if (!cancelled) setInferenceEnabled(true);
+        }, 500);
       } else {
         setModelState('error');
         setModelError(result.error ?? 'Unknown error');
@@ -172,7 +180,7 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={true}
-        frameProcessor={(DISABLE_FRAME_PROCESSOR || !active) ? undefined : frameProcessor}
+        frameProcessor={(DISABLE_FRAME_PROCESSOR || !active || !inferenceEnabled) ? undefined : frameProcessor}
         pixelFormat="rgb"
         fps={30}
       />

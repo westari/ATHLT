@@ -34,8 +34,6 @@ public final class ShotDetectorPipeline {
   private(set) var modelName = ""
 
   // Serial queue — VNCoreMLModel / VNRequest are NOT thread-safe.
-  // VisionCamera delivers frames on a worklet thread; without serialization,
-  // concurrent calls corrupt Vision internal state → EXC_BAD_ACCESS.
   private let inferenceQueue = DispatchQueue(
     label: "com.athlt.shotdetector.inference",
     qos: .userInteractive
@@ -62,7 +60,6 @@ public final class ShotDetectorPipeline {
 
     let config = MLModelConfiguration()
     config.computeUnits = .all
-    NSLog("[ShotDetector] MLModelConfiguration set — computeUnits: all")
 
     let mlModel: MLModel
     do {
@@ -89,103 +86,105 @@ public final class ShotDetectorPipeline {
 
   // MARK: runInference
 
-  /// Runs synchronous CoreML inference on a CVPixelBuffer.
+  /// Run inference on a CVPixelBuffer.
   ///
-  /// Serialized through inferenceQueue — caller (VisionCamera worklet thread) blocks
-  /// until inference completes. Frame throttling in ShotDetectorFrameProcessor ensures
-  /// this happens at most every 3rd frame (~10fps) so the worklet thread is never
-  /// blocked for more than one inference window.
+  /// NEVER throws. Any error at any step returns an empty array and logs the
+  /// failure. This guarantees the frame processor plugin never crashes the app.
   ///
-  /// Orientation: .right tells Vision the image top points right — correct for
-  /// the iPhone rear camera delivering portrait-captured frames. For landscape-locked
-  /// sessions the actual correct value may be .up; .right is the safe default that
-  /// prevents a 90° sideways YOLO input.
-  func runInference(on pixelBuffer: CVPixelBuffer, minConfidence: Float = 0.35) throws -> [[String: Any]] {
-    NSLog("[ShotDetector] runInference enter — isLoaded: %d", isLoaded ? 1 : 0)
-
-    guard isLoaded else {
-      NSLog("[ShotDetector] runInference bailing — model not loaded")
-      throw ShotDetectorError.modelNotLoaded
+  /// Orientation: .up — used for landscape-locked sessions where the camera
+  /// buffer is already in the native landscape orientation.
+  func runInference(on pixelBuffer: CVPixelBuffer, minConfidence: Float = 0.35) -> [[String: Any]] {
+    guard isLoaded, coreMLModel != nil else {
+      return []
     }
 
     var result: [[String: Any]] = []
-    var thrownError: Error? = nil
-
-    NSLog("[ShotDetector] entering inferenceQueue.sync")
 
     inferenceQueue.sync {
-      NSLog("[ShotDetector] inferenceQueue executing")
-
+      // Additional guard inside the queue in case model was unloaded concurrently
       guard let model = coreMLModel else {
-        NSLog("[ShotDetector] coreMLModel is nil inside sync — bailing")
-        thrownError = ShotDetectorError.modelNotLoaded
+        NSLog("[ShotDetector] coreMLModel nil inside sync — skip")
         return
       }
 
-      // Log pixel buffer info for diagnostics — do NOT lock manually.
-      // VNImageRequestHandler locks the buffer internally; an explicit
-      // CVPixelBufferLockBaseAddress here causes a double-lock which crashes.
-      NSLog("[ShotDetector] pixelBuffer — format: %u, size: %dx%d",
-            CVPixelBufferGetPixelFormatType(pixelBuffer),
-            CVPixelBufferGetWidth(pixelBuffer),
-            CVPixelBufferGetHeight(pixelBuffer))
+      let fmt = CVPixelBufferGetPixelFormatType(pixelBuffer)
+      let w   = CVPixelBufferGetWidth(pixelBuffer)
+      let h   = CVPixelBufferGetHeight(pixelBuffer)
+      NSLog("[ShotDetector] inference — format: %u, size: %dx%d", fmt, w, h)
 
-      // Create request each time — VNRequest is not reusable across calls
-      NSLog("[ShotDetector] creating VNCoreMLRequest")
       let request = VNCoreMLRequest(model: model)
       request.imageCropAndScaleOption = .scaleFit
 
-      // .right: Vision orientation describing "top of image points to the right"
-      // This is the standard iPhone rear camera portrait-capture orientation.
-      // For landscape-locked sessions, try changing to .up if detections are rotated.
-      NSLog("[ShotDetector] creating VNImageRequestHandler with orientation .right")
-      let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+      // Use .up for landscape mode (phone is held horizontally).
+      // The camera buffer in landscape is already in the correct orientation.
+      // Change to .right if the phone is held portrait during testing.
+      let handler = VNImageRequestHandler(
+        cvPixelBuffer: pixelBuffer,
+        orientation: .up,
+        options: [:]
+      )
 
-      NSLog("[ShotDetector] calling handler.perform")
       do {
         try handler.perform([request])
-        NSLog("[ShotDetector] handler.perform succeeded")
       } catch {
-        NSLog("[ShotDetector] handler.perform FAILED: %@", error.localizedDescription)
-        thrownError = ShotDetectorError.inferenceFailed(error.localizedDescription)
+        NSLog("[ShotDetector] handler.perform error: %@", error.localizedDescription)
         return
       }
 
-      NSLog("[ShotDetector] casting results to [VNRecognizedObjectObservation]")
-      guard let observations = request.results as? [VNRecognizedObjectObservation] else {
-        NSLog("[ShotDetector] results cast returned nil — raw type: %@",
-              String(describing: type(of: request.results)))
-        result = []
+      // ---- Detect output format ----
+      //
+      // YOLOv11/v8 models exported WITH --nms produce [VNRecognizedObjectObservation].
+      // Models exported WITHOUT --nms produce [VNCoreMLFeatureValueObservation] (raw
+      // tensors). We handle both cases below.
+
+      guard let rawResults = request.results, !rawResults.isEmpty else {
+        NSLog("[ShotDetector] perform returned nil or empty results")
         return
       }
 
-      NSLog("[ShotDetector] raw observations count: %d", observations.count)
+      NSLog("[ShotDetector] result type: %@, count: %d",
+            String(describing: type(of: rawResults[0])), rawResults.count)
 
-      result = observations.compactMap { obs -> [String: Any]? in
-        guard let label = obs.labels.first, label.confidence >= minConfidence else {
-          return nil
-        }
-        let bb = obs.boundingBox
-        return [
-          "className":  label.identifier,
-          "confidence": Double(label.confidence),
-          "bbox": [
-            "x":      Double(bb.origin.x),
-            "y":      Double(1.0 - bb.origin.y - bb.size.height),
-            "width":  Double(bb.size.width),
-            "height": Double(bb.size.height),
+      if let objectObs = rawResults as? [VNRecognizedObjectObservation] {
+        // ---- Standard detection output ----
+        result = objectObs.compactMap { obs -> [String: Any]? in
+          guard let label = obs.labels.first, label.confidence >= minConfidence else {
+            return nil
+          }
+          let bb = obs.boundingBox
+          return [
+            "className":  label.identifier,
+            "confidence": Double(label.confidence),
+            "bbox": [
+              "x":      Double(bb.origin.x),
+              "y":      Double(1.0 - bb.origin.y - bb.size.height),
+              "width":  Double(bb.size.width),
+              "height": Double(bb.size.height),
+            ]
           ]
-        ]
-      }
+        }
+        NSLog("[ShotDetector] parsed %d detections (conf >= %.2f)", result.count, minConfidence)
 
-      NSLog("[ShotDetector] filtered detections (conf >= %.2f): %d", minConfidence, result.count)
+      } else if let featureObs = rawResults as? [VNCoreMLFeatureValueObservation] {
+        // ---- Raw tensor output (model exported without NMS) ----
+        //
+        // The model needs to be re-exported with:
+        //   yolo export model=best.pt format=coreml nms=True
+        //
+        // Returning empty detections for now — app stays running.
+        NSLog("[ShotDetector] model outputs raw feature values (%d features) — NMS not baked in.",
+              featureObs.count)
+        NSLog("[ShotDetector] Re-export with: yolo export model=best.pt format=coreml nms=True")
+        result = []
+
+      } else {
+        // ---- Unknown output type ----
+        NSLog("[ShotDetector] unrecognized output type: %@",
+              String(describing: type(of: rawResults[0])))
+        result = []
+      }
     }
 
-    NSLog("[ShotDetector] inferenceQueue.sync returned — thrownError: %@",
-          thrownError?.localizedDescription ?? "none")
-
-    if let err = thrownError { throw err }
-    NSLog("[ShotDetector] runInference returning %d detections", result.count)
     return result
   }
 }
