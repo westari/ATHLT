@@ -173,7 +173,7 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
         device={device}
         isActive={true}
         frameProcessor={(DISABLE_FRAME_PROCESSOR || !active) ? undefined : frameProcessor}
-        pixelFormat="yuv"
+        pixelFormat="rgb"
         fps={30}
       />
 

@@ -122,16 +122,13 @@ public final class ShotDetectorPipeline {
         return
       }
 
-      // Lock pixel buffer so VisionCamera cannot recycle it mid-inference
-      NSLog("[ShotDetector] locking pixelBuffer — format: %u, size: %dx%d",
+      // Log pixel buffer info for diagnostics — do NOT lock manually.
+      // VNImageRequestHandler locks the buffer internally; an explicit
+      // CVPixelBufferLockBaseAddress here causes a double-lock which crashes.
+      NSLog("[ShotDetector] pixelBuffer — format: %u, size: %dx%d",
             CVPixelBufferGetPixelFormatType(pixelBuffer),
             CVPixelBufferGetWidth(pixelBuffer),
             CVPixelBufferGetHeight(pixelBuffer))
-      CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
-      defer {
-        CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
-        NSLog("[ShotDetector] pixelBuffer unlocked")
-      }
 
       // Create request each time — VNRequest is not reusable across calls
       NSLog("[ShotDetector] creating VNCoreMLRequest")

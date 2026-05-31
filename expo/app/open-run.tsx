@@ -1,30 +1,41 @@
 /**
- * Open Run — free-form shooting session with live CV tracking.
- * No drill guide, no timer — just track shots as long as the user wants.
+ * Open Run — Track Shots screen with Liquid Glass HUD.
+ *
+ * Camera fills the entire screen. All controls are GlassPanel overlays.
+ * No solid-colored buttons — everything is frosted glass.
  *
  * Route: /open-run
- *
- * NOTE: expo-screen-orientation must be installed before the orientation
- * lock takes effect. Run: npm install expo-screen-orientation --legacy-peer-deps --save
- * Then do an EAS rebuild (native code required).
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Platform,
+  Animated, Dimensions,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
 import * as Haptics from 'expo-haptics';
-import * as ScreenOrientation from 'expo-screen-orientation';
-import { X, Play, Square } from 'lucide-react-native';
-import Colors from '@/constants/colors';
+import { X, Play, Square, Check } from 'lucide-react-native';
+import GlassPanel from '@/components/ui/GlassPanel';
 import CVCameraView from '@/components/cv/CameraView';
 import PostSessionRecap from '@/components/cv/PostSessionRecap';
 import { ShotTracker, type ShotEvent } from '@/lib/cv/ShotTracker';
 import { CVSessionSync, type SessionRecap } from '@/lib/cv/ShotSync';
 import { supabase } from '@/constants/supabase';
+
+// Note: camera orientation is handled naturally by VisionCamera.
+// Hold phone horizontally for the best shooting-session view.
+
+const { width: SW } = Dimensions.get('window');
+const BTN_HEIGHT = 64;
+const BTN_BOTTOM = 40;
+
+// Subtle text shadow for readability over any camera background
+const TEXT_SHADOW = {
+  textShadowColor: 'rgba(0,0,0,0.45)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 3,
+} as const;
 
 type SessionPhase = 'idle' | 'tracking' | 'finishing' | 'recap';
 
@@ -32,57 +43,96 @@ export default function OpenRunScreen() {
   const safeInsets = useSafeAreaInsets();
   const router     = useRouter();
 
+  // ---- Session state ----
   const [phase, setPhase]               = useState<SessionPhase>('idle');
   const [recap, setRecap]               = useState<SessionRecap | null>(null);
   const [recapLoading, setRecapLoading] = useState(false);
   const [liveMakes, setLiveMakes]       = useState(0);
   const [liveTotal, setLiveTotal]       = useState(0);
+  const [showHint, setShowHint]         = useState(true);
+  const [lastShot, setLastShot]         = useState<{ type: 'make' | 'miss'; zone: string | null } | null>(null);
 
+  // ---- CV ----
   const tracker = useMemo(() => new ShotTracker(), []);
   const sync    = useMemo(() => new CVSessionSync(), []);
 
-  // Orientation lock — requires expo-screen-orientation + EAS rebuild
-  useEffect(() => {
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-    return () => {
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-    };
-  }, []);
+  // ---- Animations ----
+  const hintFade   = useRef(new Animated.Value(1)).current;
+  const btnPhase   = useRef(new Animated.Value(0)).current; // 0 = start, 1 = stop
+  const recPulse   = useRef(new Animated.Value(0.3)).current;
+  const shotFade   = useRef(new Animated.Value(0)).current;
+  const shotTimer  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // REC dot pulse loop while tracking
+  useEffect(() => {
+    if (phase !== 'tracking') return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(recPulse, { toValue: 1.0, duration: 900, useNativeDriver: true }),
+        Animated.timing(recPulse, { toValue: 0.3, duration: 900, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [phase]);
+
+  // Clean up shot timer on unmount
+  useEffect(() => () => { if (shotTimer.current) clearTimeout(shotTimer.current); }, []);
+
+  // ---- Animation helpers ----
+  const dismissHint = () => {
+    Animated.timing(hintFade, { toValue: 0, duration: 200, useNativeDriver: true })
+      .start(() => setShowHint(false));
+  };
+
+  const flashLastShot = (event: ShotEvent) => {
+    setLastShot({ type: event.type, zone: event.zone });
+    if (shotTimer.current) clearTimeout(shotTimer.current);
+    shotFade.setValue(0);
+    Animated.timing(shotFade, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+    shotTimer.current = setTimeout(() => {
+      Animated.timing(shotFade, { toValue: 0, duration: 350, useNativeDriver: true }).start();
+    }, 3000);
+  };
+
+  // ---- Shot detection ----
   const handleShotDetected = useCallback((event: ShotEvent) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     sync.recordShot(event);
     setLiveMakes(tracker.getMakes());
     setLiveTotal(tracker.getTotalShots());
+    flashLastShot(event);
   }, [sync, tracker]);
 
+  // ---- Session control ----
   const handleStart = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    dismissHint();
+    Animated.timing(btnPhase, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+    setPhase('tracking'); // immediate UI state change
+    setLiveMakes(0);
+    setLiveTotal(0);
+    // Supabase sync in background — doesn't block UI
     try {
       tracker.reset();
-      setLiveMakes(0);
-      setLiveTotal(0);
       await sync.start({ sessionType: 'open_run' });
     } catch (e) {
       console.error('[open-run] handleStart error:', e);
     }
-    setPhase('tracking');
   };
 
   const handleStop = async () => {
     if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    Animated.timing(btnPhase, { toValue: 0, duration: 200, useNativeDriver: true }).start();
     setPhase('finishing');
     setRecapLoading(true);
-
     try {
       const summary = tracker.getSummary();
       let userId: string | undefined;
       try {
-        const authResult = await supabase.auth.getUser();
-        userId = authResult.data?.user?.id ?? undefined;
-      } catch {
-        // no-op
-      }
+        const ar = await supabase.auth.getUser();
+        userId = ar.data?.user?.id ?? undefined;
+      } catch {}
       const sessionRecap = await sync.finish(summary, userId);
       setRecap(sessionRecap);
     } catch (e) {
@@ -94,11 +144,25 @@ export default function OpenRunScreen() {
     }
   };
 
+  // ---- Derived display values ----
+  const isTracking   = phase === 'tracking';
+  const fgPctNum     = liveTotal > 0 ? Math.round((liveMakes / liveTotal) * 100) : null;
+  const statText     = liveTotal > 0
+    ? `${liveMakes} / ${liveTotal} · ${fgPctNum}%`
+    : 'Tracking...';
+  const lastShotText = lastShot
+    ? `${lastShot.type === 'make' ? 'MAKE' : 'MISS'}${lastShot.zone ? ' · ' + lastShot.zone : ''}`
+    : '';
+
+  // Button cross-fade interpolations
+  const startOpacity = btnPhase.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
+  const stopOpacity  = btnPhase.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+
   // ---- Recap screen ----
   if (phase === 'recap' || phase === 'finishing') {
     const summary = tracker.getSummary();
     return (
-      <View style={[styles.full, { paddingTop: safeInsets.top }]}>
+      <View style={[s.full, { paddingTop: safeInsets.top }]}>
         <Stack.Screen options={{ headerShown: false }} />
         <PostSessionRecap
           recap={recap}
@@ -110,137 +174,236 @@ export default function OpenRunScreen() {
     );
   }
 
-  const isTracking = phase === 'tracking';
-  const fgPct = liveTotal > 0 ? ((liveMakes / liveTotal) * 100).toFixed(1) : null;
-
-  // ---- Main tracking screen ----
+  // ---- Main screen ----
   return (
-    <View style={styles.full}>
+    <View style={s.full}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Camera fills screen — preview always visible, inference gated by isTracking */}
+      {/* ── Camera — fills entire screen ── */}
       <CVCameraView
         tracker={tracker}
         active={isTracking}
         onShotDetected={handleShotDetected}
       />
 
-      {/* Top-left: X / back button */}
-      <BlurView intensity={40} tint="dark" style={[styles.topLeftBtn, { top: safeInsets.top + 12 }]}>
-        <TouchableOpacity
-          style={styles.iconBtnInner}
-          onPress={() => {
-            if (isTracking) void handleStop();
-            else router.back();
-          }}
-          activeOpacity={0.8}
-        >
-          <X size={18} color="#FFFFFF" />
-        </TouchableOpacity>
-      </BlurView>
+      {/* ────────────────────────────────────────
+          TOP BAR
+          X left | title/REC center | stat right
+      ──────────────────────────────────────── */}
 
-      {/* Top-center: screen title */}
-      <View style={[styles.topTitle, { top: safeInsets.top + 14 }]} pointerEvents="none">
-        <Text style={styles.topTitleText}>Track Shots</Text>
+      {/* X button — always visible */}
+      <View style={[s.topLeft, { top: safeInsets.top + 12 }]}>
+        <GlassPanel style={s.iconBtn} borderRadius={22} tint="dark">
+          <TouchableOpacity
+            style={s.iconBtnInner}
+            onPress={() => { if (isTracking) void handleStop(); else router.back(); }}
+            activeOpacity={0.8}
+          >
+            <X size={20} color="#FFFFFF" strokeWidth={2} />
+          </TouchableOpacity>
+        </GlassPanel>
       </View>
 
-      {/* Top-right: live stat pill (only during tracking) */}
-      {isTracking && fgPct !== null && (
-        <BlurView intensity={40} tint="dark" style={[styles.statPill, { top: safeInsets.top + 12 }]}>
-          <Text style={styles.statPillText}>
-            {liveMakes}/{liveTotal} · {fgPct}%
-          </Text>
-        </BlurView>
+      {/* Center pill — title in idle, REC in tracking */}
+      <View style={[s.topCenter, { top: safeInsets.top + 14 }]} pointerEvents="none">
+        {!isTracking ? (
+          <GlassPanel style={s.titlePill} borderRadius={999} tint="dark">
+            <Text style={[s.titleText, TEXT_SHADOW]}>Track Shots</Text>
+          </GlassPanel>
+        ) : (
+          <GlassPanel style={s.recPill} borderRadius={999} tint="dark">
+            <Animated.View style={[s.recDot, { opacity: recPulse }]} />
+            <Text style={[s.recText, TEXT_SHADOW]}>REC</Text>
+          </GlassPanel>
+        )}
+      </View>
+
+      {/* Stat pill — top right, tracking only */}
+      {isTracking && (
+        <View style={[s.topRight, { top: safeInsets.top + 12 }]}>
+          <GlassPanel style={s.statPill} borderRadius={999} tint="dark">
+            <Text style={[s.statText, TEXT_SHADOW]}>{statText}</Text>
+          </GlassPanel>
+        </View>
       )}
 
-      {/* Bottom: start / stop controls */}
-      <View style={[styles.bottomBar, { paddingBottom: safeInsets.bottom + 20 }]}>
-        {!isTracking && (
-          <>
-            <Text style={styles.hint}>Point camera at the hoop. Rim should be fully visible.</Text>
-            <TouchableOpacity style={styles.startBtn} onPress={handleStart} activeOpacity={0.85}>
-              <Play size={18} color={Colors.black} fill={Colors.black} />
-              <Text style={styles.startBtnText}>Start Tracking</Text>
+      {/* ────────────────────────────────────────
+          CENTER — hint card (idle only)
+      ──────────────────────────────────────── */}
+      {showHint && !isTracking && (
+        <Animated.View style={[s.hintWrap, { opacity: hintFade }]} pointerEvents="box-none">
+          <GlassPanel style={s.hintCard} borderRadius={22} tint="light">
+            <TouchableOpacity
+              style={s.hintDismissBtn}
+              onPress={dismissHint}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, left: 8, right: 8, bottom: 8 }}
+            >
+              <X size={14} color="rgba(255,255,255,0.7)" strokeWidth={2} />
             </TouchableOpacity>
-          </>
-        )}
+            <Text style={[s.hintTitle, TEXT_SHADOW]}>Point at the hoop</Text>
+            <Text style={[s.hintSub, TEXT_SHADOW]}>Hold horizontally for best tracking</Text>
+          </GlassPanel>
+        </Animated.View>
+      )}
 
-        {isTracking && (
-          <BlurView intensity={50} tint="dark" style={styles.stopBtnBlur}>
-            <TouchableOpacity style={styles.stopBtnInner} onPress={handleStop} activeOpacity={0.85}>
-              <Square size={16} color="#F44336" fill="#F44336" />
-              <Text style={styles.stopBtnText}>Stop Session</Text>
+      {/* ────────────────────────────────────────
+          LAST SHOT INDICATOR — bottom left
+      ──────────────────────────────────────── */}
+      {lastShot !== null && (
+        <Animated.View
+          style={[s.shotWrap, { opacity: shotFade, bottom: safeInsets.bottom + BTN_HEIGHT + 60 }]}
+          pointerEvents="none"
+        >
+          <GlassPanel style={s.shotPill} borderRadius={999} tint="dark">
+            {lastShot.type === 'make'
+              ? <Check size={14} color="#FFFFFF" strokeWidth={2.5} />
+              : <X size={14} color="#FFFFFF" strokeWidth={2.5} />
+            }
+            <Text style={[s.shotText, TEXT_SHADOW]}>{lastShotText}</Text>
+          </GlassPanel>
+        </Animated.View>
+      )}
+
+      {/* ────────────────────────────────────────
+          BOTTOM — cross-fading Start / Stop
+      ──────────────────────────────────────── */}
+      <View style={[s.bottomWrap, { bottom: safeInsets.bottom + BTN_BOTTOM }]}>
+        {/* Start button */}
+        <Animated.View
+          style={[s.btnSlot, { opacity: startOpacity }]}
+          pointerEvents={isTracking ? 'none' : 'auto'}
+        >
+          <GlassPanel style={s.bigBtn} borderRadius={32} tint="light" tintColor="rgba(201,162,74,0.38)">
+            <TouchableOpacity style={s.bigBtnInner} onPress={handleStart} activeOpacity={0.85}>
+              <Play size={22} color="#FFFFFF" fill="#FFFFFF" strokeWidth={1.8} />
+              <Text style={[s.bigBtnText, TEXT_SHADOW]}>Start Tracking</Text>
             </TouchableOpacity>
-          </BlurView>
-        )}
+          </GlassPanel>
+        </Animated.View>
+
+        {/* Stop button */}
+        <Animated.View
+          style={[s.btnSlot, { opacity: stopOpacity }]}
+          pointerEvents={isTracking ? 'auto' : 'none'}
+        >
+          <GlassPanel style={s.bigBtn} borderRadius={32} tint="dark">
+            <TouchableOpacity style={s.bigBtnInner} onPress={handleStop} activeOpacity={0.85}>
+              <Square size={20} color="#FFFFFF" fill="#FFFFFF" strokeWidth={1.8} />
+              <Text style={[s.bigBtnText, TEXT_SHADOW]}>Stop</Text>
+            </TouchableOpacity>
+          </GlassPanel>
+        </Animated.View>
       </View>
+
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   full: { flex: 1, backgroundColor: '#000' },
 
-  topLeftBtn: {
-    position: 'absolute', left: 16,
-    width: 40, height: 40, borderRadius: 20,
+  // ── Top bar elements ──
+  topLeft: {
+    position: 'absolute', left: 16, zIndex: 30,
+  },
+  topCenter: {
+    position: 'absolute', left: 0, right: 0,
+    alignItems: 'center', zIndex: 20,
+  },
+  topRight: {
+    position: 'absolute', right: 16, zIndex: 30,
+  },
+
+  iconBtn: {
+    width: 44, height: 44,
     overflow: 'hidden',
-    zIndex: 20,
   },
   iconBtnInner: {
     flex: 1, alignItems: 'center', justifyContent: 'center',
   },
 
-  topTitle: {
-    position: 'absolute', left: 0, right: 0,
-    alignItems: 'center',
-    zIndex: 10,
-    pointerEvents: 'none' as any,
+  titlePill: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, height: 36, overflow: 'hidden',
   },
-  topTitleText: {
-    color: 'rgba(255,255,255,0.85)',
-    fontSize: 15, fontWeight: '600', letterSpacing: -0.2,
+  titleText: {
+    color: '#FFFFFF', fontSize: 14, fontWeight: '600', letterSpacing: -0.2,
+  },
+
+  recPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, height: 30, overflow: 'hidden',
+  },
+  recDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: '#FF3B30',
+  },
+  recText: {
+    color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.5,
   },
 
   statPill: {
-    position: 'absolute', right: 16,
-    paddingHorizontal: 12, paddingVertical: 8,
-    borderRadius: 100, overflow: 'hidden',
-    zIndex: 20,
+    paddingHorizontal: 14, height: 36,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
   },
-  statPillText: {
-    color: '#FFFFFF', fontSize: 13, fontWeight: '700',
+  statText: {
+    color: '#FFFFFF', fontSize: 13, fontWeight: '600',
     letterSpacing: -0.2, fontVariant: ['tabular-nums'],
   },
 
-  bottomBar: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    alignItems: 'center', paddingHorizontal: 20, paddingTop: 16,
-    gap: 10, zIndex: 20,
+  // ── Center hint card ──
+  hintWrap: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: 'center', justifyContent: 'center',
+    zIndex: 20,
   },
-  hint: {
-    color: 'rgba(255,255,255,0.55)',
-    fontSize: 13, textAlign: 'center', lineHeight: 18,
+  hintCard: {
+    maxWidth: 280, padding: 20, overflow: 'hidden',
   },
-  startBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: Colors.primary,
-    paddingVertical: 14, paddingHorizontal: 36,
-    borderRadius: 100,
+  hintDismissBtn: {
+    position: 'absolute', top: 10, right: 10,
+    width: 24, height: 24,
+    alignItems: 'center', justifyContent: 'center',
   },
-  startBtnText: {
-    color: Colors.black, fontSize: 16, fontWeight: '700', letterSpacing: -0.3,
+  hintTitle: {
+    color: '#FFFFFF', fontSize: 16, fontWeight: '600',
+    letterSpacing: -0.3, marginBottom: 6, marginRight: 20,
+  },
+  hintSub: {
+    color: 'rgba(255,255,255,0.75)', fontSize: 13, lineHeight: 18,
   },
 
-  stopBtnBlur: {
-    borderRadius: 100, overflow: 'hidden',
-    borderWidth: 1.5, borderColor: '#F44336',
+  // ── Last shot indicator ──
+  shotWrap: {
+    position: 'absolute', left: 20, zIndex: 30,
   },
-  stopBtnInner: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingVertical: 14, paddingHorizontal: 32,
+  shotPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    paddingHorizontal: 14, height: 34, overflow: 'hidden',
   },
-  stopBtnText: {
-    color: '#F44336', fontSize: 16, fontWeight: '700',
+  shotText: {
+    color: '#FFFFFF', fontSize: 12, fontWeight: '600', letterSpacing: 0.3,
+  },
+
+  // ── Bottom cross-fade buttons ──
+  bottomWrap: {
+    position: 'absolute', left: 20, right: 20,
+    height: BTN_HEIGHT,
+    zIndex: 30,
+  },
+  btnSlot: {
+    position: 'absolute', left: 0, right: 0, top: 0, bottom: 0,
+  },
+  bigBtn: {
+    flex: 1, height: BTN_HEIGHT, overflow: 'hidden',
+  },
+  bigBtnInner: {
+    flex: 1, flexDirection: 'row',
+    alignItems: 'center', justifyContent: 'center', gap: 10,
+  },
+  bigBtnText: {
+    color: '#FFFFFF', fontSize: 17, fontWeight: '700', letterSpacing: -0.3,
   },
 });

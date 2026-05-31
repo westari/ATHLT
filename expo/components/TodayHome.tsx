@@ -222,11 +222,6 @@ export default function TodayHome() {
                 {day?.duration ? ` · ${day.duration}` : ''}
               </Text>
 
-              {/* Why-this-plan insight */}
-              {plan.aiInsight ? (
-                <Text style={styles.planWhy}>"{plan.aiInsight}"</Text>
-              ) : null}
-
               {resolvedDrills.length > 0 && (
                 <View style={styles.progressTrack}>
                   <View style={[styles.progressFill, { width: donePct + '%' }]} />
@@ -448,10 +443,6 @@ const styles = StyleSheet.create({
   planMeta: {
     fontSize: 13, color: Colors.textMuted,
     letterSpacing: -0.1, marginBottom: 10, lineHeight: 18,
-  },
-  planWhy: {
-    fontSize: 13, fontStyle: 'italic', color: Colors.primary,
-    letterSpacing: -0.1, marginBottom: 12, lineHeight: 19,
   },
   progressTrack: {
     height: 3, backgroundColor: Colors.surfaceBorder,

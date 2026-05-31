@@ -1,7 +1,6 @@
 /**
- * WorkoutPreview — shown when user taps the hero ring or plan card on the home screen.
- * Displays the full drill list for today's plan, explains why it was assigned,
- * and offers a single "Begin Workout" button to start the session.
+ * WorkoutPreview — drill list shown before starting a session.
+ * Tapped from the home screen hero ring or plan card.
  *
  * Route: /workout-preview
  */
@@ -12,43 +11,36 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, Stack } from 'expo-router';
-import {
-  ArrowLeft, Edit3, Play, Zap, Target, Flame, Brain, Shield, Wind,
-} from 'lucide-react-native';
+import { ArrowLeft, Edit3, Play, Check } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
 
-const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string; Icon: any }> = {
-  warmup:       { bg: Colors.primarySoft,  text: Colors.primaryPressed, label: 'WARMUP',       Icon: Wind },
-  skill:        { bg: Colors.marineSoft,   text: Colors.marine,         label: 'SKILL',        Icon: Target },
-  shooting:     { bg: Colors.primarySoft,  text: '#926000',             label: 'SHOOTING',     Icon: Zap },
-  conditioning: { bg: Colors.courtSoft,    text: Colors.court,          label: 'CONDITIONING', Icon: Flame },
-  other:        { bg: Colors.inkA8,        text: Colors.textSecondary,  label: 'DRILL',        Icon: Brain },
+const TYPE_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
+  warmup:       { bg: Colors.primarySoft,  text: Colors.primaryPressed, label: 'WARMUP' },
+  skill:        { bg: Colors.marineSoft,   text: Colors.marine,         label: 'SKILL WORK' },
+  shooting:     { bg: Colors.primarySoft,  text: '#926000',             label: 'SHOOTING' },
+  conditioning: { bg: Colors.courtSoft,    text: Colors.court,          label: 'CONDITIONING' },
 };
 
 function getTypeConfig(type?: string) {
-  return TYPE_CONFIG[type ?? 'other'] ?? TYPE_CONFIG.other;
+  return TYPE_CONFIG[type ?? ''] ?? TYPE_CONFIG.skill;
 }
 
 export default function WorkoutPreviewScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { plan, currentDayIndex } = usePlanStore();
+  const { plan, completedDrills, currentDayIndex } = usePlanStore();
 
   const day = plan?.days?.[currentDayIndex];
-  const planDrills = day?.drills || [];
 
   const resolvedDrills = useMemo(
-    () => planDrills.map(d => resolvePlanDrill(d)).filter((d): d is NonNullable<typeof d> => d !== null),
-    [planDrills],
+    () => (day?.drills || [])
+      .map(d => resolvePlanDrill(d))
+      .filter(Boolean) as NonNullable<ReturnType<typeof resolvePlanDrill>>[],
+    [day],
   );
-
-  const totalTime = resolvedDrills.reduce((acc, d) => {
-    const mins = parseInt(String(d.duration ?? d.time ?? '0')) || 0;
-    return acc + mins;
-  }, 0);
 
   const onBack = () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -67,122 +59,136 @@ export default function WorkoutPreviewScreen() {
 
   if (!plan || !day) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={[s.container, { paddingTop: insets.top }]}>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>No workout today</Text>
-          <Text style={styles.emptyBody}>Head back and create one from the + button.</Text>
-          <TouchableOpacity style={styles.backBtn} onPress={onBack} activeOpacity={0.7}>
-            <Text style={styles.backBtnText}>Go back</Text>
-          </TouchableOpacity>
+        <TouchableOpacity style={s.backRow} onPress={onBack} activeOpacity={0.7}>
+          <ArrowLeft size={20} color={Colors.textPrimary} />
+          <Text style={s.backText}>Back</Text>
+        </TouchableOpacity>
+        <View style={s.emptyWrap}>
+          <Text style={s.emptyTitle}>No workout today</Text>
+          <Text style={s.emptyBody}>Create one from the + button on the home screen.</Text>
         </View>
       </View>
     );
   }
 
+  const doneCount = resolvedDrills.filter((_, i) => completedDrills[`${currentDayIndex}-${i}`]).length;
+
   return (
-    <View style={[styles.container, { paddingBottom: insets.bottom }]}>
+    <View style={[s.container, { paddingBottom: insets.bottom }]}>
       <Stack.Screen options={{ headerShown: false }} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <TouchableOpacity style={styles.headerBack} onPress={onBack} activeOpacity={0.7}>
+      <View style={[s.header, { paddingTop: insets.top + 8 }]}>
+        <TouchableOpacity style={s.headerBtn} onPress={onBack} activeOpacity={0.7}>
           <ArrowLeft size={20} color={Colors.textPrimary} />
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle} numberOfLines={1}>{day.focus || 'Today\'s Workout'}</Text>
-          <Text style={styles.headerSub}>
-            {resolvedDrills.length} drill{resolvedDrills.length !== 1 ? 's' : ''}
-            {totalTime > 0 ? ` · ${totalTime} min` : ''}
-            {day.duration ? ` · ${day.duration}` : ''}
-          </Text>
+        <View style={s.headerCenter}>
+          <Text style={s.headerTitle} numberOfLines={1}>{day.focus || "Today's Workout"}</Text>
+          {day.duration ? <Text style={s.headerSub}>{day.duration}</Text> : null}
         </View>
-        <TouchableOpacity style={styles.headerEdit} onPress={onEdit} activeOpacity={0.7}>
+        <TouchableOpacity style={s.headerBtn} onPress={onEdit} activeOpacity={0.7}>
           <Edit3 size={17} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: 120, paddingTop: 4 }}
+        contentContainerStyle={{ paddingBottom: 120 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Why this workout */}
-        {plan.aiInsight ? (
-          <View style={styles.whyCard}>
-            <Text style={styles.whyLabel}>WHY THIS WORKOUT</Text>
-            <Text style={styles.whyText}>"{plan.aiInsight}"</Text>
+        {/* Plan meta row */}
+        <View style={s.metaRow}>
+          <View style={s.metaPill}>
+            <Text style={s.metaPillText}>{plan.weekTitle}</Text>
           </View>
-        ) : null}
-
-        {/* Day info */}
-        <View style={styles.dayInfo}>
-          <View style={styles.dayInfoPill}>
-            <Text style={styles.dayInfoText}>{plan.weekTitle}</Text>
+          <View style={s.metaPill}>
+            <Text style={s.metaPillText}>Day {currentDayIndex + 1} of {plan.days.length}</Text>
           </View>
-          {day.isRest && (
-            <View style={[styles.dayInfoPill, { backgroundColor: Colors.surfaceBorder }]}>
-              <Text style={styles.dayInfoText}>Rest Day</Text>
+          {resolvedDrills.length > 0 && (
+            <View style={s.metaPill}>
+              <Text style={s.metaPillText}>{resolvedDrills.length} drills</Text>
             </View>
           )}
         </View>
 
-        {/* Rest day state */}
+        {/* Why this plan — only show here, not on home screen */}
+        {plan.aiInsight ? (
+          <View style={s.whyCard}>
+            <Text style={s.whyLabel}>WHY THIS WORKOUT</Text>
+            <Text style={s.whyText}>"{plan.aiInsight}"</Text>
+          </View>
+        ) : null}
+
+        {/* Progress bar if already started */}
+        {doneCount > 0 && (
+          <View style={s.progressSection}>
+            <View style={s.progressBar}>
+              <View style={[s.progressFill, { width: `${(doneCount / resolvedDrills.length) * 100}%` }]} />
+            </View>
+            <Text style={s.progressLabel}>{doneCount} of {resolvedDrills.length} done</Text>
+          </View>
+        )}
+
+        {/* Rest day */}
         {day.isRest ? (
-          <View style={styles.restCard}>
-            <Text style={styles.restTitle}>Recovery Day</Text>
-            <Text style={styles.restBody}>
-              Rest and recovery are part of the plan. Light stretching or a few easy dribbles — no heavy work today.
+          <View style={s.restCard}>
+            <Text style={s.restTitle}>Rest Day</Text>
+            <Text style={s.restBody}>
+              Recovery is part of the plan. Light movement or stretching is fine — no heavy work today.
             </Text>
           </View>
         ) : resolvedDrills.length === 0 ? (
-          <View style={styles.emptyDrills}>
-            <Text style={styles.emptyTitle}>No drills assigned</Text>
-            <Text style={styles.emptyBody}>Tap Edit to add some drills to today's session.</Text>
+          <View style={s.emptyWrap}>
+            <Text style={s.emptyTitle}>No drills yet</Text>
+            <Text style={s.emptyBody}>Tap Edit to add drills to this session.</Text>
           </View>
         ) : (
           <>
-            {/* Drill list */}
-            <Text style={styles.drillsLabel}>DRILLS</Text>
-            {resolvedDrills.map((drill, i) => {
-              const cfg = getTypeConfig(drill.type);
-              const IconComp = cfg.Icon;
-              return (
-                <TouchableOpacity
-                  key={i}
-                  style={styles.drillRow}
-                  onPress={() => router.push(`/drill/${drill.id ?? drill.drillId}` as any)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.drillNumWrap}>
-                    <Text style={styles.drillNum}>{i + 1}</Text>
-                  </View>
-                  <View style={[styles.drillTypeTag, { backgroundColor: cfg.bg }]}>
-                    <IconComp size={12} color={cfg.text} />
-                  </View>
-                  <View style={styles.drillInfo}>
-                    <Text style={styles.drillName}>{drill.name}</Text>
-                    <Text style={styles.drillMeta}>
-                      {drill.duration ? `${drill.duration} min` : drill.time}
-                      {drill.sets ? ` · ${drill.sets} sets` : ''}
-                      {drill.reps ? ` · ${drill.reps} reps` : ''}
-                    </Text>
-                  </View>
-                  <View style={[styles.drillTypePill, { backgroundColor: cfg.bg }]}>
-                    <Text style={[styles.drillTypePillText, { color: cfg.text }]}>{cfg.label}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+            {/* Drill list — same layout as session.tsx drill list modal */}
+            <View style={s.drillCard}>
+              {resolvedDrills.map((drill, i) => {
+                const isDone = !!completedDrills[`${currentDayIndex}-${i}`];
+                const tc = getTypeConfig(drill.type);
+                const isLast = i === resolvedDrills.length - 1;
+                return (
+                  <TouchableOpacity
+                    key={String(drill.id ?? drill.name) + i}
+                    style={[s.drillRow, isLast && s.drillRowLast]}
+                    onPress={() => router.push(`/drill/${(drill as any).id ?? (drill as any).drillId}` as any)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[s.drillNum, isDone && s.drillNumDone]}>
+                      {isDone
+                        ? <Check size={11} color={Colors.white} strokeWidth={3} />
+                        : <Text style={s.drillNumText}>{i + 1}</Text>
+                      }
+                    </View>
+                    <View style={s.drillInfo}>
+                      <Text style={[s.drillName, isDone && s.drillNameDone]} numberOfLines={1}>
+                        {drill.name}
+                      </Text>
+                      <Text style={s.drillMeta}>{drill.time || (drill.duration ? `${drill.duration} min` : '')}</Text>
+                    </View>
+                    <View style={[s.typeTag, { backgroundColor: tc.bg }]}>
+                      <Text style={[s.typeTagText, { color: tc.text }]}>{tc.label}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           </>
         )}
       </ScrollView>
 
-      {/* Begin Workout sticky footer */}
+      {/* Begin Workout — sticky dark button */}
       {!day.isRest && resolvedDrills.length > 0 && (
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-          <TouchableOpacity style={styles.beginBtn} onPress={onBegin} activeOpacity={0.85}>
-            <Play size={18} color={Colors.black} fill={Colors.black} />
-            <Text style={styles.beginBtnText}>Begin Workout</Text>
+        <View style={[s.footer, { paddingBottom: insets.bottom + 16 }]}>
+          <TouchableOpacity style={s.beginBtn} onPress={onBegin} activeOpacity={0.85}>
+            <Play size={16} color={Colors.buttonDarkText} fill={Colors.buttonDarkText} />
+            <Text style={s.beginBtnText}>
+              {doneCount > 0 ? 'Continue Workout' : 'Begin Workout'}
+            </Text>
           </TouchableOpacity>
         </View>
       )}
@@ -190,115 +196,132 @@ export default function WorkoutPreviewScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
+
+  backRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 16, paddingVertical: 12,
+  },
+  backText: { fontSize: 15, fontWeight: '500', color: Colors.textPrimary },
 
   header: {
     flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingBottom: 12,
-    borderBottomWidth: 1, borderBottomColor: Colors.hairline,
+    paddingHorizontal: 12, paddingBottom: 12,
+    borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
     backgroundColor: Colors.background,
   },
-  headerBack: {
+  headerBtn: {
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
   headerCenter: { flex: 1, paddingHorizontal: 8 },
   headerTitle: {
-    fontSize: 17, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.3,
+    fontSize: 17, fontWeight: '700', color: Colors.textPrimary, letterSpacing: -0.3,
   },
-  headerSub: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  headerEdit: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: 'center', justifyContent: 'center',
+  headerSub: { fontSize: 12, color: Colors.textMuted, marginTop: 1 },
+
+  metaRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4,
   },
+  metaPill: {
+    backgroundColor: Colors.surface, borderRadius: 100,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  metaPillText: { fontSize: 12, fontWeight: '500', color: Colors.textSecondary },
 
   whyCard: {
     backgroundColor: Colors.primarySoft,
-    marginHorizontal: 24, marginTop: 20, marginBottom: 16,
-    borderRadius: 16, padding: 16,
+    marginHorizontal: 20, marginTop: 16, marginBottom: 4,
+    borderRadius: 16, padding: 14,
     borderWidth: 1, borderColor: 'rgba(201,162,74,0.20)',
   },
   whyLabel: {
-    fontSize: 10, fontWeight: '600', color: Colors.primary,
-    letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 6,
+    fontSize: 9, fontWeight: '700', color: Colors.primary,
+    letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 5,
   },
   whyText: {
-    fontSize: 14, fontStyle: 'italic', color: Colors.primaryPressed,
-    lineHeight: 20, letterSpacing: -0.1,
+    fontSize: 13, fontStyle: 'italic', color: Colors.primaryPressed,
+    lineHeight: 19, letterSpacing: -0.1,
   },
 
-  dayInfo: {
-    flexDirection: 'row', gap: 8, paddingHorizontal: 24, marginBottom: 16, flexWrap: 'wrap',
+  progressSection: {
+    paddingHorizontal: 20, paddingTop: 14, paddingBottom: 2,
   },
-  dayInfoPill: {
-    backgroundColor: Colors.inkA8,
-    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 100,
+  progressBar: {
+    height: 3, backgroundColor: Colors.surfaceBorder,
+    borderRadius: 2, overflow: 'hidden', marginBottom: 5,
   },
-  dayInfoText: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' },
+  progressFill: { height: 3, backgroundColor: Colors.primary, borderRadius: 2 },
+  progressLabel: { fontSize: 11, color: Colors.textMuted },
 
-  drillsLabel: {
-    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
-    letterSpacing: 0.96, textTransform: 'uppercase',
-    paddingHorizontal: 24, marginBottom: 8,
+  // Drill card — matches completeDrillCard from session.tsx
+  drillCard: {
+    marginHorizontal: 20, marginTop: 16,
+    backgroundColor: Colors.surface,
+    borderRadius: 20, borderWidth: 1, borderColor: Colors.surfaceBorder,
+    overflow: 'hidden',
   },
+
+  // Drill row — matches listRow from session.tsx
   drillRow: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.surface,
-    marginHorizontal: 24, marginBottom: 8,
-    borderRadius: 16, padding: 14,
-    borderWidth: 1, borderColor: Colors.hairline,
+    paddingVertical: 13, paddingHorizontal: 16,
+    borderBottomWidth: 1, borderBottomColor: Colors.surfaceBorder,
   },
-  drillNumWrap: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: Colors.inkA8,
+  drillRowLast: { borderBottomWidth: 0 },
+
+  // Number circle — matches listNum from session.tsx
+  drillNum: {
+    width: 26, height: 26, borderRadius: 13, flexShrink: 0,
     alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.background,
+    borderWidth: 1, borderColor: Colors.surfaceBorder,
   },
-  drillNum: { fontSize: 12, fontWeight: '600', color: Colors.textSecondary, fontVariant: ['tabular-nums'] },
-  drillTypeTag: {
-    width: 28, height: 28, borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  drillNumDone: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  drillNumText: { fontSize: 11, fontWeight: '700', color: Colors.textMuted },
+
+  // Drill info — matches listInfo from session.tsx
   drillInfo: { flex: 1 },
-  drillName: { fontSize: 15, fontWeight: '500', color: Colors.textPrimary, letterSpacing: -0.2 },
-  drillMeta: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  drillTypePill: {
-    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 100,
+  drillName: {
+    fontSize: 14, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.2,
   },
-  drillTypePillText: { fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
+  drillNameDone: { color: Colors.textMuted },
+  drillMeta: { fontSize: 12, color: Colors.textMuted, marginTop: 1 },
+
+  // Type tag — matches typeTag from session.tsx
+  typeTag: {
+    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 100, alignSelf: 'flex-start',
+  },
+  typeTagText: { fontSize: 10, fontWeight: '700', letterSpacing: 1 },
 
   restCard: {
-    backgroundColor: Colors.surface,
-    marginHorizontal: 24, borderRadius: 22,
-    borderWidth: 1, borderColor: Colors.hairline,
+    backgroundColor: Colors.surface, margin: 20,
+    borderRadius: 20, borderWidth: 1, borderColor: Colors.surfaceBorder,
     padding: 24, alignItems: 'center',
   },
   restTitle: { fontSize: 20, fontWeight: '300', color: Colors.textPrimary, marginBottom: 8 },
   restBody: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', lineHeight: 20 },
 
-  emptyDrills: { paddingHorizontal: 24, paddingTop: 20, alignItems: 'center' },
+  emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyTitle: { fontSize: 18, fontWeight: '300', color: Colors.textPrimary, marginBottom: 8 },
   emptyBody: { fontSize: 14, color: Colors.textMuted, textAlign: 'center', lineHeight: 20 },
 
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  backBtn: {
-    marginTop: 16, backgroundColor: Colors.textPrimary,
-    paddingVertical: 12, paddingHorizontal: 24, borderRadius: 100,
-  },
-  backBtnText: { fontSize: 15, fontWeight: '500', color: Colors.white },
-
+  // Begin button — matches primaryBtn from session.tsx
   footer: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: Colors.background,
-    borderTopWidth: 1, borderTopColor: Colors.hairline,
-    paddingHorizontal: 24, paddingTop: 16,
+    borderTopWidth: 1, borderTopColor: Colors.surfaceBorder,
+    paddingHorizontal: 20, paddingTop: 14,
   },
   beginBtn: {
-    backgroundColor: Colors.primary, borderRadius: 100,
-    paddingVertical: 16, flexDirection: 'row',
-    alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.buttonDark,
+    borderRadius: 100, paddingVertical: 15,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   beginBtnText: {
-    fontSize: 16, fontWeight: '700', color: Colors.black, letterSpacing: -0.3,
+    fontSize: 15, fontWeight: '700', color: Colors.buttonDarkText, letterSpacing: -0.2,
   },
 });
