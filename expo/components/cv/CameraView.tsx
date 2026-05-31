@@ -112,24 +112,62 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
     ? useCameraDevice('back')
     : null;
 
-  // Callback bridging worklet → JS thread
+  // ---- Worklet diagnostic flag ----
+  //
+  // NOOP_WORKLET = true: runs a minimal worklet that calls back with empty
+  // detections. If this doesn't crash but the real worklet does, the bug is
+  // in detectShots / the Swift inference path.
+  //
+  // NOOP_WORKLET = false: runs real inference.
+  //
+  // Start with true to confirm VisionCamera frame processor setup works,
+  // then flip to false to enable actual CV tracking.
+  const NOOP_WORKLET = false;
+
+  // Callback bridging worklet → JS thread.
+  // Wrapped so errors in the JS handler never propagate back into the worklet.
   const onDetectionsJS = hasCameraPackage && Worklets
     ? Worklets.createRunOnJS((dets: any[], ts: number) => {
-        if (!activeRef.current) return;
-        setLastDetections(dets);
-        tracker.processFrame(dets, ts);
+        try {
+          if (!activeRef.current) return;
+          const safeDets = Array.isArray(dets) ? dets : [];
+          setLastDetections(safeDets);
+          tracker.processFrame(safeDets, ts);
+        } catch {
+          // Swallow — JS handler errors must not reach the worklet runtime
+        }
       })
     : null;
 
   const frameProcessor = hasCameraPackage && useFrameProcessor && onDetectionsJS
     ? useFrameProcessor((frame: any) => {
         'worklet';
-        // No activeRef check here — React refs are not accessible in the worklet
-        // thread context. VisionCamera's isActive={active} prop stops frame delivery
-        // when active is false. The check in onDetectionsJS (JS thread) handles any
-        // stale frames that arrive during the transition.
-        const result = detectShots(frame, { minConfidence: 0.35 });
-        onDetectionsJS(result.detections, result.timestampMs);
+        try {
+          if (NOOP_WORKLET) {
+            // Diagnostic no-op: confirms VisionCamera frame processor setup is
+            // working. If the app stays stable here but crashes with the real
+            // worklet, the issue is in detectShots or the Swift inference layer.
+            onDetectionsJS([], 0);
+            return;
+          }
+
+          // Real inference path
+          const result = detectShots(frame, { minConfidence: 0.35 });
+
+          // Defensive null checks — malformed results must not throw in worklet context
+          const dets = (result != null && Array.isArray(result.detections))
+            ? result.detections
+            : [];
+          const ts = (result != null && typeof result.timestampMs === 'number')
+            ? result.timestampMs
+            : 0;
+
+          onDetectionsJS(dets, ts);
+        } catch {
+          // Worklet try/catch: any exception (including from native detectShots) is
+          // caught here. The worklet never crashes the app — it just misses a frame.
+          onDetectionsJS([], 0);
+        }
       }, [onDetectionsJS])
     : undefined;
 
