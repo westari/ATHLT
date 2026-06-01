@@ -158,6 +158,7 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={true}
+        orientation="landscape-right"
       />
       <ShotOverlay
         detections={[]}

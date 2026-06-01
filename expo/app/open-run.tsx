@@ -51,14 +51,14 @@ export default function OpenRunScreen() {
   const tracker = useMemo(() => new ShotTracker(), []);
   const sync    = useMemo(() => new CVSessionSync(), []);
 
-  // Landscape lock via useFocusEffect — fires before the screen becomes visible,
-  // eliminating the portrait-to-landscape flicker that useEffect causes.
+  // Lock to landscape when screen gains focus. Unlock happens explicitly in
+  // handleStop (before recap renders) rather than on blur, so we get a clean
+  // portrait transition instead of a race between the blur handler and the
+  // recap orientation.
   useFocusEffect(
     useCallback(() => {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-      return () => {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
-      };
+      // No cleanup unlock here — handleStop unlocks before recap renders.
     }, [])
   );
 
@@ -139,6 +139,9 @@ export default function OpenRunScreen() {
     Animated.timing(btnPhase, { toValue: 0, duration: 180, useNativeDriver: true }).start();
     setPhase('finishing');
     setRecapLoading(true);
+    // Unlock to portrait BEFORE the recap renders — otherwise the recap inherits
+    // the landscape lock and appears sideways.
+    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
     try {
       const summary = tracker.getSummary();
       let userId: string | undefined;

@@ -59,8 +59,8 @@ export default function RootLayout() {
 
   return (
     <View style={s.container} onLayout={onLayoutRootView}>
-      {/* dark = dark icons/text on light background */}
-      <StatusBar style="dark" />
+      {/* dark icons/text on warm bone background */}
+      <StatusBar style="dark" backgroundColor={Colors.background} translucent={false} />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.background } }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="session" />
