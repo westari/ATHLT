@@ -64,6 +64,12 @@ function buildNativeSummary(makes: number, total: number) {
   };
 }
 
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
 export default function OpenRunScreen() {
   const safeInsets = useSafeAreaInsets();
   const router     = useRouter();
@@ -77,13 +83,17 @@ export default function OpenRunScreen() {
   const [lastShot, setLastShot]         = useState<{ type: ShotType; zone: string | null } | null>(null);
   const [recentShots, setRecentShots]   = useState<ShotType[]>([]);
   const [glowType, setGlowType]         = useState<ShotType>('make');
+  const [elapsed, setElapsed]           = useState(0);
+  const [currentStreak, setCurrentStreak] = useState(0);
 
   // CVSessionSync persists shots to Supabase — still needed, ShotTracker is not.
   const sync = useMemo(() => new CVSessionSync(), []);
 
   // Running totals — updated directly from native events (not from ShotTracker).
-  const makesRef  = useRef(0);
-  const totalRef  = useRef(0);
+  const makesRef        = useRef(0);
+  const totalRef        = useRef(0);
+  const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionStartRef = useRef<number>(0);
 
   // Landscape lock: fires before the screen becomes visible (useFocusEffect > useEffect)
   useFocusEffect(
@@ -113,8 +123,25 @@ export default function OpenRunScreen() {
     return () => loop.stop();
   }, [phase]);
 
+  // ── Session timer ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== 'tracking') {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      return;
+    }
+    sessionStartRef.current = Date.now();
+    setElapsed(0);
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - sessionStartRef.current) / 1000));
+    }, 1000);
+    return () => {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    };
+  }, [phase]);
+
   useEffect(() => () => {
     if (shotTimer.current) clearTimeout(shotTimer.current);
+    if (timerRef.current) clearInterval(timerRef.current);
   }, []);
 
   const dismissHint = () => {
@@ -139,7 +166,12 @@ export default function OpenRunScreen() {
 
     setLiveMakes(makesRef.current);
     setLiveTotal(totalRef.current);
-    setRecentShots(prev => [...prev.slice(-9), event.type]);
+
+    // Keep last 15 shots for the bottom dot strip (dock shows 10 of them)
+    setRecentShots(prev => [...prev.slice(-14), event.type]);
+
+    // Consecutive makes streak
+    setCurrentStreak(prev => event.type === 'make' ? prev + 1 : 0);
 
     // Last-shot pill (bottom left)
     setLastShot({ type: event.type, zone: event.zone });
@@ -171,6 +203,8 @@ export default function OpenRunScreen() {
     setLiveMakes(0);
     setLiveTotal(0);
     setRecentShots([]);
+    setCurrentStreak(0);
+    setElapsed(0);
     setPhase('tracking');
 
     try {
@@ -233,7 +267,7 @@ export default function OpenRunScreen() {
   // ── Recap ───────────────────────────────────────────────────────────────────
   if (phase === 'recap' || phase === 'finishing') {
     return (
-      <View style={[s.full, { paddingTop: safeInsets.top }]}>
+      <View style={[s.full, { paddingTop: safeInsets.top, backgroundColor: Colors.background }]}>
         <Stack.Screen options={{ headerShown: false }} />
         <PostSessionRecap
           recap={recap}
@@ -288,16 +322,28 @@ export default function OpenRunScreen() {
         </GlassPanel>
       </View>
 
-      {/* Title (idle) or REC (tracking) */}
+      {/* Streak pill — below X button, tracking only */}
+      {isTracking && (
+        <View style={[s.streakWrap, { top: barY + 36 + 6, left: leftX }]}>
+          <GlassPanel style={s.streakPill} borderRadius={999} tint="dark" intensity={55}>
+            <View style={s.streakDot} />
+            <Text style={[s.streakText, TS]}>{currentStreak}</Text>
+          </GlassPanel>
+        </View>
+      )}
+
+      {/* Title (idle) or REC + timer (tracking) */}
       <View style={[s.topCenter, { top: barY }]} pointerEvents="none">
         {!isTracking ? (
           <GlassPanel style={s.titlePill} borderRadius={999} tint="dark" intensity={55}>
             <Text style={[s.titleText, TS]}>Track Shots</Text>
           </GlassPanel>
         ) : (
-          <GlassPanel style={s.recPill} borderRadius={999} tint="dark" intensity={55}>
+          <GlassPanel style={s.timerPill} borderRadius={999} tint="dark" intensity={55}>
             <Animated.View style={[s.recDot, { opacity: recPulse }]} />
             <Text style={[s.recText, TS]}>REC</Text>
+            <View style={s.timerSep} />
+            <Text style={[s.timerText, TS]}>{formatTime(elapsed)}</Text>
           </GlassPanel>
         )}
       </View>
@@ -357,7 +403,7 @@ export default function OpenRunScreen() {
                 {liveTotal > 0 ? `${fgPct}%` : '--'}
               </Text>
             </View>
-            {/* Recent shots dots */}
+            {/* Recent shots dots — last 10 in dock */}
             <View style={s.dotsRow}>
               {Array.from({ length: 10 }).map((_, i) => {
                 const offset = 10 - recentShots.length;
@@ -376,6 +422,30 @@ export default function OpenRunScreen() {
               })}
             </View>
           </GlassPanel>
+        </View>
+      )}
+
+      {/* Recent shots strip — last 15 shots, very bottom, tracking only */}
+      {isTracking && (
+        <View
+          style={[s.bottomDotsWrap, { bottom: Math.max(safeInsets.bottom, 4) + 2 }]}
+          pointerEvents="none"
+        >
+          {Array.from({ length: 15 }).map((_, i) => {
+            const offset = 15 - recentShots.length;
+            const shot   = i >= offset ? recentShots[i - offset] : null;
+            return (
+              <View
+                key={i}
+                style={[
+                  s.bottomDot,
+                  shot === 'make' ? s.bottomDotMake :
+                  shot === 'miss' ? s.bottomDotMiss :
+                  s.bottomDotEmpty,
+                ]}
+              />
+            );
+          })}
         </View>
       )}
 
@@ -427,12 +497,32 @@ const s = StyleSheet.create({
   },
   titleText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: -0.1 },
 
-  recPill: {
+  // REC + timer pill (replaces plain REC pill during tracking)
+  timerPill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 10, height: 26, overflow: 'hidden',
+    paddingHorizontal: 12, height: 30, overflow: 'hidden',
   },
   recDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FF3B30' },
   recText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  timerSep: {
+    width: 1, height: 12, backgroundColor: 'rgba(255,255,255,0.25)', marginHorizontal: 2,
+  },
+  timerText: {
+    color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: 0.5,
+    fontVariant: ['tabular-nums'],
+  },
+
+  // Streak pill — below X button
+  streakWrap: { position: 'absolute', zIndex: 30 },
+  streakPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 9, height: 26, overflow: 'hidden',
+  },
+  streakDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: Colors.primary },
+  streakText: {
+    color: '#FFFFFF', fontSize: 12, fontWeight: '600', letterSpacing: -0.1,
+    fontVariant: ['tabular-nums'],
+  },
 
   hintWrap: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
@@ -494,6 +584,17 @@ const s = StyleSheet.create({
   dotMake:  { backgroundColor: Colors.primary },
   dotMiss:  { backgroundColor: 'rgba(255,255,255,0.35)' },
   dotEmpty: { backgroundColor: 'rgba(255,255,255,0.09)' },
+
+  // Bottom 15-dot strip
+  bottomDotsWrap: {
+    position: 'absolute', left: 0, right: 0,
+    flexDirection: 'row', justifyContent: 'center', alignItems: 'center',
+    gap: 4, zIndex: 25,
+  },
+  bottomDot:      { width: 5, height: 5, borderRadius: 2.5 },
+  bottomDotMake:  { backgroundColor: Colors.primary },
+  bottomDotMiss:  { backgroundColor: 'rgba(255,255,255,0.35)' },
+  bottomDotEmpty: { backgroundColor: 'rgba(255,255,255,0.08)' },
 
   bottomWrap: {
     position: 'absolute', left: 0, right: 0,
