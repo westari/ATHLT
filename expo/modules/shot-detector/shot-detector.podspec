@@ -13,14 +13,12 @@ Pod::Spec.new do |s|
   s.platforms      = { :ios => '15.1' }
   s.swift_version  = '5.4'
 
-  # Both Swift files in ios/: ShotDetectorModule (Expo Module) + ShotDetectorFrameProcessor (VisionCamera plugin)
-  s.source_files   = 'ios/**/*.{swift,h,m,mm,cpp}'
+  # Only the module file (ShotDetectorModule.swift) — frame processor removed
+  s.source_files   = 'ios/ShotDetectorModule.swift'
 
-  # System frameworks used by CoreML inference and Vision pipeline
   s.frameworks     = 'CoreML', 'Vision', 'CoreMedia'
 
-  # ExpoModulesCore: required by ShotDetectorModule (imports ExpoModulesCore)
-  # VisionCamera: required by ShotDetectorFrameProcessor (imports VisionCamera, FrameProcessorPlugin)
+  # VisionCamera dependency REMOVED — frame processor is no longer used.
+  # See modules/athlt-camera/ for the replacement native camera module.
   s.dependency 'ExpoModulesCore'
-  s.dependency 'VisionCamera'
 end

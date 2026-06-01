@@ -1,14 +1,17 @@
 /**
- * CVCameraView — live camera feed with shot tracking.
+ * CVCameraView — React Native wrapper over the ATHLTCamera native module.
  *
- * Uses react-native-vision-camera v4 for camera preview.
- * Shot detection runs via a 500ms polling interval (snapshot-based) rather
- * than a frame processor — see cv/CRASH-RESOLUTION.md for why.
+ * Owns the full camera lifecycle:
+ *   mount  → startSession() → loadModel()
+ *   active → startTracking() / stopTracking() controlled by the `active` prop
+ *   unmount → stopSession()
  *
- * Frame processors crash on this device (VisionCamera v4 + worklets-core +
- * New Architecture + Expo SDK 54). Removing the frame processor entirely
- * fixes the crash. The polling interval calls tracker.processFrame() as a
- * stub; replace with real CoreML inference once Apple Dev + EAS build is live.
+ * Shot detection runs entirely in Swift (AVFoundation + CoreML + state machine).
+ * This component just subscribes to onShotDetected events and forwards them to
+ * the parent via the `onShotDetected` prop.
+ *
+ * No VisionCamera. No worklets. No frame processors.
+ * See modules/athlt-camera/ for the native implementation.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -17,170 +20,177 @@ import {
 } from 'react-native';
 import Colors from '@/constants/colors';
 import ShotOverlay from './ShotOverlay';
-import { ShotTracker, type ShotEvent } from '@/lib/cv/ShotTracker';
-import { loadModel } from '@/modules/shot-detector';
+import type { ShotEvent } from '@/lib/cv/ShotTracker';
 
-// VisionCamera imports — guarded so the file compiles before the package is installed.
-// NOTE: useFrameProcessor and Worklets are intentionally NOT imported.
-// See cv/CRASH-RESOLUTION.md — frame processors crash with this SDK configuration.
-let Camera: any = null;
-let useCameraDevice: any = null;
-let useCameraPermission: any = null;
-
+// Import the new native module — guarded so TS compilation succeeds even
+// before an EAS build (the module is present after `expo prebuild`).
+let athlt: typeof import('@/modules/athlt-camera/src/index') | null = null;
 try {
-  const VC       = require('react-native-vision-camera');
-  Camera         = VC.Camera;
-  useCameraDevice     = VC.useCameraDevice;
-  useCameraPermission = VC.useCameraPermission;
+  athlt = require('@/modules/athlt-camera/src/index');
 } catch {
-  // VisionCamera not yet installed — placeholder renders in dev
+  // Module not yet linked (running in web or before native build)
 }
 
+// ─── Props ─────────────────────────────────────────────────────────────────────
+
 interface Props {
-  tracker: ShotTracker;
+  /** Whether shot tracking is active. Camera preview always runs. */
   active: boolean;
+  /** Called on the JS thread whenever the native module detects a make or miss. */
   onShotDetected: (event: ShotEvent) => void;
   onCameraReady?: () => void;
 }
 
-type ModelState = 'loading' | 'ready' | 'error';
+// ─── Camera states ─────────────────────────────────────────────────────────────
 
-export default function CVCameraView({ tracker, active, onShotDetected, onCameraReady }: Props) {
-  const [modelState, setModelState]   = useState<ModelState>('loading');
-  const [modelError, setModelError]   = useState<string>('');
+type CameraState = 'loading' | 'permissionDenied' | 'modelError' | 'ready';
+
+// ─── Component ─────────────────────────────────────────────────────────────────
+
+export default function CVCameraView({ active, onShotDetected, onCameraReady }: Props) {
+  const [camState, setCamState] = useState<CameraState>('loading');
+  const [errorMsg, setErrorMsg] = useState('');
   const [showDebugBoxes, setShowDebugBoxes] = useState(false);
-  // Brief settle after model load — ensures camera is fully initialized before polling starts.
-  const [inferenceEnabled, setInferenceEnabled] = useState(false);
 
-  const activeRef   = useRef(active);
+  const activeRef = useRef(active);
   activeRef.current = active;
-  const cameraRef   = useRef<any>(null);
 
-  const hasCameraPackage = Camera !== null;
+  // Module availability check (first render is synchronous)
+  const hasModule = athlt !== null;
 
-  // Always call these hooks (conditional logic is inside the ternary, not the call itself —
-  // hasCameraPackage is a module-load-time constant that never changes).
-  const { hasPermission, requestPermission } = hasCameraPackage
-    ? useCameraPermission()
-    : { hasPermission: false, requestPermission: async () => false };
-
-  const device = hasCameraPackage
-    ? useCameraDevice('back')
-    : null;
-
-  // Load CoreML model on mount
+  // ── Lifecycle: start session + load model on mount, stop on unmount ───────
   useEffect(() => {
+    if (!hasModule) {
+      setCamState('modelError');
+      setErrorMsg('ATHLTCamera native module not found. Run EAS build first.');
+      return;
+    }
+
     let cancelled = false;
-    loadModel().then((result: { loaded: boolean; error?: string }) => {
+
+    const init = async () => {
+      // 1. Start AVCaptureSession (requests permission internally)
+      const sessionResult = await athlt!.startSession();
       if (cancelled) return;
-      if (result.loaded) {
-        setModelState('ready');
-        onCameraReady?.();
-        // 500ms settle: camera and CoreML runtime must both be initialized before polling.
-        setTimeout(() => { if (!cancelled) setInferenceEnabled(true); }, 500);
-      } else {
-        setModelState('error');
-        setModelError(result.error ?? 'Unknown error');
+
+      if (!sessionResult.success) {
+        if (sessionResult.error?.toLowerCase().includes('permission')) {
+          setCamState('permissionDenied');
+        } else {
+          setCamState('modelError');
+          setErrorMsg(sessionResult.error ?? 'Session start failed');
+        }
+        return;
+      }
+
+      // 2. Load CoreML model
+      const modelResult = await athlt!.loadModel();
+      if (cancelled) return;
+
+      if (!modelResult.loaded) {
+        setCamState('modelError');
+        setErrorMsg(modelResult.error ?? 'Model load failed');
+        return;
+      }
+
+      setCamState('ready');
+      onCameraReady?.();
+    };
+
+    init().catch(e => {
+      if (!cancelled) {
+        setCamState('modelError');
+        setErrorMsg(String(e));
       }
     });
-    return () => { cancelled = true; };
-  }, []);
 
-  // Wire tracker.onShot → JS callback to parent screen
-  useEffect(() => {
-    tracker.onShot = (event: ShotEvent) => { onShotDetected(event); };
-    return () => { tracker.onShot = null; };
-  }, [tracker, onShotDetected]);
+    return () => {
+      cancelled = true;
+      athlt!.stopSession().catch(() => {});
+    };
+  }, [hasModule]);
 
-  // Polling loop — replaces the frame processor that was crashing.
-  //
-  // Currently a stub: calls processFrame with empty detections (no CoreML yet).
-  // To enable real inference:
-  //   1. const snap = await cameraRef.current.takeSnapshot({ quality: 30, skipMetadata: true });
-  //   2. const dets = await detectShotsFromFile(snap.path);   ← new Swift function (future)
-  //   3. tracker.processFrame(dets, Date.now());
+  // ── Tracking: startTracking / stopTracking whenever `active` changes ──────
   useEffect(() => {
-    if (!active || !inferenceEnabled || !hasCameraPackage) return;
-    const id = setInterval(() => {
+    if (camState !== 'ready' || !hasModule) return;
+
+    if (active) {
+      athlt!.startTracking().catch(e => console.error('[CVCameraView] startTracking error:', e));
+    } else {
+      // Only stop if we were tracking (native side is idempotent but no need to call)
+      athlt!.stopTracking().catch(() => {});
+    }
+  }, [active, camState, hasModule]);
+
+  // ── Shot events: subscribe while ready ───────────────────────────────────
+  useEffect(() => {
+    if (camState !== 'ready' || !hasModule) return;
+
+    const sub = athlt!.addShotListener((nativeShot) => {
       if (!activeRef.current) return;
-      tracker.processFrame([], Date.now());
-    }, 500);
-    return () => clearInterval(id);
-  }, [active, inferenceEnabled, hasCameraPackage, tracker]);
 
-  // ---- Render states ----
+      // Convert native ShotDetection → ShotEvent shape expected by the parent
+      const event: ShotEvent = {
+        type:          nativeShot.type,
+        timestamp:     nativeShot.timestamp,
+        confidence:    nativeShot.confidence,
+        zone:          null,   // Court zone not yet computed natively (future)
+        ballPositions: [],     // Trajectory not yet surfaced to JS (future)
+      };
+      onShotDetected(event);
+    });
 
-  if (!hasCameraPackage) {
-    return (
-      <PlaceholderView
-        reason="VisionCamera not installed"
-        detail="npm install react-native-vision-camera@4 --legacy-peer-deps --save"
-      />
-    );
+    return () => sub.remove();
+  }, [camState, hasModule, onShotDetected]);
+
+  // ── Render states ─────────────────────────────────────────────────────────
+
+  if (!hasModule) {
+    return <PlaceholderView reason="ATHLTCamera not linked" detail="Run: eas build --profile development" />;
   }
 
-  if (!hasPermission) {
+  if (camState === 'permissionDenied') {
     return (
       <PlaceholderView
         reason="Camera permission needed"
-        detail="Tap to grant camera access"
-        onPress={requestPermission}
+        detail="Enable camera access in iOS Settings → ATHLT → Camera"
       />
     );
   }
 
-  if (!device) {
-    return <PlaceholderView reason="No back camera found" />;
+  if (camState === 'modelError') {
+    return <PlaceholderView reason="Camera error" detail={errorMsg} />;
   }
 
-  if (modelState === 'loading') {
+  if (camState === 'loading') {
     return (
       <View style={styles.placeholder}>
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading shot detection model…</Text>
+        <Text style={styles.loadingText}>Starting camera…</Text>
       </View>
     );
   }
 
-  if (modelState === 'error') {
-    return (
-      <PlaceholderView
-        reason="Model not loaded"
-        detail={modelError || 'best.mlpackage not found. Run Colab training + EAS build.'}
-      />
-    );
-  }
+  // ── Ready: render native camera preview ──────────────────────────────────
+  const ATHLTCameraView = athlt!.ATHLTCameraView;
 
   return (
     <View style={styles.container}>
-      <Camera
-        ref={cameraRef}
-        style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={true}
-        orientation="landscape-right"
-      />
-      <ShotOverlay
-        detections={[]}
-        showDebugBoxes={showDebugBoxes}
-      />
-      {/* Long-press anywhere to toggle debug bounding boxes */}
+      <ATHLTCameraView style={StyleSheet.absoluteFillObject} />
+      <ShotOverlay detections={[]} showDebugBoxes={showDebugBoxes} />
+      {/* Long-press anywhere to toggle debug overlay */}
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
-        onLongPress={() => setShowDebugBoxes(prev => !prev)}
+        onLongPress={() => setShowDebugBoxes(v => !v)}
         activeOpacity={1}
       />
     </View>
   );
 }
 
-// ---- Placeholder for unavailable states ----
+// ─── Placeholder for error/loading states ─────────────────────────────────────
 
-function PlaceholderView({
-  reason,
-  detail,
-  onPress,
-}: {
+function PlaceholderView({ reason, detail, onPress }: {
   reason: string;
   detail?: string;
   onPress?: () => void;
@@ -196,7 +206,6 @@ function PlaceholderView({
       </View>
       <Text style={styles.placeholderReason}>{reason}</Text>
       {detail && <Text style={styles.placeholderDetail}>{detail}</Text>}
-      {onPress && <Text style={styles.placeholderCta}>Tap to continue</Text>}
     </TouchableOpacity>
   );
 }
@@ -216,45 +225,25 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   placeholderIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: 'rgba(212, 160, 23, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(212, 160, 23, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 64, height: 64, borderRadius: 16,
+    backgroundColor: 'rgba(212,160,23,0.12)',
+    borderWidth: 1, borderColor: 'rgba(212,160,23,0.3)',
+    alignItems: 'center', justifyContent: 'center',
     marginBottom: 4,
   },
   placeholderIconText: {
-    color: Colors.primary,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 1,
+    color: Colors.primary, fontSize: 11, fontWeight: '800', letterSpacing: 1,
   },
   placeholderReason: {
-    color: Colors.white,
-    fontSize: 16,
-    fontWeight: '700',
-    textAlign: 'center',
-    letterSpacing: -0.3,
+    color: Colors.white, fontSize: 16, fontWeight: '700',
+    textAlign: 'center', letterSpacing: -0.3,
   },
   placeholderDetail: {
-    color: 'rgba(255,255,255,0.5)',
-    fontSize: 12,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  placeholderCta: {
-    color: Colors.primary,
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 8,
+    color: 'rgba(255,255,255,0.5)', fontSize: 12,
+    textAlign: 'center', lineHeight: 18,
   },
   loadingText: {
-    color: 'rgba(255,255,255,0.6)',
-    fontSize: 14,
-    marginTop: 12,
-    textAlign: 'center',
+    color: 'rgba(255,255,255,0.6)', fontSize: 14,
+    marginTop: 12, textAlign: 'center',
   },
 });

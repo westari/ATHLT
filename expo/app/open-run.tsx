@@ -1,8 +1,17 @@
 /**
  * Open Run — Track Shots screen.
- * Landscape-locked. All UI elements use GlassPanel (liquid glass).
+ * Landscape-locked. Camera preview + shot tracking via ATHLTCamera native module.
  *
  * Route: /open-run
+ *
+ * Session lifecycle:
+ *   CVCameraView handles startSession / loadModel / stopSession on its own.
+ *   This screen only controls startTracking / stopTracking (via the `active` prop).
+ *
+ * Shot detection:
+ *   100% native (Swift): AVCaptureSession → CoreML → state machine → JS event.
+ *   ShotTracker (JS) is NOT used in the live detection pipeline.
+ *   CVSessionSync is still used to persist shots to Supabase.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -17,7 +26,7 @@ import { X, Play, Square, Check } from 'lucide-react-native';
 import GlassPanel from '@/components/ui/GlassPanel';
 import CVCameraView from '@/components/cv/CameraView';
 import PostSessionRecap from '@/components/cv/PostSessionRecap';
-import { ShotTracker, type ShotEvent } from '@/lib/cv/ShotTracker';
+import type { ShotEvent } from '@/lib/cv/ShotTracker';
 import { CVSessionSync, type SessionRecap } from '@/lib/cv/ShotSync';
 import { supabase } from '@/constants/supabase';
 import Colors from '@/constants/colors';
@@ -43,28 +52,27 @@ export default function OpenRunScreen() {
   const [liveTotal, setLiveTotal]       = useState(0);
   const [showHint, setShowHint]         = useState(true);
   const [lastShot, setLastShot]         = useState<{ type: ShotType; zone: string | null } | null>(null);
-  // Last 10 shots for the dot grid in the stat dock
   const [recentShots, setRecentShots]   = useState<ShotType[]>([]);
-  // Type of last shot, used to color the center glow
   const [glowType, setGlowType]         = useState<ShotType>('make');
 
-  const tracker = useMemo(() => new ShotTracker(), []);
-  const sync    = useMemo(() => new CVSessionSync(), []);
+  // CVSessionSync persists shots to Supabase — still needed, ShotTracker is not.
+  const sync = useMemo(() => new CVSessionSync(), []);
 
-  // Lock to landscape when screen gains focus. Unlock happens explicitly in
-  // handleStop (before recap renders) rather than on blur, so we get a clean
-  // portrait transition instead of a race between the blur handler and the
-  // recap orientation.
+  // Running totals — updated directly from native events (not from ShotTracker).
+  const makesRef  = useRef(0);
+  const totalRef  = useRef(0);
+
+  // Landscape lock: fires before the screen becomes visible (useFocusEffect > useEffect)
   useFocusEffect(
     useCallback(() => {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
-      // No cleanup unlock here — handleStop unlocks before recap renders.
+      // Cleanup/unlock is handled explicitly in handleStop before recap renders.
     }, [])
   );
 
-  // ---- Animations ----
+  // ── Animations ─────────────────────────────────────────────────────────────
   const hintFade  = useRef(new Animated.Value(1)).current;
-  const btnPhase  = useRef(new Animated.Value(0)).current; // 0=start visible, 1=stop visible
+  const btnPhase  = useRef(new Animated.Value(0)).current;
   const recPulse  = useRef(new Animated.Value(0.3)).current;
   const shotFade  = useRef(new Animated.Value(0)).current;
   const glowAnim  = useRef(new Animated.Value(0)).current;
@@ -82,21 +90,32 @@ export default function OpenRunScreen() {
     return () => loop.stop();
   }, [phase]);
 
-  useEffect(() => () => { if (shotTimer.current) clearTimeout(shotTimer.current); }, []);
+  useEffect(() => () => {
+    if (shotTimer.current) clearTimeout(shotTimer.current);
+  }, []);
 
   const dismissHint = () => {
     Animated.timing(hintFade, { toValue: 0, duration: 200, useNativeDriver: true })
       .start(() => setShowHint(false));
   };
 
-  // ---- Session control ----
+  // ── Shot received from CVCameraView (originally from Swift native module) ──
   const handleShotDetected = useCallback((event: ShotEvent) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    sync.recordShot(event);
-    setLiveMakes(tracker.getMakes());
-    setLiveTotal(tracker.getTotalShots());
 
-    // Append to recent shots ring (keep last 10)
+    // Persist to Supabase
+    sync.recordShot(event);
+
+    // Update running totals from refs (native module sends authoritative counts
+    // via the ShotDetection.makes / .attempts fields, but ShotEvent doesn't carry
+    // them — so we track locally here).
+    if (event.type === 'make') {
+      makesRef.current += 1;
+    }
+    totalRef.current += 1;
+
+    setLiveMakes(makesRef.current);
+    setLiveTotal(totalRef.current);
     setRecentShots(prev => [...prev.slice(-9), event.type]);
 
     // Last-shot pill (bottom left)
@@ -108,7 +127,7 @@ export default function OpenRunScreen() {
       Animated.timing(shotFade, { toValue: 0, duration: 350, useNativeDriver: true }).start();
     }, 3000);
 
-    // Center screen glow — gold for make, gray for miss
+    // Center screen glow
     setGlowType(event.type);
     glowAnim.stopAnimation();
     glowAnim.setValue(0);
@@ -116,40 +135,58 @@ export default function OpenRunScreen() {
       Animated.timing(glowAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
       Animated.timing(glowAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
     ]).start();
-  }, [sync, tracker, shotFade, glowAnim]);
+  }, [sync, shotFade, glowAnim]);
 
+  // ── Start tracking ──────────────────────────────────────────────────────────
   const handleStart = async () => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     dismissHint();
     Animated.timing(btnPhase, { toValue: 1, duration: 180, useNativeDriver: true }).start();
-    setPhase('tracking');
+
+    makesRef.current = 0;
+    totalRef.current = 0;
     setLiveMakes(0);
     setLiveTotal(0);
     setRecentShots([]);
+    setPhase('tracking');
+
     try {
-      tracker.reset();
       await sync.start({ sessionType: 'open_run' });
     } catch (e) {
-      console.error('[open-run] start error:', e);
+      console.error('[open-run] sync.start error:', e);
     }
   };
 
+  // ── Stop tracking ───────────────────────────────────────────────────────────
   const handleStop = async () => {
     if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     Animated.timing(btnPhase, { toValue: 0, duration: 180, useNativeDriver: true }).start();
     setPhase('finishing');
     setRecapLoading(true);
-    // Unlock to portrait BEFORE the recap renders — otherwise the recap inherits
-    // the landscape lock and appears sideways.
+
+    // Unlock BEFORE recap renders — prevents recap showing in landscape
     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+
     try {
-      const summary = tracker.getSummary();
       let userId: string | undefined;
       try {
         const ar = await supabase.auth.getUser();
         userId = ar.data?.user?.id ?? undefined;
       } catch {}
-      const sessionRecap = await sync.finish(summary, userId);
+
+      // Build a minimal summary from our local counters
+      const summary = {
+        makes:      makesRef.current,
+        misses:     totalRef.current - makesRef.current,
+        totalShots: totalRef.current,
+        fgPct:      totalRef.current > 0
+                      ? Math.round(makesRef.current / totalRef.current * 100)
+                      : 0,
+        shotsByZone: {},
+        sessionDurationMs: 0,
+      };
+
+      const sessionRecap = await sync.finish(summary as any, userId);
       setRecap(sessionRecap);
     } catch (e) {
       console.error('[open-run] stop error:', e);
@@ -160,7 +197,7 @@ export default function OpenRunScreen() {
     }
   };
 
-  // ---- Derived ----
+  // ── Derived ─────────────────────────────────────────────────────────────────
   const isTracking  = phase === 'tracking';
   const fgPct       = liveTotal > 0 ? Math.round((liveMakes / liveTotal) * 100) : 0;
   const shotText    = lastShot
@@ -170,24 +207,31 @@ export default function OpenRunScreen() {
   const startOpacity = btnPhase.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
   const stopOpacity  = btnPhase.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
 
-  // Layout anchors — landscape safe areas on notched iPhones:
-  //   safeInsets.left ≈ 47  (Dynamic Island side)
-  //   safeInsets.right ≈ 21 (right edge / home indicator)
-  //   safeInsets.top ≈ 0    (nothing at top in landscape)
-  //   safeInsets.bottom ≈ 21
-  const barY    = Math.max(safeInsets.top, 20) + 4;  // just below status bar
-  const leftX   = safeInsets.left + 8;               // past the notch
+  // Layout anchors for landscape safe areas (notched iPhones)
+  const barY    = Math.max(safeInsets.top, 20) + 4;
+  const leftX   = safeInsets.left + 8;
   const rightX  = safeInsets.right + 16;
   const bottomY = safeInsets.bottom + 16;
 
-  // ---- Recap ----
+  // ── Recap ───────────────────────────────────────────────────────────────────
   if (phase === 'recap' || phase === 'finishing') {
+    const summary = {
+      makes:      makesRef.current,
+      misses:     totalRef.current - makesRef.current,
+      totalShots: totalRef.current,
+      fgPct:      totalRef.current > 0
+                    ? Math.round(makesRef.current / totalRef.current * 100)
+                    : 0,
+      shotsByZone: {},
+      sessionDurationMs: 0,
+    };
+
     return (
       <View style={[s.full, { paddingTop: safeInsets.top }]}>
         <Stack.Screen options={{ headerShown: false }} />
         <PostSessionRecap
           recap={recap}
-          summary={tracker.getSummary()}
+          summary={summary as any}
           loading={recapLoading}
           onDone={() => router.back()}
         />
@@ -195,18 +239,18 @@ export default function OpenRunScreen() {
     );
   }
 
+  // ── Main screen ─────────────────────────────────────────────────────────────
   return (
     <View style={s.full}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Camera fills screen */}
+      {/* Camera fills screen — ATHLTCameraView rendered inside CVCameraView */}
       <CVCameraView
-        tracker={tracker}
         active={isTracking}
         onShotDetected={handleShotDetected}
       />
 
-      {/* ── Center glow on shot detection ── */}
+      {/* Center glow on shot detection */}
       <Animated.View
         style={[StyleSheet.absoluteFill, s.glowContainer, { opacity: glowAnim }]}
         pointerEvents="none"
@@ -225,7 +269,7 @@ export default function OpenRunScreen() {
         </View>
       </Animated.View>
 
-      {/* ── X close ── */}
+      {/* X / close */}
       <View style={[s.topLeft, { top: barY, left: leftX }]}>
         <GlassPanel style={s.xBtn} borderRadius={18} tint="dark" intensity={55}>
           <TouchableOpacity
@@ -238,7 +282,7 @@ export default function OpenRunScreen() {
         </GlassPanel>
       </View>
 
-      {/* ── Center pill: title (idle) or REC (tracking) ── */}
+      {/* Title (idle) or REC (tracking) */}
       <View style={[s.topCenter, { top: barY }]} pointerEvents="none">
         {!isTracking ? (
           <GlassPanel style={s.titlePill} borderRadius={999} tint="dark" intensity={55}>
@@ -252,7 +296,7 @@ export default function OpenRunScreen() {
         )}
       </View>
 
-      {/* ── Hint card — center, idle only ── */}
+      {/* Hint card (idle only) */}
       {showHint && !isTracking && (
         <Animated.View style={[s.hintWrap, { opacity: hintFade }]} pointerEvents="box-none">
           <GlassPanel style={s.hintCard} borderRadius={18} tint="light" intensity={55}>
@@ -270,7 +314,7 @@ export default function OpenRunScreen() {
         </Animated.View>
       )}
 
-      {/* ── Last shot pill — bottom left, fades after 3s ── */}
+      {/* Last shot pill — bottom left */}
       {lastShot !== null && (
         <Animated.View
           style={[s.shotWrap, { opacity: shotFade, bottom: bottomY + BTN_H + 12, left: leftX }]}
@@ -286,7 +330,7 @@ export default function OpenRunScreen() {
         </Animated.View>
       )}
 
-      {/* ── Stat dock — bottom right, tracking only ── */}
+      {/* Stat dock — bottom right, tracking only */}
       {isTracking && (
         <View style={[s.dockWrap, { bottom: bottomY, right: rightX }]}>
           <GlassPanel style={s.dock} borderRadius={16} tint="dark" intensity={60}>
@@ -296,8 +340,7 @@ export default function OpenRunScreen() {
               <Text style={[s.dockSlash, TS]}>/</Text>
               <Text style={[s.dockTotal, TS]}>{liveTotal}</Text>
             </View>
-
-            {/* FG% progress bar */}
+            {/* FG% bar */}
             <View style={s.progressRow}>
               <View style={s.progressTrack}>
                 {fgPct > 0 && (
@@ -308,8 +351,7 @@ export default function OpenRunScreen() {
                 {liveTotal > 0 ? `${fgPct}%` : '--'}
               </Text>
             </View>
-
-            {/* Recent shots dot grid — last 10 */}
+            {/* Recent shots dots */}
             <View style={s.dotsRow}>
               {Array.from({ length: 10 }).map((_, i) => {
                 const offset = 10 - recentShots.length;
@@ -331,7 +373,7 @@ export default function OpenRunScreen() {
         </View>
       )}
 
-      {/* ── Bottom: cross-fading Start / Stop ── */}
+      {/* Start / Stop button — centered, cross-fading */}
       <View style={[s.bottomWrap, { bottom: bottomY }]}>
         <Animated.View
           style={[s.btnSlot, { opacity: startOpacity }]}
@@ -357,7 +399,6 @@ export default function OpenRunScreen() {
           </GlassPanel>
         </Animated.View>
       </View>
-
     </View>
   );
 }
@@ -368,22 +409,18 @@ const BTN_H = 52;
 const s = StyleSheet.create({
   full: { flex: 1, backgroundColor: '#000' },
 
-  // Absolute anchors
   topLeft:   { position: 'absolute', zIndex: 30 },
   topCenter: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 20 },
 
-  // X button — 36×36
   xBtn:      { width: 36, height: 36, overflow: 'hidden' },
   xBtnInner: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 
-  // Title pill
   titlePill: {
     paddingHorizontal: 14, height: 30, overflow: 'hidden',
     flexDirection: 'row', alignItems: 'center',
   },
   titleText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: -0.1 },
 
-  // REC pill
   recPill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 10, height: 26, overflow: 'hidden',
@@ -391,7 +428,6 @@ const s = StyleSheet.create({
   recDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FF3B30' },
   recText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
 
-  // Hint card
   hintWrap: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     alignItems: 'center', justifyContent: 'center', zIndex: 20,
@@ -407,7 +443,6 @@ const s = StyleSheet.create({
   },
   hintSub: { color: 'rgba(255,255,255,0.75)', fontSize: 12, lineHeight: 17 },
 
-  // Last shot pill
   shotWrap: { position: 'absolute', zIndex: 30 },
   shotPill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -415,91 +450,45 @@ const s = StyleSheet.create({
   },
   shotText: { color: '#FFFFFF', fontSize: 11, fontWeight: '600', letterSpacing: 0.2 },
 
-  // Center shot glow
   glowContainer: { alignItems: 'center', justifyContent: 'center', zIndex: 10 },
   glowCircle:    { width: 320, height: 320, borderRadius: 160 },
   glowIconWrap:  { alignItems: 'center', justifyContent: 'center' },
 
-  // Stat dock — bottom right
   dockWrap: { position: 'absolute', zIndex: 30 },
   dock: {
-    width: 136,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    gap: 7,
-    overflow: 'hidden',
+    width: 136, paddingHorizontal: 12, paddingVertical: 10,
+    gap: 7, overflow: 'hidden',
   },
-  dockRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 3,
-  },
+  dockRow:  { flexDirection: 'row', alignItems: 'baseline', gap: 3 },
   dockMakes: {
-    color: '#FFFFFF',
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -1,
-    lineHeight: 36,
-    fontVariant: ['tabular-nums'],
+    color: '#FFFFFF', fontSize: 32, fontWeight: '800',
+    letterSpacing: -1, lineHeight: 36, fontVariant: ['tabular-nums'],
   },
   dockSlash: {
-    color: 'rgba(255,255,255,0.4)',
-    fontSize: 18,
-    fontWeight: '400',
-    lineHeight: 22,
+    color: 'rgba(255,255,255,0.4)', fontSize: 18, fontWeight: '400', lineHeight: 22,
   },
   dockTotal: {
-    color: 'rgba(255,255,255,0.75)',
-    fontSize: 20,
-    fontWeight: '600',
-    letterSpacing: -0.5,
-    lineHeight: 24,
-    fontVariant: ['tabular-nums'],
+    color: 'rgba(255,255,255,0.75)', fontSize: 20, fontWeight: '600',
+    letterSpacing: -0.5, lineHeight: 24, fontVariant: ['tabular-nums'],
   },
 
-  // FG% progress bar row
-  progressRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   progressTrack: {
-    flex: 1,
-    height: 3,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderRadius: 2,
-    overflow: 'hidden',
+    flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.14)',
+    borderRadius: 2, overflow: 'hidden',
   },
-  progressFill: {
-    height: 3,
-    backgroundColor: Colors.primary,
-    borderRadius: 2,
-  },
+  progressFill: { height: 3, backgroundColor: Colors.primary, borderRadius: 2 },
   progressPct: {
-    color: 'rgba(255,255,255,0.65)',
-    fontSize: 10,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-    minWidth: 26,
-    textAlign: 'right',
+    color: 'rgba(255,255,255,0.65)', fontSize: 10, fontWeight: '600',
+    fontVariant: ['tabular-nums'], minWidth: 26, textAlign: 'right',
   },
 
-  // Recent shots dot grid
-  dotsRow: {
-    flexDirection: 'row',
-    gap: 3,
-    alignItems: 'center',
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
+  dotsRow: { flexDirection: 'row', gap: 3, alignItems: 'center' },
+  dot:      { width: 6, height: 6, borderRadius: 3 },
   dotMake:  { backgroundColor: Colors.primary },
   dotMiss:  { backgroundColor: 'rgba(255,255,255,0.35)' },
   dotEmpty: { backgroundColor: 'rgba(255,255,255,0.09)' },
 
-  // Bottom buttons — centered
   bottomWrap: {
     position: 'absolute', left: 0, right: 0,
     height: BTN_H, alignItems: 'center', zIndex: 30,
