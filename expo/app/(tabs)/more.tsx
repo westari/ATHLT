@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform,
+  View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, Switch,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
-  RefreshCw, LogOut, Star, Shield, Info, ChevronRight, ClipboardList,
-  Dumbbell, BookOpen, Bell, Settings, HelpCircle,
+  RefreshCw, LogOut, Shield, Info, ChevronRight, ClipboardList,
+  Dumbbell, Bell, User, Mail, Lock,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
@@ -17,9 +17,14 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { clearAll, profile, currentStreak, totalSessions } = usePlanStore();
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userEmail, setUserEmail]         = useState<string | null>(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [memberSince, setMemberSince] = useState<string | null>(null);
+  const [memberSince, setMemberSince]     = useState<string | null>(null);
+
+  // Notification toggles — placeholder (no push infrastructure yet)
+  const [notifDaily, setNotifDaily]   = useState(false);
+  const [notifStreak, setNotifStreak] = useState(true);
+  const [notifCoach, setNotifCoach]   = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -29,7 +34,6 @@ export default function ProfileScreen() {
         if (sessionData.session?.user && mounted) {
           const u = sessionData.session.user;
           setUserEmail(u.email || null);
-          setIsLoadingAuth(false);
           if (u.created_at) {
             setMemberSince(new Date(u.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }));
           }
@@ -100,17 +104,16 @@ export default function ProfileScreen() {
     );
   };
 
-  const initials = userEmail ? userEmail.slice(0, 2).toUpperCase() : 'A';
+  const initials    = userEmail ? userEmail.slice(0, 2).toUpperCase() : 'A';
   const displayName = profile?.name || userEmail?.split('@')[0] || 'Athlete';
 
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
 
-        {/* Page header */}
         <Text style={s.pageTitle}>Profile</Text>
 
-        {/* Avatar + identity card */}
+        {/* Avatar + identity */}
         <View style={s.identityCard}>
           <View style={s.avatar}>
             <Text style={s.avatarText}>{initials}</Text>
@@ -121,20 +124,21 @@ export default function ProfileScreen() {
             ) : (
               <>
                 <Text style={s.displayName}>{displayName}</Text>
-                {userEmail ? (
-                  <Text style={s.identityEmail}>{userEmail}</Text>
-                ) : (
-                  <Text style={s.identityEmail}>Not signed in</Text>
-                )}
-                {memberSince && (
-                  <Text style={s.memberSince}>Member since {memberSince}</Text>
-                )}
+                <Text style={s.identityEmail}>{userEmail ?? 'Not signed in'}</Text>
+                {memberSince && <Text style={s.memberSince}>Member since {memberSince}</Text>}
               </>
             )}
           </View>
+          <TouchableOpacity
+            style={s.editBtn}
+            onPress={() => { tap(); router.push('/edit-profile'); }}
+            activeOpacity={0.7}
+          >
+            <Text style={s.editBtnText}>Edit</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Stats summary */}
+        {/* Stats */}
         <View style={s.statsSummary}>
           <View style={s.statSummaryItem}>
             <Text style={s.statSummaryVal}>{currentStreak}</Text>
@@ -152,27 +156,72 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* TRAINING group */}
+        {/* TRAINING */}
         <Text style={s.groupLabel}>TRAINING</Text>
         <View style={s.group}>
-          <MenuItem icon={ClipboardList} label="Game History" sub="Your logged games and stats" onPress={() => { tap(); router.push('/game-history'); }} />
+          <MenuItem icon={User}          label="Edit Profile"     sub="Name, position, grade, team"     onPress={() => { tap(); router.push('/edit-profile'); }} />
           <Divider />
-          <MenuItem icon={Dumbbell} label="Drill Library" sub="Browse all 213 drills" onPress={() => { tap(); router.push('/(tabs)/library'); }} />
+          <MenuItem icon={ClipboardList} label="Game History"     sub="Your logged games and stats"       onPress={() => { tap(); router.push('/game-history'); }} />
+          <Divider />
+          <MenuItem icon={Dumbbell}      label="Drill Library"    sub="Browse all 213 drills"             onPress={() => { tap(); router.push('/(tabs)/library'); }} />
         </View>
 
-        {/* APP group */}
-        <Text style={s.groupLabel}>APP</Text>
+        {/* NOTIFICATIONS */}
+        <Text style={s.groupLabel}>NOTIFICATIONS</Text>
         <View style={s.group}>
-          <MenuItem icon={Star}        label="Rate ATHLT"     onPress={tap} />
+          <NotifRow
+            label="Daily reminder"
+            sub="Remind me to train each day"
+            value={notifDaily}
+            onChange={v => { tap(); setNotifDaily(v); }}
+          />
           <Divider />
-          <MenuItem icon={Shield}      label="Privacy Policy" onPress={tap} />
+          <NotifRow
+            label="Streak alerts"
+            sub="Alert when streak is at risk"
+            value={notifStreak}
+            onChange={v => { tap(); setNotifStreak(v); }}
+          />
           <Divider />
-          <MenuItem icon={Info}        label="About ATHLT"    sub="v1.0.0 — Scaled Studios" onPress={tap} />
+          <NotifRow
+            label="Coach X feedback"
+            sub="Notify when analysis is ready"
+            value={notifCoach}
+            onChange={v => { tap(); setNotifCoach(v); }}
+          />
         </View>
 
-        {/* ACCOUNT group */}
+        {/* ACCOUNT */}
         <Text style={s.groupLabel}>ACCOUNT</Text>
         <View style={s.group}>
+          <MenuItem
+            icon={Mail}
+            label="Change email"
+            sub={userEmail ?? undefined}
+            onPress={() => {
+              tap();
+              Alert.alert('Change email', 'Email changes are handled through Supabase. Check your account settings.');
+            }}
+          />
+          <Divider />
+          <MenuItem
+            icon={Lock}
+            label="Change password"
+            onPress={() => {
+              tap();
+              Alert.alert('Reset password', 'A reset link will be sent to your email.', [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Send link', onPress: async () => {
+                    if (userEmail) {
+                      await supabase.auth.resetPasswordForEmail(userEmail);
+                    }
+                  },
+                },
+              ]);
+            }}
+          />
+          <Divider />
           <MenuItem
             icon={RefreshCw}
             label="Reset Training Profile"
@@ -193,6 +242,16 @@ export default function ProfileScreen() {
           />
         </View>
 
+        {/* ABOUT */}
+        <Text style={s.groupLabel}>ABOUT</Text>
+        <View style={s.group}>
+          <MenuItem icon={Shield} label="Privacy Policy" onPress={tap} />
+          <Divider />
+          <MenuItem icon={Info}   label="Terms of Service" onPress={tap} />
+          <Divider />
+          <MenuItem icon={Info}   label="About ATHLT" sub="v1.0.0 — Scaled Studios" onPress={tap} />
+        </View>
+
         <Text style={s.footer}>ATHLT v1.0.0 — Scaled Studios</Text>
         <View style={{ height: 30 }} />
       </ScrollView>
@@ -200,22 +259,30 @@ export default function ProfileScreen() {
   );
 }
 
+function NotifRow({ label, sub, value, onChange }: {
+  label: string; sub?: string; value: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <View style={s.notifRow}>
+      <View style={s.notifText}>
+        <Text style={s.menuLabel}>{label}</Text>
+        {sub ? <Text style={s.menuSub}>{sub}</Text> : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onChange}
+        trackColor={{ false: Colors.surfaceBorder, true: Colors.primary }}
+        thumbColor={Colors.white}
+      />
+    </View>
+  );
+}
+
 function MenuItem({
-  icon: IconComp,
-  label,
-  sub,
-  labelColor,
-  iconBg,
-  iconColor,
-  onPress,
+  icon: IconComp, label, sub, labelColor, iconBg, iconColor, onPress,
 }: {
-  icon: any;
-  label: string;
-  sub?: string;
-  labelColor?: string;
-  iconBg?: string;
-  iconColor?: string;
-  onPress?: () => void;
+  icon: any; label: string; sub?: string;
+  labelColor?: string; iconBg?: string; iconColor?: string; onPress?: () => void;
 }) {
   return (
     <TouchableOpacity style={s.menuItem} onPress={onPress} activeOpacity={0.7}>
@@ -231,13 +298,11 @@ function MenuItem({
   );
 }
 
-function Divider() {
-  return <View style={s.divider} />;
-}
+function Divider() { return <View style={s.divider} />; }
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: 24 },
+  scroll:    { paddingHorizontal: 24 },
 
   pageTitle: {
     fontSize: 28, fontWeight: '300', color: Colors.textPrimary,
@@ -250,16 +315,14 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.hairline,
     padding: 18, marginBottom: 12,
   },
-  avatar: {
-    width: 56, height: 56, borderRadius: 28,
-    backgroundColor: Colors.primarySoft,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  avatarText: { fontSize: 20, fontWeight: '700', color: Colors.primary, letterSpacing: -0.3 },
+  avatar:       { width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.primarySoft, alignItems: 'center', justifyContent: 'center' },
+  avatarText:   { fontSize: 20, fontWeight: '700', color: Colors.primary, letterSpacing: -0.3 },
   identityInfo: { flex: 1 },
-  displayName: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.3, marginBottom: 2 },
-  identityEmail: { fontSize: 13, color: Colors.textMuted },
-  memberSince: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  displayName:  { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, letterSpacing: -0.3, marginBottom: 2 },
+  identityEmail:{ fontSize: 13, color: Colors.textMuted },
+  memberSince:  { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  editBtn:      { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 100, backgroundColor: Colors.inkA8 },
+  editBtnText:  { fontSize: 13, fontWeight: '600', color: Colors.textPrimary },
 
   statsSummary: {
     flexDirection: 'row', alignItems: 'center',
@@ -267,15 +330,9 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.hairline,
     paddingVertical: 18, marginBottom: 24,
   },
-  statSummaryItem: { flex: 1, alignItems: 'center' },
-  statSummaryVal: {
-    fontSize: 22, fontWeight: '300', color: Colors.textPrimary,
-    letterSpacing: -0.6, fontVariant: ['tabular-nums'],
-  },
-  statSummaryLabel: {
-    fontSize: 10, fontWeight: '500', color: Colors.textMuted,
-    letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 3,
-  },
+  statSummaryItem:    { flex: 1, alignItems: 'center' },
+  statSummaryVal:     { fontSize: 22, fontWeight: '300', color: Colors.textPrimary, letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
+  statSummaryLabel:   { fontSize: 10, fontWeight: '500', color: Colors.textMuted, letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 3 },
   statSummaryDivider: { width: 1, height: 32, backgroundColor: Colors.hairline },
 
   groupLabel: {
@@ -288,21 +345,18 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.hairline,
     marginBottom: 24, overflow: 'hidden',
   },
-  menuItem: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    paddingVertical: 14, paddingHorizontal: 16,
-  },
-  menuIcon: {
-    width: 36, height: 36, borderRadius: 10,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14, paddingHorizontal: 16 },
+  menuIcon: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   menuTextWrap: { flex: 1 },
-  menuLabel: { fontSize: 15, fontWeight: '500', color: Colors.textPrimary, letterSpacing: -0.2 },
-  menuSub: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
-  divider: { height: 1, backgroundColor: Colors.hairline, marginLeft: 66 },
+  menuLabel:    { fontSize: 15, fontWeight: '500', color: Colors.textPrimary, letterSpacing: -0.2 },
+  menuSub:      { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
+  divider:      { height: 1, backgroundColor: Colors.hairline, marginLeft: 66 },
 
-  footer: {
-    fontSize: 12, color: Colors.textMuted, textAlign: 'center',
-    letterSpacing: 0.3, marginBottom: 10,
+  notifRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 14, paddingHorizontal: 16, gap: 14,
   },
+  notifText: { flex: 1 },
+
+  footer: { fontSize: 12, color: Colors.textMuted, textAlign: 'center', letterSpacing: 0.3, marginBottom: 10 },
 });

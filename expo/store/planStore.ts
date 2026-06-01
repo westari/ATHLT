@@ -79,7 +79,6 @@ interface PlanStore {
 
 const STORAGE_KEY = 'athlt_plan_store';
 
-// Debounced save — prevents spamming AsyncStorage on rapid changes
 let saveTimer: any = null;
 const saveToStorage = (state: Partial<PlanStore>) => {
   clearTimeout(saveTimer);
@@ -95,6 +94,7 @@ const saveToStorage = (state: Partial<PlanStore>) => {
         totalSessions: state.totalSessions,
         currentDayIndex: state.currentDayIndex,
         skillLevels: state.skillLevels,
+        onboardingComplete: state.onboardingComplete,
       };
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
@@ -103,11 +103,6 @@ const saveToStorage = (state: Partial<PlanStore>) => {
   }, 500);
 };
 
-/**
- * Compute streak from session dates.
- * Streak = consecutive calendar days with at least one completed session,
- * counting back from today.
- */
 function computeStreak(sessions: CompletedSession[]): number {
   if (sessions.length === 0) return 0;
 
@@ -125,7 +120,6 @@ function computeStreak(sessions: CompletedSession[]): number {
     (checkDate.getTime() - lastSessionDay.getTime()) / (1000 * 60 * 60 * 24)
   );
 
-  // If last session was 2+ days ago, streak is 0
   if (daysSinceLast > 1) return 0;
 
   for (let i = uniqueDays.length - 1; i >= 0; i--) {
@@ -134,7 +128,6 @@ function computeStreak(sessions: CompletedSession[]): number {
     const dayDiff = Math.round(
       (checkDate.getTime() - sessionDay.getTime()) / (1000 * 60 * 60 * 24)
     );
-
     if (dayDiff === 0 || dayDiff === 1) {
       streak++;
       checkDate.setDate(checkDate.getDate() - 1);
@@ -160,8 +153,8 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   onboardingComplete: false,
 
   setPlan: (plan) => {
-    // Reset day index on new plan
-    set({ plan, currentDayIndex: 0 });
+    // BUG FIX #6: clear completedDrills when plan changes — old keys belong to old plan
+    set({ plan, currentDayIndex: 0, completedDrills: {} });
     saveToStorage(get());
   },
   setProfile: (profile) => {
@@ -180,11 +173,15 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     set({ isGenerating: val });
   },
   setCurrentDayIndex: (i) => {
-    set({ currentDayIndex: i });
+    // BUG FIX #5: clamp to valid plan range so we never go out of bounds
+    const planLen = get().plan?.days?.length ?? 0;
+    const clamped = planLen > 0 ? Math.max(0, Math.min(i, planLen - 1)) : 0;
+    set({ currentDayIndex: clamped });
     saveToStorage(get());
   },
   setOnboardingComplete: (val) => {
     set({ onboardingComplete: val });
+    saveToStorage(get());
   },
   toggleDrill: (dayIndex, drillIndex) => {
     const key = `${dayIndex}-${drillIndex}`;
@@ -193,11 +190,10 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
     set({ completedDrills: updated });
     saveToStorage(get());
   },
-  // Explicit completion — never un-marks. Use inside session flow.
   markDrillComplete: (dayIndex, drillIndex) => {
     const key = `${dayIndex}-${drillIndex}`;
     const current = get().completedDrills;
-    if (current[key]) return; // already complete, no-op
+    if (current[key]) return;
     const updated = { ...current, [key]: true };
     set({ completedDrills: updated });
     saveToStorage(get());
@@ -205,9 +201,10 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
   completeSession: (session) => {
     const sessions = [...get().completedSessions, session];
     const newStreak = computeStreak(sessions);
+    // BUG FIX #2: derive totalSessions from array length — prevents drift
     set({
       completedSessions: sessions,
-      totalSessions: get().totalSessions + 1,
+      totalSessions: sessions.length,
       currentStreak: newStreak,
     });
     saveToStorage(get());
@@ -217,16 +214,28 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
       if (raw) {
         const data = JSON.parse(raw);
+        const planDaysLen = data.plan?.days?.length ?? 0;
+
+        // BUG FIX #5: clamp stored currentDayIndex against actual plan length on load
+        const storedIdx = data.currentDayIndex ?? 0;
+        const clampedIdx = planDaysLen > 0
+          ? Math.max(0, Math.min(storedIdx, planDaysLen - 1))
+          : 0;
+
+        const storedSessions: CompletedSession[] = data.completedSessions || [];
+
         set({
-          plan: data.plan || null,
-          profile: data.profile || null,
-          description: data.description || '',
-          completedDrills: data.completedDrills || {},
-          completedSessions: data.completedSessions || [],
-          currentStreak: data.currentStreak || 0,
-          totalSessions: data.totalSessions || 0,
-          currentDayIndex: data.currentDayIndex || 0,
-          skillLevels: data.skillLevels || {},
+          plan:              data.plan || null,
+          profile:           data.profile || null,
+          description:       data.description || '',
+          completedDrills:   data.completedDrills || {},
+          completedSessions: storedSessions,
+          currentStreak:     data.currentStreak || 0,
+          // BUG FIX #2: sync totalSessions to actual array length on load
+          totalSessions:     storedSessions.length,
+          currentDayIndex:   clampedIdx,
+          skillLevels:       data.skillLevels || {},
+          onboardingComplete: data.onboardingComplete || false,
         });
       }
     } catch (e) {

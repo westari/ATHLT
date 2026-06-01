@@ -3,7 +3,7 @@
  *
  * requireNativeModule is wrapped in try/catch so the module never crashes
  * if the native side isn't linked (Expo Go, wrong build, etc.).
- * All exported functions degrade gracefully and return error objects.
+ * All exported functions degrade gracefully.
  */
 
 import { requireNativeModule, EventEmitter, requireNativeViewManager } from 'expo-modules-core';
@@ -28,6 +28,20 @@ export interface ShotDetection {
   attempts: number;
 }
 
+export interface HoopDetectedEvent {
+  detected: boolean;
+  confidence: number;
+  bbox: ShotBBox;
+}
+
+/** Emitted every ~250ms when diagnostic mode is active. Shows raw model output. */
+export interface DetectionDebugEvent {
+  class: string;         // top detected class name, or "none"
+  confidence: number;    // top class confidence 0..1
+  framesAnalyzed: number;
+  fps: number;           // analyzed frames per second (~5 at default throttle)
+}
+
 export interface StartSessionResult {
   success: boolean;
   error?: string;
@@ -46,8 +60,6 @@ export interface SessionStats {
 }
 
 // ─── Native module resolution ─────────────────────────────────────────────────
-// Wrapped in try/catch: if the native module isn't linked the JS side still
-// loads cleanly. All functions return error objects instead of throwing.
 
 let ATHLTCameraNative: Record<string, any> | null = null;
 let nativeEmitter: any = null;
@@ -57,17 +69,13 @@ try {
   ATHLTCameraNative = requireNativeModule('ATHLTCamera');
   nativeEmitter     = new EventEmitter(ATHLTCameraNative as any);
 } catch {
-  // Module not linked — happens in Expo Go or when a non-native build is used.
-  // CameraView.tsx will show the "not linked" placeholder.
+  // Module not linked — Expo Go or wrong build.
 }
 
 try {
-  // Expo Modules registers views as ModuleName_ViewClassName.
-  // The module is named "ATHLTCamera" and the view class is "ATHLTCameraView",
-  // so the registered name is "ATHLTCamera_ATHLTCameraView".
   NativeViewManager = requireNativeViewManager('ATHLTCamera_ATHLTCameraView');
 } catch {
-  // View manager not available — same root cause as module not linked.
+  // View manager not available.
 }
 
 export const isNativeModuleLinked = () => ATHLTCameraNative !== null;
@@ -96,6 +104,29 @@ export function isModelLoaded(): boolean {
   try { return ATHLTCameraNative.isModelLoaded(); } catch { return false; }
 }
 
+// ─── Mode control ─────────────────────────────────────────────────────────────
+
+export async function setMode(mode: 'detection' | 'tracking' | 'idle'): Promise<void> {
+  if (!ATHLTCameraNative) return;
+  return ATHLTCameraNative.setMode(mode);
+}
+
+// ─── Camera flip ──────────────────────────────────────────────────────────────
+// NOTE: Front camera provides lower CV accuracy (~20% fewer detections) due to
+// sensor quality and angle from the hoop. Use back camera for best results.
+
+export async function flipCamera(): Promise<{ position: 'front' | 'back' }> {
+  if (!ATHLTCameraNative) return { position: 'back' };
+  return ATHLTCameraNative.flipCamera();
+}
+
+// ─── Diagnostic mode ──────────────────────────────────────────────────────────
+
+export async function setDiagnosticMode(enabled: boolean): Promise<void> {
+  if (!ATHLTCameraNative) return;
+  return ATHLTCameraNative.setDiagnosticMode(enabled);
+}
+
 // ─── Tracking ─────────────────────────────────────────────────────────────────
 
 export async function startTracking(): Promise<void> {
@@ -119,6 +150,21 @@ export function addShotListener(
   return nativeEmitter.addListener('onShotDetected', callback);
 }
 
+export function addHoopListener(
+  callback: (event: HoopDetectedEvent) => void
+): EventSubscription {
+  if (!nativeEmitter) return { remove: () => {} };
+  return nativeEmitter.addListener('onHoopDetected', callback);
+}
+
+/** Subscribe to raw detection events. Only fires when diagnostic mode is on. */
+export function addDetectionDebugListener(
+  callback: (event: DetectionDebugEvent) => void
+): EventSubscription {
+  if (!nativeEmitter) return { remove: () => {} };
+  return nativeEmitter.addListener('onDetectionDebug', callback);
+}
+
 export function addErrorListener(
   callback: (err: { message: string }) => void
 ): EventSubscription {
@@ -132,10 +178,6 @@ export interface ATHLTCameraViewProps {
   style?: ViewStyle;
 }
 
-/**
- * Renders the live camera preview (AVCaptureVideoPreviewLayer).
- * Returns null if the native module is not linked.
- */
 export function ATHLTCameraView(props: ATHLTCameraViewProps): React.ReactElement | null {
   if (!NativeViewManager) return null;
   return React.createElement(NativeViewManager, props);

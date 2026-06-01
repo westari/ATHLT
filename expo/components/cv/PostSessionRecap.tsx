@@ -1,13 +1,8 @@
 /**
  * PostSessionRecap — full-screen recap after a CV shooting session.
  *
- * Design: warm bone background (Colors.background), liquid glass cards
- * (Colors.surface + hairline border), no red/green — gold for makes,
- * muted gray for misses. Numbers use fontWeight '300' + tabular-nums.
- *
- * Black-bar note: the parent (open-run.tsx recap render) must wrap this
- * with backgroundColor: Colors.background and paddingTop: safeInsets.top.
- * This component renders inside that wrapper.
+ * Design: warm bone background, liquid glass cards, no red/green — gold for makes,
+ * muted for misses. Numbers use fontWeight '300' + tabular-nums.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -21,13 +16,14 @@ import type { SessionRecap } from '@/lib/cv/ShotSync';
 import type { TrackerSummary } from '@/lib/cv/ShotTracker';
 
 interface Props {
-  recap:   SessionRecap | null;
-  summary: TrackerSummary;
-  loading: boolean;
-  onDone:  () => void;
+  recap:        SessionRecap | null;
+  summary:      TrackerSummary;
+  loading:      boolean;
+  onDone:       () => void;
+  recentShots?: ('make' | 'miss')[];  // shot order from the session for timeline
 }
 
-export default function PostSessionRecap({ recap, summary, loading, onDone }: Props) {
+export default function PostSessionRecap({ recap, summary, loading, onDone, recentShots }: Props) {
   const insets = useSafeAreaInsets();
   const fadeIn = useRef(new Animated.Value(0)).current;
 
@@ -45,11 +41,21 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
     ? `${Math.floor(rawDuration / 60)}m ${String(rawDuration % 60).padStart(2, '0')}s`
     : rawDuration > 0 ? `${rawDuration}s` : '--';
 
-  // Zone data not available from ATHLTCamera native module yet
+  // Average shot interval
+  const avgInterval = total > 1 && rawDuration > 0
+    ? (rawDuration / total).toFixed(1)
+    : null;
+
+  // Zone data not yet surfaced from native ATHLTCamera module
   const zoneStats = (summary.sessionStats?.byZone ?? [])
     .filter(z => z.attempts >= 1)
     .sort((a, b) => b.attempts - a.attempts)
     .slice(0, 6);
+
+  // Shot timeline: prefer native shotEvents, fallback to recentShots prop
+  const timelineShots = (summary.shotEvents?.length ?? 0) > 0
+    ? (summary.shotEvents ?? []).map(ev => ev.type)
+    : (recentShots ?? []);
 
   const analysis   = recap?.coachAnalysis;
   const isPositive = parseFloat(fgPct) >= 50;
@@ -98,17 +104,59 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
               <Text style={s.heroStatVal}>{total}</Text>
               <Text style={s.heroStatLbl}>SHOTS</Text>
             </View>
+            {avgInterval && (
+              <>
+                <View style={s.heroStatDiv} />
+                <View style={s.heroStat}>
+                  <Text style={s.heroStatVal}>{avgInterval}s</Text>
+                  <Text style={s.heroStatLbl}>INTERVAL</Text>
+                </View>
+              </>
+            )}
           </View>
         </View>
 
-        {/* Zone breakdown — only shown when zone data is available */}
+        {/* Shot timeline */}
+        {timelineShots.length > 0 && (
+          <View style={s.card}>
+            <Text style={s.cardTitle}>SHOT TIMELINE</Text>
+            <View style={s.timeline}>
+              {timelineShots.map((type, i) => (
+                <View
+                  key={i}
+                  style={[
+                    s.timelineDot,
+                    type === 'make' ? s.dotMake : s.dotMiss,
+                  ]}
+                />
+              ))}
+            </View>
+            {/* Simple horizontal progress bar showing make % */}
+            {total > 0 && (
+              <View style={s.timelineBar}>
+                <View style={[s.timelineBarFill, { width: `${parseFloat(fgPct)}%` as any }]} />
+              </View>
+            )}
+            <View style={s.timelineLegend}>
+              <View style={s.legendRow}>
+                <View style={[s.legendDot, s.dotMake]} />
+                <Text style={s.legendText}>Make ({makes})</Text>
+              </View>
+              <View style={s.legendRow}>
+                <View style={[s.legendDot, s.dotMiss]} />
+                <Text style={s.legendText}>Miss ({total - makes})</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Zone breakdown */}
         {zoneStats.length > 0 && (
           <View style={s.card}>
             <Text style={s.cardTitle}>BY ZONE</Text>
             {zoneStats.map(z => {
               const pct = z.pct;
               const barWidth = Math.max(2, Math.min(100, pct));
-              // Gold for strong, muted for weak — no red or green
               const barColor = pct >= 40 ? Colors.primary : Colors.surfaceBorder;
               return (
                 <View key={z.zone} style={s.zoneRow}>
@@ -124,36 +172,7 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
           </View>
         )}
 
-        {/* Shot timeline — only shown when shot events are available */}
-        {(summary.shotEvents?.length ?? 0) > 0 && (
-          <View style={s.card}>
-            <Text style={s.cardTitle}>SHOT TIMELINE</Text>
-            <View style={s.timeline}>
-              {(summary.shotEvents ?? []).map((ev, i) => (
-                <View
-                  key={i}
-                  style={[
-                    s.timelineDot,
-                    // Gold for makes, muted ring for misses — no red/green
-                    ev.type === 'make' ? s.dotMake : s.dotMiss,
-                  ]}
-                />
-              ))}
-            </View>
-            <View style={s.timelineLegend}>
-              <View style={s.legendRow}>
-                <View style={[s.legendDot, s.dotMake]} />
-                <Text style={s.legendText}>Make</Text>
-              </View>
-              <View style={s.legendRow}>
-                <View style={[s.legendDot, s.dotMiss]} />
-                <Text style={s.legendText}>Miss</Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* Coach X analysis */}
+        {/* Coach X card */}
         <View style={s.coachCard}>
           <View style={s.coachHeader}>
             <View style={s.coachLabelRow}>
@@ -199,102 +218,65 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   scroll:    { paddingHorizontal: 24, paddingTop: 16 },
 
-  // ── Header ──────────────────────────────────────────────────────────────────
-  header: { alignItems: 'center', paddingVertical: 12, gap: 6, marginBottom: 8 },
-  accentBar: {
-    width: 36, height: 3, borderRadius: 2, backgroundColor: Colors.primary, marginBottom: 6,
-  },
-  tagline: {
-    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
-    letterSpacing: 1.1, textTransform: 'uppercase',
-  },
-  headline: {
-    fontSize: 22, fontWeight: '300', color: Colors.textPrimary, letterSpacing: -0.5,
-  },
+  header:    { alignItems: 'center', paddingVertical: 12, gap: 6, marginBottom: 8 },
+  accentBar: { width: 36, height: 3, borderRadius: 2, backgroundColor: Colors.primary, marginBottom: 6 },
+  tagline:   { fontSize: 11, fontWeight: '500', color: Colors.textMuted, letterSpacing: 1.1, textTransform: 'uppercase' },
+  headline:  { fontSize: 22, fontWeight: '300', color: Colors.textPrimary, letterSpacing: -0.5 },
 
-  // ── Hero FG% card ────────────────────────────────────────────────────────────
   heroCard: {
     backgroundColor: Colors.surface, borderRadius: 22,
     borderWidth: 1, borderColor: Colors.hairline,
     padding: 24, marginBottom: 14, alignItems: 'center',
-    shadowColor: Colors.black, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04, shadowRadius: 8,
+    shadowColor: Colors.black, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8,
   },
-  heroLabel: {
-    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
-    letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 4,
-  },
-  heroNumRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  heroNum: {
-    fontSize: 72, fontWeight: '300', color: Colors.textPrimary,
-    letterSpacing: -3, fontVariant: ['tabular-nums'], lineHeight: 80,
-  },
+  heroLabel: { fontSize: 11, fontWeight: '500', color: Colors.textMuted, letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 4 },
+  heroNumRow:    { flexDirection: 'row', alignItems: 'flex-start' },
+  heroNum:       { fontSize: 72, fontWeight: '300', color: Colors.textPrimary, letterSpacing: -3, fontVariant: ['tabular-nums'], lineHeight: 80 },
   heroNumSuffix: { paddingTop: 10, paddingLeft: 2 },
-  heroNumDecimal: {
-    fontSize: 28, fontWeight: '300', color: Colors.textMuted, fontVariant: ['tabular-nums'],
-  },
-  heroNumPct: { fontSize: 20, fontWeight: '300', color: Colors.textMuted, marginTop: 4 },
-  heroBreakdown: {
-    fontSize: 14, fontWeight: '300', color: Colors.textMuted,
-    letterSpacing: -0.1, marginTop: 4, marginBottom: 20,
-  },
+  heroNumDecimal:{ fontSize: 28, fontWeight: '300', color: Colors.textMuted, fontVariant: ['tabular-nums'] },
+  heroNumPct:    { fontSize: 20, fontWeight: '300', color: Colors.textMuted, marginTop: 4 },
+  heroBreakdown: { fontSize: 14, fontWeight: '300', color: Colors.textMuted, letterSpacing: -0.1, marginTop: 4, marginBottom: 20 },
 
-  heroStatsRow: { flexDirection: 'row', width: '100%' },
-  heroStat:     { flex: 1, alignItems: 'center' },
-  heroStatVal: {
-    fontSize: 24, fontWeight: '300', color: Colors.textPrimary,
-    letterSpacing: -0.6, fontVariant: ['tabular-nums'],
-  },
-  heroStatLbl: {
-    fontSize: 10, fontWeight: '500', color: Colors.textMuted,
-    letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 3,
-  },
-  heroStatDiv: { width: 1, height: 36, backgroundColor: Colors.hairline, alignSelf: 'center' },
+  heroStatsRow: { flexDirection: 'row', width: '100%', flexWrap: 'wrap', rowGap: 12 },
+  heroStat:     { flex: 1, alignItems: 'center', minWidth: 60 },
+  heroStatVal:  { fontSize: 22, fontWeight: '300', color: Colors.textPrimary, letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
+  heroStatLbl:  { fontSize: 9, fontWeight: '500', color: Colors.textMuted, letterSpacing: 0.8, textTransform: 'uppercase', marginTop: 3 },
+  heroStatDiv:  { width: 1, height: 36, backgroundColor: Colors.hairline, alignSelf: 'center' },
 
-  // ── Generic card ─────────────────────────────────────────────────────────────
   card: {
     backgroundColor: Colors.surface, borderRadius: 22,
     borderWidth: 1, borderColor: Colors.hairline,
     padding: 20, marginBottom: 14,
-    shadowColor: Colors.black, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04, shadowRadius: 8,
+    shadowColor: Colors.black, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8,
   },
   cardTitle: {
     fontSize: 11, fontWeight: '500', color: Colors.textMuted,
     letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 14,
   },
 
-  // ── Zone rows ────────────────────────────────────────────────────────────────
-  zoneRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  zoneName:    { fontSize: 13, color: Colors.textBody, width: 90, fontWeight: '500' },
-  zoneBarTrack: {
-    flex: 1, height: 5, backgroundColor: Colors.hairline,
-    borderRadius: 3, overflow: 'hidden',
+  // Shot timeline
+  timeline: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 12 },
+  timelineDot: { width: 10, height: 10, borderRadius: 5 },
+  timelineBar: {
+    height: 4, backgroundColor: Colors.hairline, borderRadius: 2, overflow: 'hidden', marginBottom: 10,
   },
-  zoneBarFill: { height: 5, borderRadius: 3 },
-  zonePct: {
-    width: 36, fontSize: 13, fontWeight: '300', color: Colors.textPrimary,
-    textAlign: 'right', fontVariant: ['tabular-nums'],
-  },
-  zoneFraction: {
-    width: 38, fontSize: 11, color: Colors.textMuted,
-    textAlign: 'right', fontVariant: ['tabular-nums'],
-  },
-
-  // ── Shot timeline ─────────────────────────────────────────────────────────────
-  timeline:        { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 10 },
-  timelineDot:     { width: 12, height: 12, borderRadius: 6 },
-  dotMake:         { backgroundColor: Colors.primary },
-  dotMiss:         {
-    backgroundColor: 'transparent',
-    borderWidth: 1.5, borderColor: 'rgba(11,14,18,0.20)',
-  },
+  timelineBarFill: { height: 4, backgroundColor: Colors.primary, borderRadius: 2 },
   timelineLegend:  { flexDirection: 'row', gap: 16 },
   legendRow:       { flexDirection: 'row', alignItems: 'center', gap: 5 },
   legendDot:       { width: 8, height: 8, borderRadius: 4 },
   legendText:      { fontSize: 12, color: Colors.textMuted },
+  dotMake:         { backgroundColor: Colors.primary },
+  dotMiss:         { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: 'rgba(11,14,18,0.20)' },
 
-  // ── Coach X card ─────────────────────────────────────────────────────────────
+  // Zone rows
+  zoneRow:      { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  zoneName:     { fontSize: 13, color: Colors.textBody, width: 90, fontWeight: '500' },
+  zoneBarTrack: { flex: 1, height: 5, backgroundColor: Colors.hairline, borderRadius: 3, overflow: 'hidden' },
+  zoneBarFill:  { height: 5, borderRadius: 3 },
+  zonePct:      { width: 36, fontSize: 13, fontWeight: '300', color: Colors.textPrimary, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  zoneFraction: { width: 38, fontSize: 11, color: Colors.textMuted, textAlign: 'right', fontVariant: ['tabular-nums'] },
+
+  // Coach X card
   coachCard: {
     backgroundColor: Colors.primarySoft, borderRadius: 22,
     borderWidth: 1, borderColor: 'rgba(201,162,74,0.25)',
@@ -302,17 +284,14 @@ const s = StyleSheet.create({
   },
   coachHeader:    { marginBottom: 10 },
   coachLabelRow:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  coachLabel: {
-    fontSize: 11, fontWeight: '600', color: Colors.primary,
-    letterSpacing: 1.1, textTransform: 'uppercase',
-  },
+  coachLabel: { fontSize: 11, fontWeight: '600', color: Colors.primary, letterSpacing: 1.1, textTransform: 'uppercase' },
   coachLoading:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
   coachLoadingText: { fontSize: 14, color: Colors.textMuted, fontStyle: 'italic' },
   coachMessage: {
     fontSize: 15, fontWeight: '300', color: Colors.primaryPressed,
     lineHeight: 22, letterSpacing: -0.1, fontStyle: 'italic',
   },
-  coachEmpty:  { fontSize: 14, fontWeight: '300', color: Colors.textMuted, fontStyle: 'italic' },
+  coachEmpty: { fontSize: 14, fontWeight: '300', color: Colors.textMuted, fontStyle: 'italic' },
   adjustBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(201,162,74,0.12)',
@@ -321,12 +300,7 @@ const s = StyleSheet.create({
   },
   adjustText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
 
-  // ── Done button ───────────────────────────────────────────────────────────────
-  doneBtn: {
-    backgroundColor: Colors.textPrimary, borderRadius: 100,
-    paddingVertical: 16, alignItems: 'center',
-  },
-  doneBtnText: {
-    fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: -0.2,
-  },
+  // Done button
+  doneBtn: { backgroundColor: Colors.textPrimary, borderRadius: 100, paddingVertical: 16, alignItems: 'center' },
+  doneBtnText: { fontSize: 16, fontWeight: '600', color: Colors.white, letterSpacing: -0.2 },
 });

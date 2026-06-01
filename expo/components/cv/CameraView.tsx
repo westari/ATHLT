@@ -2,13 +2,13 @@
  * CVCameraView — React Native wrapper over the ATHLTCamera native module.
  *
  * Owns the full camera lifecycle:
- *   mount  → startSession() → loadModel()
+ *   mount  → startSession() → loadModel() → setMode('detection')
  *   active → startTracking() / stopTracking() controlled by `active` prop
  *   unmount → stopSession()
  *
  * Shot detection is 100% native (Swift AVCaptureSession + CoreML).
- * This component subscribes to onShotDetected events and forwards them to
- * the parent via the `onShotDetected` prop.
+ * Hoop detection events (detection mode) are forwarded via onHoopDetected prop.
+ * Shot events (tracking mode) are forwarded via onShotDetected prop.
  *
  * Falls back to a clear placeholder if the native module isn't linked
  * (e.g. in Expo Go or before an EAS build).
@@ -26,18 +26,22 @@ import {
   startSession,
   stopSession,
   loadModel,
+  setMode,
   startTracking,
   stopTracking,
   addShotListener,
+  addHoopListener,
   ATHLTCameraView as NativeCamera,
+  type HoopDetectedEvent,
 } from '@/modules/athlt-camera/src/index';
 
 // ─── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  active:           boolean;
-  onShotDetected:   (event: ShotEvent) => void;
-  onCameraReady?:   () => void;
+  active:             boolean;
+  onShotDetected:     (event: ShotEvent) => void;
+  onHoopDetected?:    (event: HoopDetectedEvent) => void;
+  onCameraReady?:     () => void;
 }
 
 // ─── States ────────────────────────────────────────────────────────────────────
@@ -46,13 +50,15 @@ type CameraState = 'loading' | 'permissionDenied' | 'modelError' | 'ready';
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 
-export default function CVCameraView({ active, onShotDetected, onCameraReady }: Props) {
+export default function CVCameraView({ active, onShotDetected, onHoopDetected, onCameraReady }: Props) {
   const [camState, setCamState]     = useState<CameraState>('loading');
   const [errorMsg, setErrorMsg]     = useState('');
   const [showDebugBoxes, setShowDebugBoxes] = useState(false);
 
-  const activeRef = useRef(active);
-  activeRef.current = active;
+  const activeRef        = useRef(active);
+  activeRef.current      = active;
+  const onHoopDetectedRef = useRef(onHoopDetected);
+  onHoopDetectedRef.current = onHoopDetected;
 
   const moduleLinked = isNativeModuleLinked();
 
@@ -90,6 +96,8 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
       }
 
       setCamState('ready');
+      // Enter detection mode immediately — CV starts looking for the hoop
+      setMode('detection').catch(() => {});
       onCameraReady?.();
     };
 
@@ -110,6 +118,8 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
   useEffect(() => {
     if (camState !== 'ready' || !moduleLinked) return;
     if (active) {
+      // Switch to tracking mode before starting the shot detection counter
+      setMode('tracking').catch(() => {});
       startTracking().catch(e => console.error('[CVCameraView] startTracking:', e));
     } else {
       stopTracking().catch(() => {});
@@ -122,7 +132,6 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
 
     const sub = addShotListener(nativeShot => {
       if (!activeRef.current) return;
-      // Convert native ShotDetection → ShotEvent for the parent
       const event: ShotEvent = {
         type:          nativeShot.type,
         timestamp:     nativeShot.timestamp,
@@ -135,6 +144,18 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
 
     return () => sub.remove();
   }, [camState, moduleLinked, onShotDetected]);
+
+  // ── Subscribe to hoop detection events ───────────────────────────────────
+  useEffect(() => {
+    if (camState !== 'ready' || !moduleLinked) return;
+
+    const sub = addHoopListener(event => {
+      // Always call the latest version of the callback via ref
+      onHoopDetectedRef.current?.(event);
+    });
+
+    return () => sub.remove();
+  }, [camState, moduleLinked]);
 
   // ── Render states ─────────────────────────────────────────────────────────
 

@@ -13,9 +13,6 @@ extension Notification.Name {
 }
 
 // ─── Shared session holder ─────────────────────────────────────────────────────
-// Both ATHLTCameraModule and ATHLTCameraView are in the same pod but are separate
-// classes. We share the AVCaptureSession via this singleton so the view can
-// render the preview layer without needing a direct reference to the module.
 
 final class ATHLTSessionHolder {
     static let shared = ATHLTSessionHolder()
@@ -25,25 +22,21 @@ final class ATHLTSessionHolder {
 
     func set(_ session: AVCaptureSession?) {
         self.session = session
-        NotificationCenter.default.post(
-            name: .athltSessionChanged,
-            object: session
-        )
+        NotificationCenter.default.post(name: .athltSessionChanged, object: session)
     }
 }
 
-// ─── Ball position record for trajectory tracking ──────────────────────────────
+// ─── Ball position record ──────────────────────────────────────────────────────
 
 private struct BallRecord {
-    let centerX: Double  // normalized 0..1
-    let centerY: Double  // normalized 0..1, origin top-left
-    let timestamp: Double  // seconds since reference date
+    let centerX: Double
+    let centerY: Double
+    let timestamp: Double
 }
 
-// ─── Capture delegate (separate NSObject so Module class stays pure Swift) ─────
+// ─── Capture delegate ──────────────────────────────────────────────────────────
 
 private final class ATHLTCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
-    // Weak to avoid retain cycle: module → delegate → module
     weak var module: ATHLTCameraModule?
 
     func captureOutput(
@@ -60,67 +53,74 @@ private final class ATHLTCaptureDelegate: NSObject, AVCaptureVideoDataOutputSamp
 public class ATHLTCameraModule: Module {
 
     // MARK: – Session infrastructure
-    private let sessionQueue = DispatchQueue(
-        label: "com.athlt.camera.session",
-        qos: .userInteractive
-    )
-    private let inferenceQueue = DispatchQueue(
-        label: "com.athlt.camera.inference",
-        qos: .userInteractive
-    )
+    private let sessionQueue = DispatchQueue(label: "com.athlt.camera.session", qos: .userInteractive)
+    private let inferenceQueue = DispatchQueue(label: "com.athlt.camera.inference", qos: .userInteractive)
 
     private var captureSession: AVCaptureSession?
     private var videoOutput: AVCaptureVideoDataOutput?
     private var captureDelegate: ATHLTCaptureDelegate?
 
+    // MARK: – Camera position (back by default)
+    // NOTE: Front camera reduces CV accuracy — lower quality sensor + farther from hoop.
+    // Flip is provided so users can aim without a tripod; expect ~20% lower detection rate.
+    private var currentPosition: AVCaptureDevice.Position = .back
+
     // MARK: – CoreML
     private var visionModel: VNCoreMLModel?
     private var isModelLoaded = false
 
-    // MARK: – Tracking state (all mutations on inferenceQueue)
+    // MARK: – Camera mode
+    // "idle"      → no inference
+    // "detection" → basket/hoop seeking; emits onHoopDetected
+    // "tracking"  → full shot detection state machine
+    private var currentMode: String = "idle"
+
+    // MARK: – Tracking state (inferenceQueue)
     private var isTracking = false
     private var makes = 0
     private var attempts = 0
 
-    // MARK: – Frame throttle: ~5fps from 30fps input
+    // MARK: – Frame throttle (~5fps from 30fps)
     private var frameCounter = 0
-    private let frameSkip = 6      // process every 6th frame ≈ 5fps
+    private let frameSkip = 6
 
     // MARK: – Shot detection state
     private var ballHistory: [BallRecord] = []
-    private let maxBallHistory = 30  // ~6 seconds at 5fps
+    private let maxBallHistory = 30
 
-    private var lastBasket: CGRect?          // last known basket bbox (Vision coords: origin bottom-left)
-    private var lastShotTime: Double = 0     // seconds
+    private var lastBasket: CGRect?
+    private var lastShotTime: Double = 0
     private let shotCooldown: Double = 1.5
 
-    // Miss detection: track how long ball has been near basket
     private var ballNearBasketSince: Double = 0
     private var pendingMissDeadline: Double = 0
-    private let missDetectionWindow: Double = 0.8  // ball must be near basket this long before we wait for disappearance
+    private let missDetectionWindow: Double = 0.8
+
+    // MARK: – Hoop detection throttle
+    private var lastHoopEventTime: Double = 0
+    private let hoopEventThrottle: Double = 0.5
+
+    // MARK: – Diagnostic mode
+    private var diagnosticMode = false
+    private var framesAnalyzed = 0
+    private var recentFrameTimestamps: [Double] = []
+    private var lastDiagnosticEventTime: Double = 0
+    private let diagnosticEventThrottle: Double = 0.25  // emit up to 4/sec
 
     // MARK: – Module definition ─────────────────────────────────────────────────
 
     public func definition() -> ModuleDefinition {
         Name("ATHLTCamera")
 
-        Events("onShotDetected", "onError", "onCameraState")
+        Events("onShotDetected", "onError", "onCameraState", "onHoopDetected", "onDetectionDebug")
 
-        // Native view. A Prop is required for ExpoModulesCore to generate
-        // the Fabric (New Architecture) component descriptor during prebuild.
-        // An empty View{} body is treated as a legacy-only view manager.
         View(ATHLTCameraView.self) {
-            // Placeholder prop — session lifecycle is handled by ATHLTSessionHolder,
-            // not by a React prop. This Prop exists solely so the Fabric codegen
-            // generates a proper component descriptor for ATHLTCameraView.
             Prop("isActive") { (_: ATHLTCameraView, _: Bool) in }
         }
 
         // ── startSession ────────────────────────────────────────────────────────
         AsyncFunction("startSession") { (promise: Promise) in
-            self.sessionQueue.async {
-                self.doStartSession(promise: promise)
-            }
+            self.sessionQueue.async { self.doStartSession(promise: promise) }
         }
 
         // ── stopSession ─────────────────────────────────────────────────────────
@@ -139,8 +139,37 @@ public class ATHLTCameraModule: Module {
 
         // ── loadModel ────────────────────────────────────────────────────────────
         AsyncFunction("loadModel") { (promise: Promise) in
+            self.inferenceQueue.async { self.doLoadModel(promise: promise) }
+        }
+
+        // ── setMode ──────────────────────────────────────────────────────────────
+        AsyncFunction("setMode") { (mode: String, promise: Promise) in
             self.inferenceQueue.async {
-                self.doLoadModel(promise: promise)
+                self.currentMode = mode
+                NSLog("[ATHLTCamera] mode: %@", mode)
+                promise.resolve()
+            }
+        }
+
+        // ── flipCamera ───────────────────────────────────────────────────────────
+        // Switches between back and front cameras. Front camera gives lower CV
+        // accuracy (~20% fewer detections) due to sensor quality and angle.
+        AsyncFunction("flipCamera") { (promise: Promise) in
+            self.sessionQueue.async { self.doFlipCamera(promise: promise) }
+        }
+
+        // ── setDiagnosticMode ────────────────────────────────────────────────────
+        // When enabled, emits onDetectionDebug on every analyzed frame so the
+        // user can validate that the model is seeing detections before a real session.
+        AsyncFunction("setDiagnosticMode") { (enabled: Bool, promise: Promise) in
+            self.inferenceQueue.async {
+                self.diagnosticMode = enabled
+                if !enabled {
+                    self.framesAnalyzed = 0
+                    self.recentFrameTimestamps.removeAll()
+                }
+                NSLog("[ATHLTCamera] diagnostic mode: %@", enabled ? "ON" : "OFF")
+                promise.resolve()
             }
         }
 
@@ -154,6 +183,7 @@ public class ATHLTCameraModule: Module {
                 self.ballNearBasketSince = 0
                 self.pendingMissDeadline = 0
                 self.isTracking = true
+                self.currentMode = "tracking"
                 NSLog("[ATHLTCamera] tracking started")
                 promise.resolve()
             }
@@ -163,71 +193,60 @@ public class ATHLTCameraModule: Module {
         AsyncFunction("stopTracking") { (promise: Promise) in
             self.inferenceQueue.async {
                 self.isTracking = false
+                self.currentMode = "idle"
                 let m = self.makes
                 let a = self.attempts
                 let pct = a > 0 ? Int(round(Double(m) / Double(a) * 100)) : 0
-                NSLog("[ATHLTCamera] tracking stopped — %d/%d (%.0f%%)", m, a, Double(pct))
-                promise.resolve([
-                    "makes":     m,
-                    "attempts":  a,
-                    "fgPercent": pct,
-                ])
+                NSLog("[ATHLTCamera] tracking stopped — %d/%d (%d%%)", m, a, pct)
+                promise.resolve(["makes": m, "attempts": a, "fgPercent": pct])
             }
         }
 
-        // ── isModelLoaded (sync, for guards) ────────────────────────────────────
+        // ── isModelLoaded ────────────────────────────────────────────────────────
         Function("isModelLoaded") { () -> Bool in
             return self.isModelLoaded
         }
     }
 
-    // MARK: – startSession implementation ──────────────────────────────────────
+    // MARK: – startSession ─────────────────────────────────────────────────────
 
     private func doStartSession(promise: Promise) {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
-
         switch status {
         case .authorized:
-            configureSession(promise: promise)
-
+            configureSession(position: currentPosition, promise: promise)
         case .notDetermined:
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 guard let self = self else { return }
                 if granted {
-                    self.sessionQueue.async { self.configureSession(promise: promise) }
+                    self.sessionQueue.async {
+                        self.configureSession(position: self.currentPosition, promise: promise)
+                    }
                 } else {
                     promise.resolve(["success": false, "error": "Camera permission denied by user"])
                 }
             }
-
         case .denied, .restricted:
-            promise.resolve([
-                "success": false,
-                "error": "Camera permission denied. Enable in iOS Settings → ATHLT → Camera."
-            ])
-
+            promise.resolve(["success": false, "error": "Camera permission denied. Enable in iOS Settings → ATHLT → Camera."])
         @unknown default:
             promise.resolve(["success": false, "error": "Unknown camera auth status"])
         }
     }
 
-    private func configureSession(promise: Promise) {
-        guard let device = AVCaptureDevice.default(
-            .builtInWideAngleCamera, for: .video, position: .back
-        ) else {
-            promise.resolve(["success": false, "error": "No back camera found on this device"])
+    private func configureSession(position: AVCaptureDevice.Position, promise: Promise) {
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position) else {
+            promise.resolve(["success": false, "error": "No camera found for position \(position.rawValue)"])
             return
         }
 
         let session = AVCaptureSession()
         session.beginConfiguration()
-        session.sessionPreset = .hd1280x720   // 720p is plenty for YOLO inference
+        session.sessionPreset = .hd1280x720
 
-        // ── Input ──
         do {
             let input = try AVCaptureDeviceInput(device: device)
             guard session.canAddInput(input) else {
-                promise.resolve(["success": false, "error": "Cannot add camera input to session"])
+                promise.resolve(["success": false, "error": "Cannot add camera input"])
                 return
             }
             session.addInput(input)
@@ -236,75 +255,100 @@ public class ATHLTCameraModule: Module {
             return
         }
 
-        // ── Video data output ──
         let output = AVCaptureVideoDataOutput()
-        output.videoSettings = [
-            // BGRA is what Vision/CoreML prefer — no extra conversion step
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ]
-        // Drop frames we can't process in time — prevents memory pile-up
+        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
         output.alwaysDiscardsLateVideoFrames = true
 
         let delegate = ATHLTCaptureDelegate()
         delegate.module = self
         self.captureDelegate = delegate
-
-        // Capture queue owns frame delivery; we dispatch inference to inferenceQueue
         output.setSampleBufferDelegate(delegate, queue: sessionQueue)
 
         guard session.canAddOutput(output) else {
-            promise.resolve(["success": false, "error": "Cannot add video output to session"])
+            promise.resolve(["success": false, "error": "Cannot add video output"])
             return
         }
         session.addOutput(output)
 
-        // ── Lock orientation to landscapeRight on the connection ──
         if let conn = output.connection(with: .video) {
-            if conn.isVideoOrientationSupported {
-                conn.videoOrientation = .landscapeRight
-            }
-            // Disable mirroring for back camera
-            if conn.isVideoMirroringSupported {
-                conn.isVideoMirrored = false
-            }
+            if conn.isVideoOrientationSupported { conn.videoOrientation = .landscapeRight }
+            if conn.isVideoMirroringSupported { conn.isVideoMirrored = (position == .front) }
         }
 
         session.commitConfiguration()
-
         self.captureSession = session
-        self.videoOutput   = output
-
-        // Broadcast session so ATHLTCameraView picks it up
+        self.videoOutput = output
         ATHLTSessionHolder.shared.set(session)
-
         session.startRunning()
 
         let running = session.isRunning
-        NSLog("[ATHLTCamera] session configured, running: %@", running ? "YES" : "NO")
+        NSLog("[ATHLTCamera] session configured (%@), running: %@",
+              position == .front ? "front" : "back", running ? "YES" : "NO")
         promise.resolve(["success": running])
     }
 
-    // MARK: – loadModel implementation ─────────────────────────────────────────
+    // MARK: – flipCamera ───────────────────────────────────────────────────────
+
+    private func doFlipCamera(promise: Promise) {
+        guard let session = captureSession, let output = videoOutput else {
+            let pos = currentPosition == .back ? "back" : "front"
+            promise.resolve(["position": pos])
+            return
+        }
+
+        let newPosition: AVCaptureDevice.Position = (currentPosition == .back) ? .front : .back
+
+        guard let newDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition),
+              let newInput = try? AVCaptureDeviceInput(device: newDevice) else {
+            let pos = currentPosition == .back ? "back" : "front"
+            NSLog("[ATHLTCamera] flipCamera: could not create input for new position")
+            promise.resolve(["position": pos])
+            return
+        }
+
+        session.beginConfiguration()
+
+        // Remove all existing inputs
+        for input in session.inputs {
+            session.removeInput(input)
+        }
+
+        // Add new camera input
+        if session.canAddInput(newInput) {
+            session.addInput(newInput)
+        }
+
+        // Fix orientation + mirroring for new position
+        if let conn = output.connection(with: .video) {
+            if conn.isVideoOrientationSupported { conn.videoOrientation = .landscapeRight }
+            if conn.isVideoMirroringSupported { conn.isVideoMirrored = (newPosition == .front) }
+        }
+
+        session.commitConfiguration()
+        currentPosition = newPosition
+
+        let posStr = newPosition == .front ? "front" : "back"
+        NSLog("[ATHLTCamera] camera flipped to: %@", posStr)
+        promise.resolve(["position": posStr])
+    }
+
+    // MARK: – loadModel ────────────────────────────────────────────────────────
 
     private func doLoadModel(promise: Promise) {
         NSLog("[ATHLTCamera] loadModel — scanning bundle")
 
-        // The withCoreMLModel plugin compiles best.mlpackage → best.mlmodelc during Xcode build
         guard let url = Bundle.main.url(forResource: "best", withExtension: "mlmodelc")
                      ?? Bundle.main.url(forResource: "best", withExtension: "mlpackage") else {
-
             let found = (Bundle.main.urls(forResourcesWithExtension: "mlmodelc", subdirectory: nil) ?? [])
                 .map { $0.lastPathComponent }.joined(separator: ", ")
-            let msg = "best.mlmodelc not found in app bundle. mlmodelc files present: [\(found)]"
+            let msg = "best.mlmodelc not found. mlmodelc files present: [\(found)]"
             NSLog("[ATHLTCamera] %@", msg)
             promise.resolve(["loaded": false, "error": msg])
             return
         }
 
-        NSLog("[ATHLTCamera] model URL: %@", url.path)
-
         let config = MLModelConfiguration()
-        config.computeUnits = .all   // CPU + GPU + ANE
+        config.computeUnits = .all
 
         do {
             let mlModel = try MLModel(contentsOf: url, configuration: config)
@@ -318,26 +362,19 @@ public class ATHLTCameraModule: Module {
         }
     }
 
-    // MARK: – Frame handling (called from captureDelegate on sessionQueue) ──────
+    // MARK: – Frame handling ───────────────────────────────────────────────────
 
     func handleSampleBuffer(_ buffer: CMSampleBuffer) {
-        // Frame throttle
         frameCounter += 1
         guard frameCounter % frameSkip == 0 else { return }
-
-        // Skip inference if not tracking or model not ready
-        guard isTracking, isModelLoaded, let model = visionModel else { return }
-
+        guard currentMode != "idle", isModelLoaded, let model = visionModel else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
 
-        // Dispatch to dedicated inference queue — never run CoreML on the capture queue
         let ts = CMSampleBufferGetPresentationTimeStamp(buffer)
         let timestampSec: Double = ts.timescale > 0
             ? Double(ts.value) / Double(ts.timescale)
             : Date().timeIntervalSinceReferenceDate
 
-        // Retain pixel buffer for async dispatch (CMSampleBuffer is not safe to
-        // pass across queue boundaries without locking)
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         let capturedBuffer = pixelBuffer
         let capturedModel  = model
@@ -345,27 +382,16 @@ public class ATHLTCameraModule: Module {
 
         inferenceQueue.async { [weak self] in
             defer { CVPixelBufferUnlockBaseAddress(capturedBuffer, .readOnly) }
-            self?.runInference(
-                pixelBuffer: capturedBuffer,
-                model: capturedModel,
-                timestamp: capturedTS
-            )
+            self?.runInference(pixelBuffer: capturedBuffer, model: capturedModel, timestamp: capturedTS)
         }
     }
 
-    // MARK: – CoreML inference ──────────────────────────────────────────────────
+    // MARK: – CoreML inference ─────────────────────────────────────────────────
 
-    private func runInference(
-        pixelBuffer: CVPixelBuffer,
-        model: VNCoreMLModel,
-        timestamp: Double
-    ) {
+    private func runInference(pixelBuffer: CVPixelBuffer, model: VNCoreMLModel, timestamp: Double) {
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFit
 
-        // orientation: .right — for a landscape-right locked camera, the raw
-        // sensor buffer arrives in portrait orientation (height > width).
-        // Telling Vision the image is rotated .right makes it appear landscape.
         let handler = VNImageRequestHandler(
             cvPixelBuffer: pixelBuffer,
             orientation: .right,
@@ -380,7 +406,6 @@ public class ATHLTCameraModule: Module {
         }
 
         guard let observations = request.results as? [VNRecognizedObjectObservation] else {
-            // Model output raw tensors (no NMS baked in) — log and skip
             if let rawResults = request.results, !rawResults.isEmpty {
                 NSLog("[ATHLTCamera] WARNING: model outputs %@, not VNRecognizedObjectObservation. Re-export with nms=True.",
                       String(describing: type(of: rawResults[0])))
@@ -391,16 +416,104 @@ public class ATHLTCameraModule: Module {
         processObservations(observations, timestamp: timestamp)
     }
 
-    // MARK: – Shot detection state machine ─────────────────────────────────────
+    // MARK: – Dispatch by mode ─────────────────────────────────────────────────
 
-    private func processObservations(
-        _ observations: [VNRecognizedObjectObservation],
-        timestamp: Double
-    ) {
+    private func processObservations(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
+        // FPS tracking (always — negligible overhead, used by diagnostic display)
+        recentFrameTimestamps.append(timestamp)
+        if recentFrameTimestamps.count > 10 { recentFrameTimestamps.removeFirst() }
+        framesAnalyzed += 1
+
+        // Diagnostic event: emits ANY detection so user can validate model output
+        if diagnosticMode {
+            emitDiagnosticEvent(observations)
+        }
+
+        if currentMode == "detection" {
+            handleDetectionMode(observations, timestamp: timestamp)
+            return
+        }
+
+        guard isTracking else { return }
+        handleTrackingMode(observations, timestamp: timestamp)
+    }
+
+    // MARK: – FPS helper ───────────────────────────────────────────────────────
+
+    private func computeFPS() -> Double {
+        guard recentFrameTimestamps.count >= 2 else { return 0 }
+        let elapsed = recentFrameTimestamps.last! - recentFrameTimestamps.first!
+        guard elapsed > 0 else { return 0 }
+        return Double(recentFrameTimestamps.count - 1) / elapsed
+    }
+
+    // MARK: – Diagnostic event ─────────────────────────────────────────────────
+
+    private func emitDiagnosticEvent(_ observations: [VNRecognizedObjectObservation]) {
+        let now = Date().timeIntervalSinceReferenceDate
+        guard (now - lastDiagnosticEventTime) >= diagnosticEventThrottle else { return }
+        lastDiagnosticEventTime = now
+
+        // Find top detection across ALL classes (not filtered — shows what model sees)
+        var topClass = "none"
+        var topConf: Double = 0
+
+        for obs in observations {
+            if let top = obs.labels.first, Double(top.confidence) > topConf {
+                topClass = top.identifier
+                topConf = Double(top.confidence)
+            }
+        }
+
+        sendEvent("onDetectionDebug", [
+            "class":          topClass,
+            "confidence":     topConf,
+            "framesAnalyzed": framesAnalyzed,
+            "fps":            computeFPS(),
+        ])
+    }
+
+    // MARK: – Hoop detection (detection mode) ──────────────────────────────────
+
+    private func handleDetectionMode(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
+        let hoopConf: Float = 0.4
+        var bestBasket: VNRecognizedObjectObservation? = nil
+        var bestConf: Float = 0
+
+        for obs in observations {
+            guard let top = obs.labels.first else { continue }
+            let name = top.identifier.lowercased()
+            if (name == "basket" || name == "hoop" || name == "rim") && top.confidence >= hoopConf {
+                if top.confidence > bestConf { bestBasket = obs; bestConf = top.confidence }
+            }
+        }
+
+        guard let found = bestBasket else { return }
+
+        let now = Date().timeIntervalSinceReferenceDate
+        guard (now - lastHoopEventTime) >= hoopEventThrottle else { return }
+        lastHoopEventTime = now
+
+        let bb = found.boundingBox
+        let jsX = Double(bb.origin.x)
+        let jsY = Double(1.0 - bb.origin.y - bb.height)
+        let jsW = Double(bb.width)
+        let jsH = Double(bb.height)
+
+        NSLog("[ATHLTCamera] hoop detected (conf=%.2f)", Double(bestConf))
+        sendEvent("onHoopDetected", [
+            "detected":   true,
+            "confidence": Double(bestConf),
+            "bbox": ["x": jsX, "y": jsY, "width": jsW, "height": jsH],
+        ])
+    }
+
+    // MARK: – Shot detection (tracking mode) ──────────────────────────────────
+
+    private func handleTrackingMode(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
         let minConf: Float = 0.35
-        let makeConf: Float = 0.45   // higher bar for ball_in_basket
+        let makeConf: Float = 0.45
 
-        // ── Classify detections ──
         var ball:         VNRecognizedObjectObservation?
         var basket:       VNRecognizedObjectObservation?
         var ballInBasket: VNRecognizedObjectObservation?
@@ -408,98 +521,67 @@ public class ATHLTCameraModule: Module {
         for obs in observations {
             guard let top = obs.labels.first, top.confidence >= minConf else { continue }
             let name = top.identifier.lowercased()
-
             switch name {
             case "ball":
-                // Keep highest-confidence ball
-                if ball == nil || top.confidence > (ball?.labels.first?.confidence ?? 0) {
-                    ball = obs
-                }
+                if ball == nil || top.confidence > (ball?.labels.first?.confidence ?? 0) { ball = obs }
             case "basket":
-                if basket == nil || top.confidence > (basket?.labels.first?.confidence ?? 0) {
-                    basket = obs
-                }
+                if basket == nil || top.confidence > (basket?.labels.first?.confidence ?? 0) { basket = obs }
             case "ball_in_basket":
-                if top.confidence >= makeConf {
-                    if ballInBasket == nil || top.confidence > (ballInBasket?.labels.first?.confidence ?? 0) {
-                        ballInBasket = obs
-                    }
+                if top.confidence >= makeConf,
+                   ballInBasket == nil || top.confidence > (ballInBasket?.labels.first?.confidence ?? 0) {
+                    ballInBasket = obs
                 }
-            default:
-                break
+            default: break
             }
         }
 
-        // Update basket position cache
-        if let b = basket {
-            lastBasket = b.boundingBox
-        }
+        if let b = basket { lastBasket = b.boundingBox }
 
-        // Update ball trajectory history
         if let b = ball {
             let bb = b.boundingBox
-            // Vision bounding box: origin bottom-left. Convert to top-left for consistency.
-            let record = BallRecord(
+            ballHistory.append(BallRecord(
                 centerX: Double(bb.midX),
-                centerY: Double(1.0 - bb.midY),   // flip y to top-left
+                centerY: Double(1.0 - bb.midY),
                 timestamp: timestamp
-            )
-            ballHistory.append(record)
+            ))
             if ballHistory.count > maxBallHistory { ballHistory.removeFirst() }
         }
 
-        // ── Cooldown check ──
         guard (timestamp - lastShotTime) > shotCooldown else { return }
 
-        // ── MAKE: ball_in_basket detected ──
         if let bib = ballInBasket {
             let conf = Double(bib.labels.first?.confidence ?? 0.5)
             recordShot(type: "make", confidence: conf, bbox: bib.boundingBox, timestamp: timestamp)
             return
         }
 
-        // ── MISS heuristic ──
-        // Ball near basket → ball disappears → no ball_in_basket → MISS
         if let lastBasketBB = lastBasket, let ballObs = ball {
             let ballBB = ballObs.boundingBox
-            let basketCX = lastBasketBB.midX
-            let basketCY = lastBasketBB.midY
-
-            // Is ball within 2× basket width of basket center?
             let threshW = max(lastBasketBB.width * 2.0, 0.12)
             let threshH = max(lastBasketBB.height * 3.0, 0.15)
-            let nearX = abs(ballBB.midX - basketCX) < threshW
-            let nearY = abs(ballBB.midY - basketCY) < threshH
+            let nearX = abs(ballBB.midX - lastBasketBB.midX) < threshW
+            let nearY = abs(ballBB.midY - lastBasketBB.midY) < threshH
 
             if nearX && nearY {
-                if ballNearBasketSince == 0 {
-                    ballNearBasketSince = timestamp
-                }
-                // Set a deadline: if ball disappears within this window, it's a miss
+                if ballNearBasketSince == 0 { ballNearBasketSince = timestamp }
                 pendingMissDeadline = timestamp + 1.0
             } else {
-                // Ball not near basket — cancel any pending miss
-                ballNearBasketSince = 0
-                pendingMissDeadline = 0
+                ballNearBasketSince = 0; pendingMissDeadline = 0
             }
         } else if ball == nil && pendingMissDeadline > 0 {
-            // Ball is gone
             if timestamp >= pendingMissDeadline
                 && ballNearBasketSince > 0
                 && (timestamp - ballNearBasketSince) >= missDetectionWindow {
-                // Ball was near basket long enough and then vanished → MISS
                 let bbox = lastBasket ?? CGRect(x: 0.45, y: 0.45, width: 0.1, height: 0.1)
                 recordShot(type: "miss", confidence: 0.6, bbox: bbox, timestamp: timestamp)
             }
             if timestamp > pendingMissDeadline + 0.5 {
-                // Deadline passed with no ball — reset
-                ballNearBasketSince = 0
-                pendingMissDeadline = 0
+                ballNearBasketSince = 0; pendingMissDeadline = 0
             }
         }
     }
 
-    // MARK: – Record shot + emit event ─────────────────────────────────────────
+    // MARK: – Record shot ──────────────────────────────────────────────────────
 
     private func recordShot(type: String, confidence: Double, bbox: CGRect, timestamp: Double) {
         lastShotTime = timestamp
@@ -507,14 +589,11 @@ public class ATHLTCameraModule: Module {
         ballNearBasketSince = 0
         pendingMissDeadline = 0
 
-        if type == "make" {
-            makes += 1
-        }
+        if type == "make" { makes += 1 }
         attempts += 1
 
-        NSLog("[ATHLTCamera] %@ detected — %d/%d (conf=%.2f)", type, makes, attempts, confidence)
+        NSLog("[ATHLTCamera] %@ — %d/%d (conf=%.2f)", type, makes, attempts, confidence)
 
-        // Vision bbox: origin bottom-left → convert to top-left for JS
         let jsX = Double(bbox.origin.x)
         let jsY = Double(1.0 - bbox.origin.y - bbox.height)
         let jsW = Double(bbox.width)
@@ -523,7 +602,7 @@ public class ATHLTCameraModule: Module {
         sendEvent("onShotDetected", [
             "type":       type,
             "confidence": confidence,
-            "timestamp":  timestamp * 1000.0,   // ms
+            "timestamp":  timestamp * 1000.0,
             "bbox": ["x": jsX, "y": jsY, "width": jsW, "height": jsH],
             "makes":    makes,
             "attempts": attempts,

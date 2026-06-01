@@ -6,18 +6,13 @@
  *  2. Saves each shot in real time as it's detected
  *  3. Finalizes and sends to Coach X when session ends
  *  4. Fetches Coach X analysis and stores it back on the session
- *
- * Usage:
- *   const sync = new CVSessionSync();
- *   await sync.start({ drillId: 'sh-7', drillName: 'Spot Shooting', ... });
- *   sync.recordShot(shotEvent);          // call for each detected shot
- *   const recap = await sync.finish();   // call when session ends
  */
 
 import {
   createShotSession,
   saveShot,
   finalizeShotSession,
+  getRecentShotSessions,
   type ShotSessionInput,
 } from '../shotSync';
 import type { DetectedShot } from '../shotDetection';
@@ -54,6 +49,24 @@ export interface SessionRecap {
   coachAnalysis: CoachAnalysis | null;
 }
 
+// ─── Read: fetch user's session history ───────────────────────────────────────
+
+/**
+ * Fetch the user's most recent shot sessions from Supabase.
+ * Returns an empty array (never throws) so callers can render safely.
+ */
+export async function fetchUserSessions(limit = 30): Promise<{ sessions: any[] }> {
+  try {
+    const sessions = await getRecentShotSessions(limit);
+    return { sessions: sessions || [] };
+  } catch (e) {
+    console.warn('[CVSessionSync] fetchUserSessions failed:', e);
+    return { sessions: [] };
+  }
+}
+
+// ─── CVSessionSync class ───────────────────────────────────────────────────────
+
 export class CVSessionSync {
   private sessionId: string | null = null;
   private shotIndex = 0;
@@ -78,7 +91,7 @@ export class CVSessionSync {
       this.sessionId = await createShotSession(input);
     } catch (e) {
       this.sessionId = 'local_' + Date.now();
-      console.error('[CVSessionSync] start failed, using local id:', this.sessionId, e);
+      console.warn('[CVSessionSync] start failed — using local id:', this.sessionId, e);
     }
     return this.sessionId;
   }
@@ -93,7 +106,7 @@ export class CVSessionSync {
     const shot: DetectedShot = {
       made:              event.type === 'make',
       shotIndex:         this.shotIndex++,
-      releaseTimestamp:  event.timestamp - 500,  // rough estimate
+      releaseTimestamp:  event.timestamp - 500,
       resultTimestamp:   event.timestamp,
       trajectoryPoints:  event.ballPositions,
       releaseAngle:      event.releaseAngle,
@@ -110,35 +123,37 @@ export class CVSessionSync {
   }
 
   /**
-   * Finalize the session: persist aggregate stats, fetch Coach X analysis,
-   * store it back on the session record.
+   * Finalize the session: persist aggregate stats, fetch Coach X analysis.
+   * Falls back gracefully if Supabase is unreachable — stats are still returned
+   * from in-memory data so the recap shows correctly.
    */
   async finish(summary: TrackerSummary, userId?: string): Promise<SessionRecap> {
     const durationSeconds = Math.floor((Date.now() - this.startTime) / 1000);
 
-    // Zone data is only populated when ShotTracker (JS) runs inference.
-    // ATHLTCamera native module doesn't surface zone data yet — guard with ?. ?? [].
     const sortedZones = [...(summary.sessionStats?.byZone ?? [])].sort((a, b) => b.pct - a.pct);
     const bestZone    = sortedZones[0];
     const worstZone   = sortedZones[sortedZones.length - 1];
 
     if (this.sessionId) {
-      await finalizeShotSession({
-        sessionId:         this.sessionId,
-        totalShots:        summary.totalShots,
-        makes:             summary.makes,
-        bestStreak:        summary.bestStreak,
-        avgReleaseAngle:   summary.sessionStats.averageReleaseAngle,
-        avgArcHeight:      summary.sessionStats.averageArcHeight,
-        bestZone:          bestZone?.zone,
-        bestZonePct:       bestZone?.pct,
-        worstZone:         worstZone?.zone,
-        worstZonePct:      worstZone?.pct,
-        durationSeconds,
-      });
+      try {
+        await finalizeShotSession({
+          sessionId:         this.sessionId,
+          totalShots:        summary.totalShots,
+          makes:             summary.makes,
+          bestStreak:        summary.bestStreak,
+          avgReleaseAngle:   summary.sessionStats?.averageReleaseAngle,
+          avgArcHeight:      summary.sessionStats?.averageArcHeight,
+          bestZone:          bestZone?.zone,
+          bestZonePct:       bestZone?.pct,
+          worstZone:         worstZone?.zone,
+          worstZonePct:      worstZone?.pct,
+          durationSeconds,
+        });
+      } catch (e) {
+        console.warn('[CVSessionSync] finalizeShotSession failed — session stats not saved to Supabase:', e);
+      }
     }
 
-    // Fetch Coach X analysis
     let coachAnalysis: CoachAnalysis | null = null;
     if (summary.totalShots >= 3 && userId) {
       coachAnalysis = await this.fetchCoachAnalysis(summary, userId);
