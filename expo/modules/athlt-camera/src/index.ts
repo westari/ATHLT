@@ -111,6 +111,21 @@ export async function setMode(mode: 'detection' | 'tracking' | 'idle'): Promise<
   return ATHLTCameraNative.setMode(mode);
 }
 
+// ─── Manual hoop region ───────────────────────────────────────────────────────
+// Called when user taps the camera preview to manually mark the hoop position.
+// x, y, width, height are top-left normalized coords (0..1).
+// Overrides any auto-detected hoop so the user can always correct a bad lock.
+
+export async function setManualHoopRegion(
+  x: number,
+  y: number,
+  width: number,
+  height: number
+): Promise<void> {
+  if (!ATHLTCameraNative) return;
+  return ATHLTCameraNative.setManualHoopRegion(x, y, width, height);
+}
+
 // ─── Camera flip ──────────────────────────────────────────────────────────────
 // NOTE: Front camera provides lower CV accuracy (~20% fewer detections) due to
 // sensor quality and angle from the hoop. Use back camera for best results.

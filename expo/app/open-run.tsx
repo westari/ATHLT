@@ -6,11 +6,15 @@
  * Flow:
  *   mount → detection mode (hoop seeking) → user aligns hoop → Start enabled
  *   Start → tracking mode → shots counted → Stop → recap
+ *
+ * Orientation:
+ *   Locks landscape on focus. Restores portrait on blur (useFocusEffect cleanup)
+ *   so the rest of the app is never stuck in landscape.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Platform, Animated,
+  View, Text, StyleSheet, TouchableOpacity, Platform, Animated, Dimensions,
 } from 'react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,7 +26,9 @@ import CVCameraView from '@/components/cv/CameraView';
 import PostSessionRecap from '@/components/cv/PostSessionRecap';
 import type { ShotEvent } from '@/lib/cv/ShotTracker';
 import type { HoopDetectedEvent, DetectionDebugEvent } from '@/modules/athlt-camera/src/index';
-import { flipCamera, setDiagnosticMode, addDetectionDebugListener } from '@/modules/athlt-camera/src/index';
+import {
+  flipCamera, setDiagnosticMode, addDetectionDebugListener, setManualHoopRegion,
+} from '@/modules/athlt-camera/src/index';
 import { CVSessionSync, type SessionRecap } from '@/lib/cv/ShotSync';
 import { supabase } from '@/constants/supabase';
 import Colors from '@/constants/colors';
@@ -32,6 +38,11 @@ const TS = {
   textShadowOffset: { width: 0, height: 1 },
   textShadowRadius: 3,
 } as const;
+
+// Normalized hoop bbox size used for manual tap-to-mark.
+// 12% wide × 7% tall — reasonable for a hoop at shooting distance.
+const MANUAL_HOOP_W = 0.12;
+const MANUAL_HOOP_H = 0.07;
 
 type SessionPhase = 'idle' | 'tracking' | 'finishing' | 'recap';
 type ShotType = 'make' | 'miss';
@@ -64,22 +75,27 @@ export default function OpenRunScreen() {
   const [showHint, setShowHint]         = useState(true);
   const [lastShot, setLastShot]         = useState<{ type: ShotType; zone: string | null } | null>(null);
   const [recentShots, setRecentShots]   = useState<ShotType[]>([]);
-  const [allShots, setAllShots]         = useState<ShotType[]>([]);  // full list for recap timeline
+  const [allShots, setAllShots]         = useState<ShotType[]>([]);
   const [glowType, setGlowType]         = useState<ShotType>('make');
   const [elapsed, setElapsed]           = useState(0);
   const [currentStreak, setCurrentStreak] = useState(0);
   const [hoopDetected, setHoopDetected] = useState(false);
   const [cameraReady, setCameraReady]   = useState(false);
 
-  // ── Camera flip state ───────────────────────────────────────────────────────
+  // ── Camera flip ─────────────────────────────────────────────────────────────
   const [cameraPosition, setCameraPosition] = useState<'front' | 'back'>('back');
   const [isFlipping, setIsFlipping]         = useState(false);
 
   // ── Diagnostic mode ─────────────────────────────────────────────────────────
-  const [diagOpen, setDiagOpen]         = useState(false);
-  const [diagData, setDiagData]         = useState<DetectionDebugEvent>({
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [diagData, setDiagData] = useState<DetectionDebugEvent>({
     class: 'none', confidence: 0, framesAnalyzed: 0, fps: 0,
   });
+
+  // ── Tap-to-mark hoop fallback ────────────────────────────────────────────────
+  // Screen-coordinate position of the user's tap, used to draw the gold marker.
+  const [manualMark, setManualMark]       = useState<{ sx: number; sy: number } | null>(null);
+  const [showManualHint, setShowManualHint] = useState(false);
 
   const sync = useMemo(() => new CVSessionSync(), []);
 
@@ -88,12 +104,31 @@ export default function OpenRunScreen() {
   const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionStartRef = useRef<number>(0);
 
-  // Landscape lock
+  // ── BUG FIX 1: Orientation — lock landscape on focus, restore portrait on blur ──
+  // Previously the cleanup was empty, leaving the whole app stuck in landscape
+  // after the user left the screen without starting a session.
   useFocusEffect(
     useCallback(() => {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE).catch(() => {});
+      return () => {
+        // Runs when screen loses focus for ANY reason: back, tab switch, background.
+        // handleStop also calls this before navigating to recap — double-call is a no-op.
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+      };
     }, [])
   );
+
+  // ── BUG FIX 2 (part): Show manual-mark hint after 5s if hoop not auto-detected ──
+  useEffect(() => {
+    if (hoopDetected || phase !== 'idle' || !cameraReady) return;
+    const t = setTimeout(() => setShowManualHint(true), 5000);
+    return () => clearTimeout(t);
+  }, [hoopDetected, phase, cameraReady]);
+
+  // Hide manual hint once hoop is confirmed (auto or manual)
+  useEffect(() => {
+    if (hoopDetected) setShowManualHint(false);
+  }, [hoopDetected]);
 
   // ── Animations ─────────────────────────────────────────────────────────────
   const hintFade    = useRef(new Animated.Value(1)).current;
@@ -143,19 +178,18 @@ export default function OpenRunScreen() {
     return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   }, [phase]);
 
-  // ── Diagnostic event subscription ────────────────────────────────────────────
+  // ── Diagnostic ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!diagOpen) return;
     const sub = addDetectionDebugListener(event => setDiagData(event));
     return () => sub.remove();
   }, [diagOpen]);
 
-  // Enable/disable diagnostic mode in native when overlay opens/closes
   useEffect(() => {
     setDiagnosticMode(diagOpen).catch(() => {});
   }, [diagOpen]);
 
-  // Cleanup on unmount
+  // ── Cleanup on unmount ───────────────────────────────────────────────────────
   useEffect(() => () => {
     if (shotTimer.current) clearTimeout(shotTimer.current);
     if (timerRef.current) clearInterval(timerRef.current);
@@ -187,7 +221,39 @@ export default function OpenRunScreen() {
     setDiagOpen(v => !v);
   };
 
-  // ── Hoop detected ────────────────────────────────────────────────────────────
+  // ── BUG FIX 2: Tap-to-mark hoop ─────────────────────────────────────────────
+  // The tap catcher sits below the UI overlays (zIndex 8). When the user taps
+  // anywhere on the camera view, we normalize the tap coordinates, create a
+  // hoop bbox centered on the tap, and pass it to the native pipeline.
+  const handleCameraAreaTap = useCallback((e: any) => {
+    if (hoopDetected || isTracking) return;
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const { locationX, locationY } = e.nativeEvent;
+    const { width: sw, height: sh } = Dimensions.get('window');
+
+    // Normalize to 0-1, top-left origin (matches pipeline convention)
+    const normX = locationX / sw;
+    const normY = locationY / sh;
+
+    // Center the hoop bbox on the tap point, clamped to valid range
+    const bx = Math.max(0, Math.min(1 - MANUAL_HOOP_W, normX - MANUAL_HOOP_W / 2));
+    const by = Math.max(0, Math.min(1 - MANUAL_HOOP_H, normY - MANUAL_HOOP_H / 2));
+
+    // Record screen coords for the visual marker (before normalization)
+    setManualMark({ sx: locationX, sy: locationY });
+
+    // Send to native pipeline — overrides any existing auto-detected hoop
+    setManualHoopRegion(bx, by, MANUAL_HOOP_W, MANUAL_HOOP_H).catch(err =>
+      console.warn('[open-run] setManualHoopRegion error:', err)
+    );
+
+    // Enable Start Tracking
+    setHoopDetected(true);
+  }, [hoopDetected, isTracking]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // isTracking is derived from phase — included explicitly
+
+  // ── Hoop auto-detected ───────────────────────────────────────────────────────
   const handleHoopDetected = useCallback((event: HoopDetectedEvent) => {
     if (event.detected) setHoopDetected(true);
   }, []);
@@ -250,6 +316,7 @@ export default function OpenRunScreen() {
     setPhase('finishing');
     setRecapLoading(true);
 
+    // Portrait lock here and in useFocusEffect cleanup — both are safe to call.
     await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
 
     try {
@@ -311,7 +378,27 @@ export default function OpenRunScreen() {
         onCameraReady={() => setCameraReady(true)}
       />
 
-      {/* Center glow */}
+      {/* ── BUG FIX 2: Tap catcher for manual hoop marking ─────────────────────
+          Sits below overlays (zIndex 8). The hoop overlay above has
+          pointerEvents="none" so taps pass through to this element.
+          Only active in idle mode before hoop is confirmed. */}
+      {!isTracking && !hoopDetected && (
+        <TouchableOpacity
+          style={s.tapCatcher}
+          onPress={handleCameraAreaTap}
+          activeOpacity={1}
+        />
+      )}
+
+      {/* Manual hoop marker — gold ring at the tap point */}
+      {manualMark && !isTracking && (
+        <View
+          style={[s.manualMark, { left: manualMark.sx - 14, top: manualMark.sy - 14 }]}
+          pointerEvents="none"
+        />
+      )}
+
+      {/* Center glow on shot */}
       <Animated.View
         style={[StyleSheet.absoluteFill, s.glowContainer, { opacity: glowAnim }]}
         pointerEvents="none"
@@ -335,8 +422,16 @@ export default function OpenRunScreen() {
           { borderColor: hoopDetected ? Colors.primary : 'rgba(255,255,255,0.55)', opacity: hoopPulse },
         ]} />
         <Text style={[s.hoopLabel, hoopDetected && s.hoopLabelDetected, TS]}>
-          {hoopDetected ? 'Hoop detected ✓' : 'Position the hoop inside the box'}
+          {hoopDetected
+            ? (manualMark ? 'Hoop marked ✓' : 'Hoop detected ✓')
+            : 'Position the hoop inside the box'}
         </Text>
+        {/* Manual hint — fades in after 5s if auto-detection hasn't fired */}
+        {showManualHint && !hoopDetected && (
+          <Text style={[s.manualHintText, TS]}>
+            Or tap the hoop to mark it manually
+          </Text>
+        )}
       </Animated.View>
 
       {/* X / close */}
@@ -365,12 +460,7 @@ export default function OpenRunScreen() {
       {/* Camera flip — top-right */}
       <View style={[s.topRight, { top: barY, right: rightX }]}>
         <GlassPanel style={[s.flipBtn, isFlipping && { opacity: 0.5 }]} borderRadius={16} tint="dark" intensity={55}>
-          <TouchableOpacity
-            style={s.flipBtnInner}
-            onPress={handleFlip}
-            activeOpacity={0.8}
-            disabled={isFlipping}
-          >
+          <TouchableOpacity style={s.flipBtnInner} onPress={handleFlip} activeOpacity={0.8} disabled={isFlipping}>
             <RotateCw size={15} color="#FFFFFF" strokeWidth={2} />
           </TouchableOpacity>
         </GlassPanel>
@@ -392,7 +482,7 @@ export default function OpenRunScreen() {
         )}
       </View>
 
-      {/* Hint card — bottom-center so it doesn't block hoop box */}
+      {/* Hint card */}
       {showHint && !isTracking && (
         <Animated.View style={[s.hintWrap, { opacity: hintFade }]} pointerEvents="box-none">
           <GlassPanel style={s.hintCard} borderRadius={18} tint="light" intensity={55}>
@@ -410,7 +500,7 @@ export default function OpenRunScreen() {
         </Animated.View>
       )}
 
-      {/* Last shot pill — bottom left */}
+      {/* Last shot pill */}
       {lastShot !== null && (
         <Animated.View
           style={[s.shotWrap, { opacity: shotFade, bottom: bottomY + BTN_H + 12, left: leftX }]}
@@ -426,7 +516,7 @@ export default function OpenRunScreen() {
         </Animated.View>
       )}
 
-      {/* ── Diagnostic overlay ───────────────────────────────────────────────── */}
+      {/* Diagnostic overlay */}
       {diagOpen && !isTracking && (
         <View style={[s.diagPanel, { bottom: bottomY + BTN_H + 16, left: leftX }]}>
           <GlassPanel style={s.diagInner} borderRadius={14} tint="dark" intensity={65}>
@@ -463,7 +553,7 @@ export default function OpenRunScreen() {
         </View>
       )}
 
-      {/* "Test detection" text button — bottom-left, idle only */}
+      {/* "Test detection" text button — idle only */}
       {!isTracking && (
         <TouchableOpacity
           style={[s.diagToggleBtn, { bottom: bottomY, left: leftX }]}
@@ -549,6 +639,22 @@ const BTN_H = 52;
 const s = StyleSheet.create({
   full: { flex: 1, backgroundColor: '#000' },
 
+  // ── Tap-to-mark hoop ─────────────────────────────────────────────────────────
+  // zIndex 8 — sits below UI overlays (zIndex 15+) but above camera (zIndex 0).
+  // Hoop overlay has pointerEvents="none" so taps pass through to this element.
+  tapCatcher: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 8,
+  },
+  // Gold ring drawn at the user's tap point
+  manualMark: {
+    position: 'absolute',
+    width: 28, height: 28, borderRadius: 14,
+    borderWidth: 3, borderColor: Colors.primary,
+    backgroundColor: 'rgba(201,162,74,0.22)',
+    zIndex: 40,
+  },
+
   topLeft:   { position: 'absolute', zIndex: 30 },
   topCenter: { position: 'absolute', left: 0, right: 0, alignItems: 'center', zIndex: 20 },
   topRight:  { position: 'absolute', zIndex: 30 },
@@ -574,9 +680,10 @@ const s = StyleSheet.create({
   streakText: { color: '#FFFFFF', fontSize: 12, fontWeight: '600', letterSpacing: -0.1, fontVariant: ['tabular-nums'] },
 
   hoopOverlayWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', zIndex: 15 },
-  hoopBox: { width: '60%', aspectRatio: 3 / 2, borderWidth: 3, borderRadius: 10, borderColor: 'rgba(255,255,255,0.55)' },
-  hoopLabel: { marginTop: 14, color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: -0.1, textAlign: 'center' },
-  hoopLabelDetected: { color: Colors.primary },
+  hoopBox:          { width: '60%', aspectRatio: 3 / 2, borderWidth: 3, borderRadius: 10, borderColor: 'rgba(255,255,255,0.55)' },
+  hoopLabel:        { marginTop: 14, color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: -0.1, textAlign: 'center' },
+  hoopLabelDetected:{ color: Colors.primary },
+  manualHintText:   { marginTop: 6, color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: '400', letterSpacing: -0.1, textAlign: 'center' },
 
   hintWrap: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
@@ -595,7 +702,6 @@ const s = StyleSheet.create({
   glowCircle:    { width: 320, height: 320, borderRadius: 160 },
   glowIconWrap:  { alignItems: 'center', justifyContent: 'center' },
 
-  // ── Diagnostic panel ─────────────────────────────────────────────────────────
   diagPanel: { position: 'absolute', zIndex: 40, minWidth: 180 },
   diagInner: { padding: 12, overflow: 'hidden', gap: 6 },
   diagClose: { position: 'absolute', top: 8, right: 8, width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
@@ -608,8 +714,8 @@ const s = StyleSheet.create({
   diagVal:  { fontSize: 12, color: '#FFFFFF', fontWeight: '600', fontVariant: ['tabular-nums'] },
   diagNote: { fontSize: 10, color: 'rgba(255,255,255,0.38)', marginTop: 4 },
 
-  diagToggleBtn:     { position: 'absolute', zIndex: 30, paddingVertical: 8 },
-  diagToggleText:    { color: 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: '500' },
+  diagToggleBtn:        { position: 'absolute', zIndex: 30, paddingVertical: 8 },
+  diagToggleText:       { color: 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: '500' },
   diagToggleTextActive: { color: Colors.primary },
 
   dockWrap: { position: 'absolute', zIndex: 30 },
@@ -619,7 +725,7 @@ const s = StyleSheet.create({
   dockSlash: { color: 'rgba(255,255,255,0.4)', fontSize: 18, fontWeight: '400', lineHeight: 22 },
   dockTotal: { color: 'rgba(255,255,255,0.75)', fontSize: 20, fontWeight: '600', letterSpacing: -0.5, lineHeight: 24, fontVariant: ['tabular-nums'] },
 
-  progressRow:  { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  progressRow:   { flexDirection: 'row', alignItems: 'center', gap: 6 },
   progressTrack: { flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 2, overflow: 'hidden' },
   progressFill:  { height: 3, backgroundColor: Colors.primary, borderRadius: 2 },
   progressPct:   { color: 'rgba(255,255,255,0.65)', fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums'], minWidth: 26, textAlign: 'right' },
@@ -630,11 +736,11 @@ const s = StyleSheet.create({
   dotMiss:  { backgroundColor: 'rgba(255,255,255,0.35)' },
   dotEmpty: { backgroundColor: 'rgba(255,255,255,0.09)' },
 
-  bottomDotsWrap:  { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4, zIndex: 25 },
-  bottomDot:       { width: 5, height: 5, borderRadius: 2.5 },
-  bottomDotMake:   { backgroundColor: Colors.primary },
-  bottomDotMiss:   { backgroundColor: 'rgba(255,255,255,0.35)' },
-  bottomDotEmpty:  { backgroundColor: 'rgba(255,255,255,0.08)' },
+  bottomDotsWrap: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 4, zIndex: 25 },
+  bottomDot:      { width: 5, height: 5, borderRadius: 2.5 },
+  bottomDotMake:  { backgroundColor: Colors.primary },
+  bottomDotMiss:  { backgroundColor: 'rgba(255,255,255,0.35)' },
+  bottomDotEmpty: { backgroundColor: 'rgba(255,255,255,0.08)' },
 
   bottomWrap: { position: 'absolute', left: 0, right: 0, height: BTN_H, alignItems: 'center', zIndex: 30 },
   btnSlot:    { position: 'absolute', width: BTN_W, height: BTN_H, top: 0 },
