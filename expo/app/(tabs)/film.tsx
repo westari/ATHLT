@@ -10,8 +10,8 @@ import * as Haptics from 'expo-haptics';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { useEvent } from 'expo';
 import {
-  Upload, Play, Pause, Plus, Bookmark, MessageCircle,
-  TrendingUp, AlertCircle, ChevronRight, ChevronLeft, Film, Camera,
+  Upload, Play, Pause, Plus, Bookmark,
+  ChevronRight, ChevronLeft, Film,
 } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import CoachXPill from '@/components/CoachXPill';
@@ -543,70 +543,24 @@ export default function FilmTab() {
 
         {/* Page header */}
         <View style={styles.idleHeader}>
-          <Text style={styles.idleHeaderTitle}>Record</Text>
-          <Text style={styles.idleHeaderSub}>Track shots or analyze your game film.</Text>
+          <View style={styles.idleHeaderRow}>
+            <Text style={styles.idleHeaderTitle}>Film</Text>
+            <TouchableOpacity
+              style={styles.uploadHeaderBtn}
+              onPress={handleUploadFilm}
+              activeOpacity={0.78}
+            >
+              <Upload size={15} color={Colors.primary} />
+              <Text style={styles.uploadHeaderBtnText}>Upload</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.idleHeaderSub}>Your game clips, analyzed by Coach X.</Text>
         </View>
-
-        {/* Section: LIVE TRACKING */}
-        <Text style={styles.idleSectionLabel}>LIVE TRACKING</Text>
-
-        <TouchableOpacity
-          style={styles.bigActionCard}
-          onPress={() => {
-            if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            router.push('/open-run' as any);
-          }}
-          activeOpacity={0.82}
-        >
-          <View style={[styles.bigActionIcon, { backgroundColor: Colors.primarySoft }]}>
-            <Camera size={26} color={Colors.primary} />
-          </View>
-          <View style={styles.bigActionText}>
-            <Text style={styles.bigActionTitle}>Track Shots</Text>
-            <Text style={styles.bigActionSub}>Solo session — CV tracks every make and miss live</Text>
-          </View>
-          <ChevronRight size={18} color={Colors.textMuted} />
-        </TouchableOpacity>
-
-        {/* Section: FILM ANALYSIS */}
-        <Text style={[styles.idleSectionLabel, { marginTop: 24 }]}>FILM ANALYSIS</Text>
-
-        <TouchableOpacity
-          style={styles.bigActionCard}
-          onPress={handleUploadFilm}
-          activeOpacity={0.82}
-        >
-          <View style={[styles.bigActionIcon, { backgroundColor: Colors.marineSoft }]}>
-            <Upload size={24} color={Colors.marine} />
-          </View>
-          <View style={styles.bigActionText}>
-            <Text style={styles.bigActionTitle}>Upload Film</Text>
-            <Text style={styles.bigActionSub}>Coach X breaks down a game clip with AI</Text>
-          </View>
-          <ChevronRight size={18} color={Colors.textMuted} />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.bigActionCard, styles.bigActionCardDisabled]}
-          onPress={() => Alert.alert('Coming soon', 'In-app game recording is coming in a future update.')}
-          activeOpacity={0.7}
-        >
-          <View style={[styles.bigActionIcon, { backgroundColor: Colors.inkA8 }]}>
-            <Film size={24} color={Colors.textMuted} />
-          </View>
-          <View style={styles.bigActionText}>
-            <Text style={[styles.bigActionTitle, { color: Colors.textMuted }]}>Record Game</Text>
-            <Text style={styles.bigActionSub}>Full game recording — coming soon</Text>
-          </View>
-          <View style={styles.comingSoonPill}>
-            <Text style={styles.comingSoonText}>Soon</Text>
-          </View>
-        </TouchableOpacity>
 
         {/* Past Recordings */}
         {pastFilms.length > 0 ? (
           <View style={styles.pastFilmsSection}>
-            <Text style={styles.pastFilmsTitle}>PAST RECORDINGS</Text>
+            <Text style={styles.pastFilmsTitle}>RECORDINGS</Text>
             {pastFilms.map(f => (
               <TouchableOpacity
                 key={f.id}
@@ -854,44 +808,29 @@ const styles = StyleSheet.create({
 
   // ===== IDLE =====
   idleHeader: {
-    paddingHorizontal: 24, paddingTop: 16, paddingBottom: 4,
+    paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8,
+  },
+  idleHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 4,
   },
   idleHeaderTitle: {
     fontSize: 28, fontWeight: '300', color: Colors.textPrimary,
-    letterSpacing: -0.6, marginBottom: 4,
+    letterSpacing: -0.6,
   },
   idleHeaderSub: {
-    fontSize: 14, color: Colors.textMuted, letterSpacing: -0.1, marginBottom: 16,
+    fontSize: 14, color: Colors.textMuted, letterSpacing: -0.1, marginBottom: 8,
   },
-  idleSectionLabel: {
-    fontSize: 11, fontWeight: '500', color: Colors.textMuted,
-    letterSpacing: 0.96, textTransform: 'uppercase',
-    paddingHorizontal: 24, marginBottom: 10,
+  uploadHeaderBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7,
+    backgroundColor: Colors.primarySoft,
+    borderRadius: 100,
+    borderWidth: 1, borderColor: 'rgba(201,162,74,0.25)',
   },
-
-  // ===== BIG ACTION CARDS =====
-  bigActionCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: Colors.surface,
-    borderRadius: 22, borderWidth: 1, borderColor: Colors.hairline,
-    paddingVertical: 18, paddingHorizontal: 18,
-    marginHorizontal: 24, marginBottom: 10,
+  uploadHeaderBtnText: {
+    fontSize: 13, fontWeight: '600', color: Colors.primary, letterSpacing: -0.1,
   },
-  bigActionCardDisabled: { opacity: 0.55 },
-  bigActionIcon: {
-    width: 52, height: 52, borderRadius: 16,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  bigActionText: { flex: 1 },
-  bigActionTitle: {
-    fontSize: 16, fontWeight: '600', color: Colors.textPrimary,
-    letterSpacing: -0.3, marginBottom: 3,
-  },
-  bigActionSub: { fontSize: 13, color: Colors.textSecondary, lineHeight: 18 },
-  comingSoonPill: {
-    backgroundColor: Colors.inkA8, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100,
-  },
-  comingSoonText: { fontSize: 11, fontWeight: '500', color: Colors.textMuted },
 
   emptyRecordings: {
     alignItems: 'center', paddingTop: 48, paddingBottom: 24, paddingHorizontal: 32,

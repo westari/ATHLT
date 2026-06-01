@@ -61,7 +61,7 @@ export default function RootLayout() {
     <View style={s.container} onLayout={onLayoutRootView}>
       {/* dark = dark icons/text on light background */}
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.background } }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="session" />
         <Stack.Screen name="drill/[id]" />

@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import {
-  Home, Video, Clock, User, Plus,
+  Home, Film, Clock, User, Plus,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,7 +24,7 @@ function CustomTabBar({ state, navigation }: any) {
 
   const tabs = [
     { name: 'today', label: 'Home', Icon: Home },
-    { name: 'film', label: 'Record', Icon: Video },
+    { name: 'film', label: 'Film', Icon: Film },
     { name: 'progress', label: 'History', Icon: Clock },
     { name: 'more', label: 'Profile', Icon: User },
   ];

@@ -81,8 +81,6 @@ export default function TodayHome() {
     { label: 'DRILLS', value: String(totalDrillsDone), unit: '', pct: donePct, sub: 'completed' },
   ];
 
-  const avatarInitials = firstName ? firstName.slice(0, 1).toUpperCase() : 'A';
-
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -95,15 +93,10 @@ export default function TodayHome() {
 
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          <View style={styles.headerLeft}>
-            <Text style={styles.greeting}>
-              {firstName ? `Hi, ${firstName}` : 'Hi'}
-            </Text>
-            <Text style={styles.dateLabel}>{dateLabel}</Text>
-          </View>
-          <TouchableOpacity style={styles.avatar} onPress={() => router.push('/more')} activeOpacity={0.7}>
-            <Text style={styles.avatarText}>{avatarInitials}</Text>
-          </TouchableOpacity>
+          <Text style={styles.greeting}>
+            {firstName ? `Hi, ${firstName}` : 'Hi'}
+          </Text>
+          <Text style={styles.dateLabel}>{dateLabel}</Text>
         </View>
 
         {/* Day strip */}
@@ -300,13 +293,9 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
     paddingHorizontal: 24,
     paddingBottom: 16,
   },
-  headerLeft: { flex: 1 },
   greeting: {
     fontSize: 26,
     fontWeight: '300',
@@ -319,12 +308,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
     letterSpacing: -0.1,
   },
-  avatar: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: Colors.primary,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  avatarText: { fontSize: 15, fontWeight: '600', color: Colors.white },
 
   dayStrip: {
     flexDirection: 'row',

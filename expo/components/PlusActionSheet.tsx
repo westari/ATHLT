@@ -5,7 +5,7 @@ import {
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { MessageSquare, Dumbbell, ClipboardList } from 'lucide-react-native';
+import { Camera, Video, ClipboardList, MessageSquare } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 
@@ -16,6 +16,36 @@ type Props = {
 
 const ACTIONS = [
   {
+    icon: Camera,
+    iconBg: Colors.primarySoft,
+    iconColor: Colors.primary,
+    title: 'Free Record',
+    sub: 'Open run with shot tracking',
+    route: '/open-run',
+    accent: true,
+    disabled: false,
+  },
+  {
+    icon: Video,
+    iconBg: Colors.inkA8,
+    iconColor: Colors.textMuted,
+    title: 'Record Game',
+    sub: 'Full game recording (coming soon)',
+    route: null,
+    accent: false,
+    disabled: true,
+  },
+  {
+    icon: ClipboardList,
+    iconBg: Colors.inkA8,
+    iconColor: Colors.textPrimary,
+    title: 'Log a Game',
+    sub: 'Add stats from a recent game',
+    route: '/log-game',
+    accent: false,
+    disabled: false,
+  },
+  {
     icon: MessageSquare,
     iconBg: Colors.primarySoft,
     iconColor: Colors.primary,
@@ -23,24 +53,7 @@ const ACTIONS = [
     sub: 'Chat with your AI coach',
     route: '/coachx',
     accent: true,
-  },
-  {
-    icon: Dumbbell,
-    iconBg: Colors.inkA8,
-    iconColor: Colors.textPrimary,
-    title: 'Build a Workout',
-    sub: 'Coach X builds it for you',
-    route: '/build-workout',
-    accent: false,
-  },
-  {
-    icon: ClipboardList,
-    iconBg: Colors.inkA8,
-    iconColor: Colors.textPrimary,
-    title: 'Log a Game',
-    sub: 'Quick stats from your last game',
-    route: '/log-game',
-    accent: false,
+    disabled: false,
   },
 ] as const;
 
@@ -67,22 +80,37 @@ export default function PlusActionSheet({ visible, onClose }: Props) {
             <View style={s.actions}>
               {ACTIONS.map((action, i) => {
                 const Icon = action.icon;
+                const isLast = i === ACTIONS.length - 1;
                 return (
-                  <React.Fragment key={action.route}>
+                  <React.Fragment key={action.title}>
                     <TouchableOpacity
-                      style={[s.row, action.accent && s.rowAccent]}
-                      onPress={() => handleNav(action.route)}
-                      activeOpacity={0.78}
+                      style={[
+                        s.row,
+                        action.accent && !action.disabled && s.rowAccent,
+                        action.disabled && s.rowDisabled,
+                      ]}
+                      onPress={() => {
+                        if (!action.disabled && action.route) handleNav(action.route);
+                      }}
+                      activeOpacity={action.disabled ? 1 : 0.78}
+                      disabled={action.disabled}
                     >
                       <View style={[s.iconCircle, { backgroundColor: action.iconBg }]}>
                         <Icon size={20} color={action.iconColor} />
                       </View>
                       <View style={s.rowText}>
-                        <Text style={s.rowTitle}>{action.title}</Text>
+                        <Text style={[s.rowTitle, action.disabled && s.rowTitleDisabled]}>
+                          {action.title}
+                        </Text>
                         <Text style={s.rowSub}>{action.sub}</Text>
                       </View>
+                      {action.disabled && (
+                        <View style={s.soonPill}>
+                          <Text style={s.soonText}>Soon</Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
-                    {i < ACTIONS.length - 1 && <View style={s.rowDivider} />}
+                    {!isLast && <View style={s.rowDivider} />}
                   </React.Fragment>
                 );
               })}
@@ -137,6 +165,9 @@ const s = StyleSheet.create({
   rowAccent: {
     backgroundColor: 'rgba(201,162,74,0.07)',
   },
+  rowDisabled: {
+    opacity: 0.6,
+  },
   rowDivider: {
     height: 1, backgroundColor: Colors.hairline, marginLeft: 66,
   },
@@ -149,7 +180,13 @@ const s = StyleSheet.create({
     fontSize: 16, fontWeight: '600', color: Colors.textPrimary,
     letterSpacing: -0.2, marginBottom: 2,
   },
+  rowTitleDisabled: { color: Colors.textMuted },
   rowSub: { fontSize: 13, color: Colors.textSecondary },
+
+  soonPill: {
+    backgroundColor: Colors.inkA8, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100,
+  },
+  soonText: { fontSize: 11, fontWeight: '500', color: Colors.textMuted },
 
   cancelBtn: {
     backgroundColor: Colors.paperA88,

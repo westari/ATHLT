@@ -1,17 +1,14 @@
 /**
  * CVCameraView — live camera feed with shot tracking.
  *
- * Requires react-native-vision-camera v5 and react-native-worklets-core.
- * See expo/cv/INSTALL.md for setup instructions before using.
+ * Uses react-native-vision-camera v4 for camera preview.
+ * Shot detection runs via a 500ms polling interval (snapshot-based) rather
+ * than a frame processor — see cv/CRASH-RESOLUTION.md for why.
  *
- * Props:
- *   onShotDetected  — called on JS thread whenever a make/miss is detected
- *   onSessionEnd    — called when user taps Stop
- *   tracker         — ShotTracker instance shared with the parent screen
- *   active          — whether tracking is currently running
- *
- * The camera is always back-facing and runs at the device's preferred 30fps.
- * The frame processor runs on the VisionCamera JS-Runtime (off main thread).
+ * Frame processors crash on this device (VisionCamera v4 + worklets-core +
+ * New Architecture + Expo SDK 54). Removing the frame processor entirely
+ * fixes the crash. The polling interval calls tracker.processFrame() as a
+ * stub; replace with real CoreML inference once Apple Dev + EAS build is live.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -23,24 +20,20 @@ import ShotOverlay from './ShotOverlay';
 import { ShotTracker, type ShotEvent } from '@/lib/cv/ShotTracker';
 import { loadModel } from '@/modules/shot-detector';
 
-// VisionCamera v5 imports — guarded so the file compiles before the package is installed
+// VisionCamera imports — guarded so the file compiles before the package is installed.
+// NOTE: useFrameProcessor and Worklets are intentionally NOT imported.
+// See cv/CRASH-RESOLUTION.md — frame processors crash with this SDK configuration.
 let Camera: any = null;
 let useCameraDevice: any = null;
 let useCameraPermission: any = null;
-let useFrameProcessor: any = null;
-let detectShots: any = null;
-let Worklets: any = null;
 
 try {
-  const VC = require('react-native-vision-camera');
-  Camera           = VC.Camera;
-  useCameraDevice  = VC.useCameraDevice;
+  const VC       = require('react-native-vision-camera');
+  Camera         = VC.Camera;
+  useCameraDevice     = VC.useCameraDevice;
   useCameraPermission = VC.useCameraPermission;
-  useFrameProcessor = VC.useFrameProcessor;
-  Worklets         = require('react-native-worklets-core').Worklets;
-  detectShots      = require('@/modules/shot-detector/src').detectShots;
 } catch {
-  // VisionCamera not yet installed — show placeholder in dev
+  // VisionCamera not yet installed — placeholder renders in dev
 }
 
 interface Props {
@@ -53,57 +46,20 @@ interface Props {
 type ModelState = 'loading' | 'ready' | 'error';
 
 export default function CVCameraView({ tracker, active, onShotDetected, onCameraReady }: Props) {
-  const [modelState, setModelState] = useState<ModelState>('loading');
-  const [modelError, setModelError]  = useState<string>('');
-  const [lastShotType, setLastShotType] = useState<'make' | 'miss' | null>(null);
-  const [lastDetections, setLastDetections] = useState<any[]>([]);
+  const [modelState, setModelState]   = useState<ModelState>('loading');
+  const [modelError, setModelError]   = useState<string>('');
   const [showDebugBoxes, setShowDebugBoxes] = useState(false);
-  const [makes, setMakes]       = useState(0);
-  const [totalShots, setTotal]  = useState(0);
-  // inferenceEnabled adds a 500ms settle delay after model load before the frame
-  // processor fires any inference. This prevents a crash window where the first
-  // frame arrives while CoreML is still initialising internal buffers.
+  // Brief settle after model load — ensures camera is fully initialized before polling starts.
   const [inferenceEnabled, setInferenceEnabled] = useState(false);
 
-  // Guards against referencing stale closures in worklet callbacks
-  const activeRef = useRef(active);
+  const activeRef   = useRef(active);
   activeRef.current = active;
-
-  // Load model on mount
-  useEffect(() => {
-    let cancelled = false;
-    loadModel().then((result) => {
-      if (cancelled) return;
-      if (result.loaded) {
-        setModelState('ready');
-        onCameraReady?.();
-        // Allow 500ms for the CoreML runtime to fully settle before inference starts.
-        setTimeout(() => {
-          if (!cancelled) setInferenceEnabled(true);
-        }, 500);
-      } else {
-        setModelState('error');
-        setModelError(result.error ?? 'Unknown error');
-      }
-    });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Wire tracker.onShot to update UI
-  useEffect(() => {
-    tracker.onShot = (event: ShotEvent) => {
-      setLastShotType(event.type);
-      setMakes(tracker.getMakes());
-      setTotal(tracker.getTotalShots());
-      onShotDetected(event);
-    };
-    return () => { tracker.onShot = null; };
-  }, [tracker, onShotDetected]);
-
-  // ---- VisionCamera hooks ----
+  const cameraRef   = useRef<any>(null);
 
   const hasCameraPackage = Camera !== null;
 
+  // Always call these hooks (conditional logic is inside the ternary, not the call itself —
+  // hasCameraPackage is a module-load-time constant that never changes).
   const { hasPermission, requestPermission } = hasCameraPackage
     ? useCameraPermission()
     : { hasPermission: false, requestPermission: async () => false };
@@ -112,69 +68,55 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
     ? useCameraDevice('back')
     : null;
 
-  // ---- Worklet diagnostic flag ----
+  // Load CoreML model on mount
+  useEffect(() => {
+    let cancelled = false;
+    loadModel().then((result: { loaded: boolean; error?: string }) => {
+      if (cancelled) return;
+      if (result.loaded) {
+        setModelState('ready');
+        onCameraReady?.();
+        // 500ms settle: camera and CoreML runtime must both be initialized before polling.
+        setTimeout(() => { if (!cancelled) setInferenceEnabled(true); }, 500);
+      } else {
+        setModelState('error');
+        setModelError(result.error ?? 'Unknown error');
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Wire tracker.onShot → JS callback to parent screen
+  useEffect(() => {
+    tracker.onShot = (event: ShotEvent) => { onShotDetected(event); };
+    return () => { tracker.onShot = null; };
+  }, [tracker, onShotDetected]);
+
+  // Polling loop — replaces the frame processor that was crashing.
   //
-  // NOOP_WORKLET = true: runs a minimal worklet that calls back with empty
-  // detections. If this doesn't crash but the real worklet does, the bug is
-  // in detectShots / the Swift inference path.
-  //
-  // NOOP_WORKLET = false: runs real inference.
-  //
-  // Start with true to confirm VisionCamera frame processor setup works,
-  // then flip to false to enable actual CV tracking.
-  const NOOP_WORKLET = false;
-
-  // Callback bridging worklet → JS thread.
-  // Wrapped so errors in the JS handler never propagate back into the worklet.
-  const onDetectionsJS = hasCameraPackage && Worklets
-    ? Worklets.createRunOnJS((dets: any[], ts: number) => {
-        try {
-          if (!activeRef.current) return;
-          const safeDets = Array.isArray(dets) ? dets : [];
-          setLastDetections(safeDets);
-          tracker.processFrame(safeDets, ts);
-        } catch {
-          // Swallow — JS handler errors must not reach the worklet runtime
-        }
-      })
-    : null;
-
-  const frameProcessor = hasCameraPackage && useFrameProcessor && onDetectionsJS
-    ? useFrameProcessor((frame: any) => {
-        'worklet';
-        try {
-          if (NOOP_WORKLET) {
-            // Diagnostic no-op: confirms VisionCamera frame processor setup is
-            // working. If the app stays stable here but crashes with the real
-            // worklet, the issue is in detectShots or the Swift inference layer.
-            onDetectionsJS([], 0);
-            return;
-          }
-
-          // Real inference path
-          const result = detectShots(frame, { minConfidence: 0.35 });
-
-          // Defensive null checks — malformed results must not throw in worklet context
-          const dets = (result != null && Array.isArray(result.detections))
-            ? result.detections
-            : [];
-          const ts = (result != null && typeof result.timestampMs === 'number')
-            ? result.timestampMs
-            : 0;
-
-          onDetectionsJS(dets, ts);
-        } catch {
-          // Worklet try/catch: any exception (including from native detectShots) is
-          // caught here. The worklet never crashes the app — it just misses a frame.
-          onDetectionsJS([], 0);
-        }
-      }, [onDetectionsJS])
-    : undefined;
+  // Currently a stub: calls processFrame with empty detections (no CoreML yet).
+  // To enable real inference:
+  //   1. const snap = await cameraRef.current.takeSnapshot({ quality: 30, skipMetadata: true });
+  //   2. const dets = await detectShotsFromFile(snap.path);   ← new Swift function (future)
+  //   3. tracker.processFrame(dets, Date.now());
+  useEffect(() => {
+    if (!active || !inferenceEnabled || !hasCameraPackage) return;
+    const id = setInterval(() => {
+      if (!activeRef.current) return;
+      tracker.processFrame([], Date.now());
+    }, 500);
+    return () => clearInterval(id);
+  }, [active, inferenceEnabled, hasCameraPackage, tracker]);
 
   // ---- Render states ----
 
   if (!hasCameraPackage) {
-    return <PlaceholderView reason="VisionCamera not installed" detail="Run: npm install react-native-vision-camera@5.0.10 react-native-worklets-core --legacy-peer-deps" />;
+    return (
+      <PlaceholderView
+        reason="VisionCamera not installed"
+        detail="npm install react-native-vision-camera@4 --legacy-peer-deps --save"
+      />
+    );
   }
 
   if (!hasPermission) {
@@ -195,7 +137,7 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
     return (
       <View style={styles.placeholder}>
         <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={styles.loadingText}>Loading shot detection model...</Text>
+        <Text style={styles.loadingText}>Loading shot detection model…</Text>
       </View>
     );
   }
@@ -204,34 +146,24 @@ export default function CVCameraView({ tracker, active, onShotDetected, onCamera
     return (
       <PlaceholderView
         reason="Model not loaded"
-        detail={modelError || 'best.mlpackage not found in bundle. Run Colab training and EAS build.'}
+        detail={modelError || 'best.mlpackage not found. Run Colab training + EAS build.'}
       />
     );
   }
 
-  // Flip to true to test camera without inference (diagnostic only)
-  const DISABLE_FRAME_PROCESSOR = false;
-
   return (
     <View style={styles.container}>
       <Camera
+        ref={cameraRef}
         style={StyleSheet.absoluteFill}
         device={device}
         isActive={true}
-        frameProcessor={(DISABLE_FRAME_PROCESSOR || !active || !inferenceEnabled) ? undefined : frameProcessor}
-        pixelFormat="rgb"
-        fps={30}
       />
-
       <ShotOverlay
-        makes={makes}
-        totalShots={totalShots}
-        lastShotType={lastShotType}
-        detections={lastDetections}
+        detections={[]}
         showDebugBoxes={showDebugBoxes}
       />
-
-      {/* Debug toggle (long-press anywhere on the camera) */}
+      {/* Long-press anywhere to toggle debug bounding boxes */}
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
         onLongPress={() => setShowDebugBoxes(prev => !prev)}
