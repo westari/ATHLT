@@ -3,15 +3,15 @@
  *
  * Owns the full camera lifecycle:
  *   mount  → startSession() → loadModel()
- *   active → startTracking() / stopTracking() controlled by the `active` prop
+ *   active → startTracking() / stopTracking() controlled by `active` prop
  *   unmount → stopSession()
  *
- * Shot detection runs entirely in Swift (AVFoundation + CoreML + state machine).
- * This component just subscribes to onShotDetected events and forwards them to
+ * Shot detection is 100% native (Swift AVCaptureSession + CoreML).
+ * This component subscribes to onShotDetected events and forwards them to
  * the parent via the `onShotDetected` prop.
  *
- * No VisionCamera. No worklets. No frame processors.
- * See modules/athlt-camera/ for the native implementation.
+ * Falls back to a clear placeholder if the native module isn't linked
+ * (e.g. in Expo Go or before an EAS build).
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -21,56 +21,53 @@ import {
 import Colors from '@/constants/colors';
 import ShotOverlay from './ShotOverlay';
 import type { ShotEvent } from '@/lib/cv/ShotTracker';
-
-// Import the new native module — guarded so TS compilation succeeds even
-// before an EAS build (the module is present after `expo prebuild`).
-let athlt: typeof import('@/modules/athlt-camera/src/index') | null = null;
-try {
-  athlt = require('@/modules/athlt-camera/src/index');
-} catch {
-  // Module not yet linked (running in web or before native build)
-}
+import {
+  isNativeModuleLinked,
+  startSession,
+  stopSession,
+  loadModel,
+  startTracking,
+  stopTracking,
+  addShotListener,
+  ATHLTCameraView as NativeCamera,
+} from '@/modules/athlt-camera/src/index';
 
 // ─── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  /** Whether shot tracking is active. Camera preview always runs. */
-  active: boolean;
-  /** Called on the JS thread whenever the native module detects a make or miss. */
-  onShotDetected: (event: ShotEvent) => void;
-  onCameraReady?: () => void;
+  active:           boolean;
+  onShotDetected:   (event: ShotEvent) => void;
+  onCameraReady?:   () => void;
 }
 
-// ─── Camera states ─────────────────────────────────────────────────────────────
+// ─── States ────────────────────────────────────────────────────────────────────
 
 type CameraState = 'loading' | 'permissionDenied' | 'modelError' | 'ready';
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export default function CVCameraView({ active, onShotDetected, onCameraReady }: Props) {
-  const [camState, setCamState] = useState<CameraState>('loading');
-  const [errorMsg, setErrorMsg] = useState('');
+  const [camState, setCamState]     = useState<CameraState>('loading');
+  const [errorMsg, setErrorMsg]     = useState('');
   const [showDebugBoxes, setShowDebugBoxes] = useState(false);
 
   const activeRef = useRef(active);
   activeRef.current = active;
 
-  // Module availability check (first render is synchronous)
-  const hasModule = athlt !== null;
+  const moduleLinked = isNativeModuleLinked();
 
-  // ── Lifecycle: start session + load model on mount, stop on unmount ───────
+  // ── Lifecycle: start session + load model on mount ────────────────────────
   useEffect(() => {
-    if (!hasModule) {
+    if (!moduleLinked) {
       setCamState('modelError');
-      setErrorMsg('ATHLTCamera native module not found. Run EAS build first.');
+      setErrorMsg('ATHLTCamera native module not linked. Run: eas build --profile development');
       return;
     }
 
     let cancelled = false;
 
     const init = async () => {
-      // 1. Start AVCaptureSession (requests permission internally)
-      const sessionResult = await athlt!.startSession();
+      const sessionResult = await startSession();
       if (cancelled) return;
 
       if (!sessionResult.success) {
@@ -83,13 +80,12 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
         return;
       }
 
-      // 2. Load CoreML model
-      const modelResult = await athlt!.loadModel();
+      const modelResult = await loadModel();
       if (cancelled) return;
 
       if (!modelResult.loaded) {
         setCamState('modelError');
-        setErrorMsg(modelResult.error ?? 'Model load failed');
+        setErrorMsg(modelResult.error ?? 'CoreML model load failed');
         return;
       }
 
@@ -106,46 +102,43 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
 
     return () => {
       cancelled = true;
-      athlt!.stopSession().catch(() => {});
+      stopSession().catch(() => {});
     };
-  }, [hasModule]);
+  }, [moduleLinked]);
 
-  // ── Tracking: startTracking / stopTracking whenever `active` changes ──────
+  // ── Start / stop tracking when `active` changes ───────────────────────────
   useEffect(() => {
-    if (camState !== 'ready' || !hasModule) return;
-
+    if (camState !== 'ready' || !moduleLinked) return;
     if (active) {
-      athlt!.startTracking().catch(e => console.error('[CVCameraView] startTracking error:', e));
+      startTracking().catch(e => console.error('[CVCameraView] startTracking:', e));
     } else {
-      // Only stop if we were tracking (native side is idempotent but no need to call)
-      athlt!.stopTracking().catch(() => {});
+      stopTracking().catch(() => {});
     }
-  }, [active, camState, hasModule]);
+  }, [active, camState, moduleLinked]);
 
-  // ── Shot events: subscribe while ready ───────────────────────────────────
+  // ── Subscribe to native shot events ───────────────────────────────────────
   useEffect(() => {
-    if (camState !== 'ready' || !hasModule) return;
+    if (camState !== 'ready' || !moduleLinked) return;
 
-    const sub = athlt!.addShotListener((nativeShot) => {
+    const sub = addShotListener(nativeShot => {
       if (!activeRef.current) return;
-
-      // Convert native ShotDetection → ShotEvent shape expected by the parent
+      // Convert native ShotDetection → ShotEvent for the parent
       const event: ShotEvent = {
         type:          nativeShot.type,
         timestamp:     nativeShot.timestamp,
         confidence:    nativeShot.confidence,
-        zone:          null,   // Court zone not yet computed natively (future)
-        ballPositions: [],     // Trajectory not yet surfaced to JS (future)
+        zone:          null,
+        ballPositions: [],
       };
       onShotDetected(event);
     });
 
     return () => sub.remove();
-  }, [camState, hasModule, onShotDetected]);
+  }, [camState, moduleLinked, onShotDetected]);
 
   // ── Render states ─────────────────────────────────────────────────────────
 
-  if (!hasModule) {
+  if (!moduleLinked) {
     return <PlaceholderView reason="ATHLTCamera not linked" detail="Run: eas build --profile development" />;
   }
 
@@ -153,7 +146,7 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
     return (
       <PlaceholderView
         reason="Camera permission needed"
-        detail="Enable camera access in iOS Settings → ATHLT → Camera"
+        detail="Enable in iOS Settings → ATHLT → Camera"
       />
     );
   }
@@ -171,14 +164,11 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
     );
   }
 
-  // ── Ready: render native camera preview ──────────────────────────────────
-  const ATHLTCameraView = athlt!.ATHLTCameraView;
-
+  // ── Ready: show native camera preview ─────────────────────────────────────
   return (
     <View style={styles.container}>
-      <ATHLTCameraView style={StyleSheet.absoluteFillObject} />
+      <NativeCamera style={StyleSheet.absoluteFillObject} />
       <ShotOverlay detections={[]} showDebugBoxes={showDebugBoxes} />
-      {/* Long-press anywhere to toggle debug overlay */}
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
         onLongPress={() => setShowDebugBoxes(v => !v)}
@@ -188,7 +178,7 @@ export default function CVCameraView({ active, onShotDetected, onCameraReady }: 
   );
 }
 
-// ─── Placeholder for error/loading states ─────────────────────────────────────
+// ─── Placeholder ──────────────────────────────────────────────────────────────
 
 function PlaceholderView({ reason, detail, onPress }: {
   reason: string;
@@ -201,49 +191,30 @@ function PlaceholderView({ reason, detail, onPress }: {
       onPress={onPress}
       activeOpacity={onPress ? 0.8 : 1}
     >
-      <View style={styles.placeholderIcon}>
-        <Text style={styles.placeholderIconText}>CAM</Text>
+      <View style={styles.icon}>
+        <Text style={styles.iconText}>CAM</Text>
       </View>
-      <Text style={styles.placeholderReason}>{reason}</Text>
-      {detail && <Text style={styles.placeholderDetail}>{detail}</Text>}
+      <Text style={styles.reason}>{reason}</Text>
+      {detail && <Text style={styles.detail}>{detail}</Text>}
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-    overflow: 'hidden',
-  },
+  container: { flex: 1, backgroundColor: '#000', overflow: 'hidden' },
   placeholder: {
-    flex: 1,
-    backgroundColor: '#111',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-    gap: 12,
+    flex: 1, backgroundColor: '#111',
+    alignItems: 'center', justifyContent: 'center',
+    padding: 32, gap: 12,
   },
-  placeholderIcon: {
+  icon: {
     width: 64, height: 64, borderRadius: 16,
     backgroundColor: 'rgba(212,160,23,0.12)',
     borderWidth: 1, borderColor: 'rgba(212,160,23,0.3)',
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 4,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
   },
-  placeholderIconText: {
-    color: Colors.primary, fontSize: 11, fontWeight: '800', letterSpacing: 1,
-  },
-  placeholderReason: {
-    color: Colors.white, fontSize: 16, fontWeight: '700',
-    textAlign: 'center', letterSpacing: -0.3,
-  },
-  placeholderDetail: {
-    color: 'rgba(255,255,255,0.5)', fontSize: 12,
-    textAlign: 'center', lineHeight: 18,
-  },
-  loadingText: {
-    color: 'rgba(255,255,255,0.6)', fontSize: 14,
-    marginTop: 12, textAlign: 'center',
-  },
+  iconText:   { color: Colors.primary, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  reason:     { color: Colors.white, fontSize: 16, fontWeight: '700', textAlign: 'center', letterSpacing: -0.3 },
+  detail:     { color: 'rgba(255,255,255,0.5)', fontSize: 12, textAlign: 'center', lineHeight: 18 },
+  loadingText:{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginTop: 12, textAlign: 'center' },
 });

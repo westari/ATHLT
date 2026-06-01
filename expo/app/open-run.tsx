@@ -41,6 +41,29 @@ const TS = {
 type SessionPhase = 'idle' | 'tracking' | 'finishing' | 'recap';
 type ShotType = 'make' | 'miss';
 
+// Build a TrackerSummary-compatible object from the native module's counters.
+// Zone / trajectory data is not available from ATHLTCamera yet — all optional
+// fields are given safe empty defaults so PostSessionRecap and ShotSync never crash.
+function buildNativeSummary(makes: number, total: number) {
+  const misses = total - makes;
+  const fgPct  = total > 0 ? Math.round(makes / total * 100) : 0;
+  return {
+    makes,
+    misses,
+    totalShots:    total,
+    fgPct,
+    bestStreak:    makes,   // rough approximation (no streak tracking in native v1)
+    currentStreak: 0,
+    shotEvents:    [],
+    durationMs:    0,
+    sessionStats:  {
+      byZone:               [],
+      averageReleaseAngle:  undefined,
+      averageArcHeight:     undefined,
+    },
+  };
+}
+
 export default function OpenRunScreen() {
   const safeInsets = useSafeAreaInsets();
   const router     = useRouter();
@@ -174,17 +197,11 @@ export default function OpenRunScreen() {
         userId = ar.data?.user?.id ?? undefined;
       } catch {}
 
-      // Build a minimal summary from our local counters
-      const summary = {
-        makes:      makesRef.current,
-        misses:     totalRef.current - makesRef.current,
-        totalShots: totalRef.current,
-        fgPct:      totalRef.current > 0
-                      ? Math.round(makesRef.current / totalRef.current * 100)
-                      : 0,
-        shotsByZone: {},
-        sessionDurationMs: 0,
-      };
+      // Build a TrackerSummary-compatible object from native module counters.
+      // Zone / trajectory fields are empty — ATHLTCamera doesn't surface them yet.
+      const m = makesRef.current;
+      const t = totalRef.current;
+      const summary = buildNativeSummary(m, t);
 
       const sessionRecap = await sync.finish(summary as any, userId);
       setRecap(sessionRecap);
@@ -215,23 +232,12 @@ export default function OpenRunScreen() {
 
   // ── Recap ───────────────────────────────────────────────────────────────────
   if (phase === 'recap' || phase === 'finishing') {
-    const summary = {
-      makes:      makesRef.current,
-      misses:     totalRef.current - makesRef.current,
-      totalShots: totalRef.current,
-      fgPct:      totalRef.current > 0
-                    ? Math.round(makesRef.current / totalRef.current * 100)
-                    : 0,
-      shotsByZone: {},
-      sessionDurationMs: 0,
-    };
-
     return (
       <View style={[s.full, { paddingTop: safeInsets.top }]}>
         <Stack.Screen options={{ headerShown: false }} />
         <PostSessionRecap
           recap={recap}
-          summary={summary as any}
+          summary={buildNativeSummary(makesRef.current, totalRef.current) as any}
           loading={recapLoading}
           onDone={() => router.back()}
         />

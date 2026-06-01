@@ -1,25 +1,19 @@
 /**
  * athlt-camera — JS bridge for the ATHLTCamera native module.
  *
- * The native side owns:
- *   - AVCaptureSession (camera capture + preview)
- *   - CoreML inference (YOLO model, ~5fps)
- *   - Shot detection state machine (make/miss logic)
- *
- * The JS side just:
- *   - Calls startSession / loadModel / startTracking / stopTracking
- *   - Subscribes to onShotDetected events
- *   - Renders ATHLTCameraView for the live preview
+ * requireNativeModule is wrapped in try/catch so the module never crashes
+ * if the native side isn't linked (Expo Go, wrong build, etc.).
+ * All exported functions degrade gracefully and return error objects.
  */
 
 import { requireNativeModule, EventEmitter, requireNativeViewManager } from 'expo-modules-core';
 import React from 'react';
 import type { ViewStyle } from 'react-native';
 
-// ─── Types (defined first so they can be used in EventEmitter generic) ─────────
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ShotBBox {
-  x: number;       // normalized 0..1, origin top-left
+  x: number;
   y: number;
   width: number;
   height: number;
@@ -27,10 +21,9 @@ export interface ShotBBox {
 
 export interface ShotDetection {
   type: 'make' | 'miss';
-  confidence: number;    // 0..1
-  timestamp: number;     // ms since reference date
+  confidence: number;
+  timestamp: number;     // ms
   bbox: ShotBBox;
-  /** Running totals emitted with every shot so JS doesn't have to count. */
   makes: number;
   attempts: number;
 }
@@ -49,95 +42,88 @@ export interface LoadModelResult {
 export interface SessionStats {
   makes: number;
   attempts: number;
-  /** 0–100, integer */
   fgPercent: number;
 }
 
-// ─── Native module + typed emitter ────────────────────────────────────────────
+// ─── Native module resolution ─────────────────────────────────────────────────
+// Wrapped in try/catch: if the native module isn't linked the JS side still
+// loads cleanly. All functions return error objects instead of throwing.
 
-const ATHLTCameraNative = requireNativeModule('ATHLTCamera');
+let ATHLTCameraNative: Record<string, any> | null = null;
+let nativeEmitter: any = null;
+let NativeViewManager: any = null;
 
-// expo-modules-core EventEmitter generic constraint varies by version.
-// Cast to any to bypass the opaque type — runtime behaviour is correct.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const emitter = new EventEmitter(ATHLTCameraNative as any) as any;
+try {
+  ATHLTCameraNative = requireNativeModule('ATHLTCamera');
+  nativeEmitter     = new EventEmitter(ATHLTCameraNative as any);
+} catch {
+  // Module not linked — happens in Expo Go or when a non-native build is used.
+  // CameraView.tsx will show the "not linked" placeholder.
+}
+
+try {
+  NativeViewManager = requireNativeViewManager('ATHLTCameraView');
+} catch {
+  // View manager also not available — same root cause as above.
+}
+
+export const isNativeModuleLinked = () => ATHLTCameraNative !== null;
 
 // ─── Session lifecycle ─────────────────────────────────────────────────────────
 
-/**
- * Initialize AVCaptureSession + request camera permission.
- * Call once when the screen mounts. The native preview starts showing
- * as soon as this resolves (permission granted, session running).
- */
 export async function startSession(): Promise<StartSessionResult> {
+  if (!ATHLTCameraNative) return { success: false, error: 'ATHLTCamera native module not linked. Run EAS build.' };
   return ATHLTCameraNative.startSession();
 }
 
-/**
- * Tear down AVCaptureSession. Call on unmount.
- */
 export async function stopSession(): Promise<{ success: boolean }> {
+  if (!ATHLTCameraNative) return { success: false };
   return ATHLTCameraNative.stopSession();
 }
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
-/**
- * Load best.mlmodelc from the app bundle.
- * Call after startSession() resolves. Loading takes 0.5–2s.
- */
 export async function loadModel(): Promise<LoadModelResult> {
+  if (!ATHLTCameraNative) return { loaded: false, error: 'ATHLTCamera native module not linked.' };
   return ATHLTCameraNative.loadModel();
 }
 
-/** Synchronous check — useful for guards before calling startTracking. */
 export function isModelLoaded(): boolean {
-  return ATHLTCameraNative.isModelLoaded();
+  if (!ATHLTCameraNative) return false;
+  try { return ATHLTCameraNative.isModelLoaded(); } catch { return false; }
 }
 
 // ─── Tracking ─────────────────────────────────────────────────────────────────
 
-/**
- * Start shot tracking. Inference fires at ~5fps.
- * Resets internal make/miss counters.
- */
 export async function startTracking(): Promise<void> {
+  if (!ATHLTCameraNative) return;
   return ATHLTCameraNative.startTracking();
 }
 
-/**
- * Stop tracking. Returns final session stats.
- * Camera preview keeps running — call stopSession() separately on unmount.
- */
 export async function stopTracking(): Promise<SessionStats> {
+  if (!ATHLTCameraNative) return { makes: 0, attempts: 0, fgPercent: 0 };
   return ATHLTCameraNative.stopTracking();
 }
 
 // ─── Events ───────────────────────────────────────────────────────────────────
 
-/**
- * Subscribe to shot detection events.
- * Returns an EventSubscription — call .remove() on cleanup.
- *
- * @example
- * useEffect(() => {
- *   const sub = addShotListener(shot => {
- *     console.log(shot.type, shot.makes, shot.attempts);
- *   });
- *   return () => sub.remove();
- * }, []);
- */
-export function addShotListener(callback: (shot: ShotDetection) => void) {
-  return emitter.addListener('onShotDetected', callback);
+type EventSubscription = { remove: () => void };
+
+export function addShotListener(
+  callback: (shot: ShotDetection) => void
+): EventSubscription {
+  if (!nativeEmitter) return { remove: () => {} };
+  return nativeEmitter.addListener('onShotDetected', callback);
 }
 
-export function addErrorListener(callback: (err: { message: string }) => void) {
-  return emitter.addListener('onError', callback);
+export function addErrorListener(
+  callback: (err: { message: string }) => void
+): EventSubscription {
+  if (!nativeEmitter) return { remove: () => {} };
+  return nativeEmitter.addListener('onError', callback);
 }
 
 // ─── Native View ──────────────────────────────────────────────────────────────
-
-const NativeATHLTCameraView = requireNativeViewManager('ATHLTCameraView');
 
 export interface ATHLTCameraViewProps {
   style?: ViewStyle;
@@ -145,9 +131,9 @@ export interface ATHLTCameraViewProps {
 
 /**
  * Renders the live camera preview (AVCaptureVideoPreviewLayer).
- * Active as soon as startSession() resolves.
- * Place this as a full-screen flex:1 view behind your HUD overlays.
+ * Returns null if the native module is not linked.
  */
-export function ATHLTCameraView(props: ATHLTCameraViewProps) {
-  return React.createElement(NativeATHLTCameraView, props);
+export function ATHLTCameraView(props: ATHLTCameraViewProps): React.ReactElement | null {
+  if (!NativeViewManager) return null;
+  return React.createElement(NativeViewManager, props);
 }

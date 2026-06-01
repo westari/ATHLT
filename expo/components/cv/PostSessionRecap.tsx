@@ -40,12 +40,15 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
   const fgPct      = total > 0 ? ((makes / total) * 100).toFixed(1) : '0.0';
   const bestStreak = recap?.bestStreak ?? summary.bestStreak;
 
-  const rawDuration = recap?.durationSeconds ?? Math.floor((summary as any).durationMs / 1000 ?? 0);
+  const rawDuration = recap?.durationSeconds ?? Math.floor(((summary as any).durationMs ?? 0) / 1000);
   const durationStr = rawDuration >= 60
     ? `${Math.floor(rawDuration / 60)}m ${String(rawDuration % 60).padStart(2, '0')}s`
     : `${rawDuration}s`;
 
-  const zoneStats = summary.sessionStats.byZone
+  // byZone is only populated when ShotTracker (JS) runs inference.
+  // With ATHLTCamera the native module doesn't surface zone data yet, so
+  // sessionStats may be absent — guard every access with ?. and ?? [].
+  const zoneStats = (summary.sessionStats?.byZone ?? [])
     .filter(z => z.attempts >= 1)
     .sort((a, b) => b.attempts - a.attempts)
     .slice(0, 6);
@@ -122,11 +125,11 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
         )}
 
         {/* Shot timeline */}
-        {summary.shotEvents.length > 0 && (
+        {(summary.shotEvents?.length ?? 0) > 0 && (
           <View style={s.card}>
             <Text style={s.cardTitle}>SHOT TIMELINE</Text>
             <View style={s.timeline}>
-              {summary.shotEvents.map((ev, i) => (
+              {(summary.shotEvents ?? []).map((ev, i) => (
                 <View
                   key={i}
                   style={[

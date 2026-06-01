@@ -116,8 +116,9 @@ export class CVSessionSync {
   async finish(summary: TrackerSummary, userId?: string): Promise<SessionRecap> {
     const durationSeconds = Math.floor((Date.now() - this.startTime) / 1000);
 
-    // Sort zones to find best/worst
-    const sortedZones = [...summary.sessionStats.byZone].sort((a, b) => b.pct - a.pct);
+    // Zone data is only populated when ShotTracker (JS) runs inference.
+    // ATHLTCamera native module doesn't surface zone data yet — guard with ?. ?? [].
+    const sortedZones = [...(summary.sessionStats?.byZone ?? [])].sort((a, b) => b.pct - a.pct);
     const bestZone    = sortedZones[0];
     const worstZone   = sortedZones[sortedZones.length - 1];
 
@@ -157,7 +158,7 @@ export class CVSessionSync {
 
   private async fetchCoachAnalysis(summary: TrackerSummary, userId: string): Promise<CoachAnalysis | null> {
     try {
-      const zoneData = summary.sessionStats.byZone.reduce((acc, z) => {
+      const zoneData = (summary.sessionStats?.byZone ?? []).reduce((acc, z) => {
         acc[z.zone] = { attempts: z.attempts, makes: z.makes, pct: z.pct.toFixed(1) };
         return acc;
       }, {} as Record<string, any>);
