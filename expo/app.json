@@ -18,7 +18,9 @@
       "infoPlist": {
         "NSCameraUsageDescription": "ATHLT uses your camera so Coach X can track your shots in real time during workouts.",
         "NSMicrophoneUsageDescription": "ATHLT may record audio during shooting sessions for performance analysis.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIViewControllerBasedStatusBarAppearance": false,
+        "UIStatusBarStyle": "UIStatusBarStyleDarkContent"
       },
       "bundleIdentifier": "com.athlt.app"
     },

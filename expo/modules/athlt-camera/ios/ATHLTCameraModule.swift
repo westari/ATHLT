@@ -106,8 +106,15 @@ public class ATHLTCameraModule: Module {
 
         Events("onShotDetected", "onError", "onCameraState")
 
-        // Native view — ATHLTCameraView registered automatically
-        View(ATHLTCameraView.self) {}
+        // Native view. A Prop is required for ExpoModulesCore to generate
+        // the Fabric (New Architecture) component descriptor during prebuild.
+        // An empty View{} body is treated as a legacy-only view manager.
+        View(ATHLTCameraView.self) {
+            // Placeholder prop — session lifecycle is handled by ATHLTSessionHolder,
+            // not by a React prop. This Prop exists solely so the Fabric codegen
+            // generates a proper component descriptor for ATHLTCameraView.
+            Prop("isActive") { (_: ATHLTCameraView, _: Bool) in }
+        }
 
         // ── startSession ────────────────────────────────────────────────────────
         AsyncFunction("startSession") { (promise: Promise) in

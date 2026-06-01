@@ -1189,8 +1189,11 @@ export default function TodayScreen() {
   }
 
   if (appState === 'plan' && plan) {
+    // No paddingTop here — TodayHome handles insets.top internally in its header
+    // (it adds paddingTop: insets.top + 12). Removing the outer paddingTop lets
+    // TodayHome's warm bone background extend to y=0, behind the status bar.
     return (
-     <View style={[s.c, { paddingTop: insets.top }]}>
+      <View style={s.c}>
         <TodayHome />
       </View>
     );
