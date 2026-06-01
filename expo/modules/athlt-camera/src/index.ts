@@ -62,9 +62,12 @@ try {
 }
 
 try {
-  NativeViewManager = requireNativeViewManager('ATHLTCameraView');
+  // Expo Modules registers views as ModuleName_ViewClassName.
+  // The module is named "ATHLTCamera" and the view class is "ATHLTCameraView",
+  // so the registered name is "ATHLTCamera_ATHLTCameraView".
+  NativeViewManager = requireNativeViewManager('ATHLTCamera_ATHLTCameraView');
 } catch {
-  // View manager also not available — same root cause as above.
+  // View manager not available — same root cause as module not linked.
 }
 
 export const isNativeModuleLinked = () => ATHLTCameraNative !== null;

@@ -1,13 +1,13 @@
 /**
- * PostSessionRecap — shown after a CV shooting session ends.
+ * PostSessionRecap — full-screen recap after a CV shooting session.
  *
- * Layout (spec: PostSessionScreen.jsx):
- *  - Hero: big FG% number (64px / weight 300) + makes/attempts breakdown
- *  - Quick stats row: Streak / Duration / Shots
- *  - Zone breakdown card: bar-chart style per zone
- *  - Shot timeline: make/miss dot strip in chronological order
- *  - Coach X analysis card: gold-tinted, insight + plan adjustment
- *  - Done button
+ * Design: warm bone background (Colors.background), liquid glass cards
+ * (Colors.surface + hairline border), no red/green — gold for makes,
+ * muted gray for misses. Numbers use fontWeight '300' + tabular-nums.
+ *
+ * Black-bar note: the parent (open-run.tsx recap render) must wrap this
+ * with backgroundColor: Colors.background and paddingTop: safeInsets.top.
+ * This component renders inside that wrapper.
  */
 
 import React, { useEffect, useRef } from 'react';
@@ -43,11 +43,9 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
   const rawDuration = recap?.durationSeconds ?? Math.floor(((summary as any).durationMs ?? 0) / 1000);
   const durationStr = rawDuration >= 60
     ? `${Math.floor(rawDuration / 60)}m ${String(rawDuration % 60).padStart(2, '0')}s`
-    : `${rawDuration}s`;
+    : rawDuration > 0 ? `${rawDuration}s` : '--';
 
-  // byZone is only populated when ShotTracker (JS) runs inference.
-  // With ATHLTCamera the native module doesn't surface zone data yet, so
-  // sessionStats may be absent — guard every access with ?. and ?? [].
+  // Zone data not available from ATHLTCamera native module yet
   const zoneStats = (summary.sessionStats?.byZone ?? [])
     .filter(z => z.attempts >= 1)
     .sort((a, b) => b.attempts - a.attempts)
@@ -62,7 +60,8 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
         contentContainerStyle={[s.scroll, { paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header label */}
+
+        {/* Header */}
         <View style={s.header}>
           <View style={s.accentBar} />
           <Text style={s.tagline}>SESSION COMPLETE</Text>
@@ -81,7 +80,7 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
               <Text style={s.heroNumPct}>%</Text>
             </View>
           </View>
-          <Text style={s.heroBreakdown}>{makes} makes / {total} attempts</Text>
+          <Text style={s.heroBreakdown}>{makes} makes · {total} attempts</Text>
 
           {/* Quick stats row */}
           <View style={s.heroStatsRow}>
@@ -102,19 +101,20 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
           </View>
         </View>
 
-        {/* Zone breakdown */}
+        {/* Zone breakdown — only shown when zone data is available */}
         {zoneStats.length > 0 && (
           <View style={s.card}>
             <Text style={s.cardTitle}>BY ZONE</Text>
             {zoneStats.map(z => {
               const pct = z.pct;
               const barWidth = Math.max(2, Math.min(100, pct));
-              const barColor = pct >= 50 ? Colors.success : pct >= 33 ? Colors.primary : Colors.danger;
+              // Gold for strong, muted for weak — no red or green
+              const barColor = pct >= 40 ? Colors.primary : Colors.surfaceBorder;
               return (
                 <View key={z.zone} style={s.zoneRow}>
                   <Text style={s.zoneName} numberOfLines={1}>{z.zone}</Text>
                   <View style={s.zoneBarTrack}>
-                    <View style={[s.zoneBarFill, { width: `${barWidth}%`, backgroundColor: barColor }]} />
+                    <View style={[s.zoneBarFill, { width: `${barWidth}%` as any, backgroundColor: barColor }]} />
                   </View>
                   <Text style={s.zonePct}>{pct.toFixed(0)}%</Text>
                   <Text style={s.zoneFraction}>{z.makes}/{z.attempts}</Text>
@@ -124,7 +124,7 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
           </View>
         )}
 
-        {/* Shot timeline */}
+        {/* Shot timeline — only shown when shot events are available */}
         {(summary.shotEvents?.length ?? 0) > 0 && (
           <View style={s.card}>
             <Text style={s.cardTitle}>SHOT TIMELINE</Text>
@@ -134,6 +134,7 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
                   key={i}
                   style={[
                     s.timelineDot,
+                    // Gold for makes, muted ring for misses — no red/green
                     ev.type === 'make' ? s.dotMake : s.dotMiss,
                   ]}
                 />
@@ -163,7 +164,7 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
           {loading ? (
             <View style={s.coachLoading}>
               <ActivityIndicator size="small" color={Colors.primary} />
-              <Text style={s.coachLoadingText}>Breaking down your session...</Text>
+              <Text style={s.coachLoadingText}>Breaking down your session…</Text>
             </View>
           ) : analysis ? (
             <>
@@ -184,7 +185,7 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
           )}
         </View>
 
-        {/* Done button */}
+        {/* Done */}
         <TouchableOpacity style={s.doneBtn} onPress={onDone} activeOpacity={0.85}>
           <Text style={s.doneBtnText}>Done</Text>
         </TouchableOpacity>
@@ -196,8 +197,9 @@ export default function PostSessionRecap({ recap, summary, loading, onDone }: Pr
 
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  scroll: { paddingHorizontal: 24, paddingTop: 16 },
+  scroll:    { paddingHorizontal: 24, paddingTop: 16 },
 
+  // ── Header ──────────────────────────────────────────────────────────────────
   header: { alignItems: 'center', paddingVertical: 12, gap: 6, marginBottom: 8 },
   accentBar: {
     width: 36, height: 3, borderRadius: 2, backgroundColor: Colors.primary, marginBottom: 6,
@@ -207,14 +209,16 @@ const s = StyleSheet.create({
     letterSpacing: 1.1, textTransform: 'uppercase',
   },
   headline: {
-    fontSize: 22, fontWeight: '300', color: Colors.textPrimary,
-    letterSpacing: -0.5,
+    fontSize: 22, fontWeight: '300', color: Colors.textPrimary, letterSpacing: -0.5,
   },
 
+  // ── Hero FG% card ────────────────────────────────────────────────────────────
   heroCard: {
     backgroundColor: Colors.surface, borderRadius: 22,
     borderWidth: 1, borderColor: Colors.hairline,
     padding: 24, marginBottom: 14, alignItems: 'center',
+    shadowColor: Colors.black, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8,
   },
   heroLabel: {
     fontSize: 11, fontWeight: '500', color: Colors.textMuted,
@@ -222,21 +226,21 @@ const s = StyleSheet.create({
   },
   heroNumRow: { flexDirection: 'row', alignItems: 'flex-start' },
   heroNum: {
-    fontSize: 64, fontWeight: '300', color: Colors.textPrimary,
-    letterSpacing: -2.5, fontVariant: ['tabular-nums'], lineHeight: 72,
+    fontSize: 72, fontWeight: '300', color: Colors.textPrimary,
+    letterSpacing: -3, fontVariant: ['tabular-nums'], lineHeight: 80,
   },
-  heroNumSuffix: { paddingTop: 8, paddingLeft: 2 },
+  heroNumSuffix: { paddingTop: 10, paddingLeft: 2 },
   heroNumDecimal: {
-    fontSize: 28, fontWeight: '300', color: Colors.textMuted,
-    fontVariant: ['tabular-nums'],
+    fontSize: 28, fontWeight: '300', color: Colors.textMuted, fontVariant: ['tabular-nums'],
   },
   heroNumPct: { fontSize: 20, fontWeight: '300', color: Colors.textMuted, marginTop: 4 },
   heroBreakdown: {
-    fontSize: 14, color: Colors.textMuted, letterSpacing: -0.1, marginTop: 4, marginBottom: 20,
+    fontSize: 14, fontWeight: '300', color: Colors.textMuted,
+    letterSpacing: -0.1, marginTop: 4, marginBottom: 20,
   },
 
   heroStatsRow: { flexDirection: 'row', width: '100%' },
-  heroStat: { flex: 1, alignItems: 'center' },
+  heroStat:     { flex: 1, alignItems: 'center' },
   heroStatVal: {
     fontSize: 24, fontWeight: '300', color: Colors.textPrimary,
     letterSpacing: -0.6, fontVariant: ['tabular-nums'],
@@ -247,26 +251,27 @@ const s = StyleSheet.create({
   },
   heroStatDiv: { width: 1, height: 36, backgroundColor: Colors.hairline, alignSelf: 'center' },
 
+  // ── Generic card ─────────────────────────────────────────────────────────────
   card: {
     backgroundColor: Colors.surface, borderRadius: 22,
     borderWidth: 1, borderColor: Colors.hairline,
     padding: 20, marginBottom: 14,
+    shadowColor: Colors.black, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04, shadowRadius: 8,
   },
   cardTitle: {
     fontSize: 11, fontWeight: '500', color: Colors.textMuted,
     letterSpacing: 1.1, textTransform: 'uppercase', marginBottom: 14,
   },
 
-  zoneRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginBottom: 10,
-  },
-  zoneName: { fontSize: 13, color: Colors.textBody, width: 90, fontWeight: '500' },
+  // ── Zone rows ────────────────────────────────────────────────────────────────
+  zoneRow:     { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+  zoneName:    { fontSize: 13, color: Colors.textBody, width: 90, fontWeight: '500' },
   zoneBarTrack: {
-    flex: 1, height: 6, backgroundColor: Colors.surfaceBorder,
+    flex: 1, height: 5, backgroundColor: Colors.hairline,
     borderRadius: 3, overflow: 'hidden',
   },
-  zoneBarFill: { height: 6, borderRadius: 3 },
+  zoneBarFill: { height: 5, borderRadius: 3 },
   zonePct: {
     width: 36, fontSize: 13, fontWeight: '300', color: Colors.textPrimary,
     textAlign: 'right', fontVariant: ['tabular-nums'],
@@ -276,35 +281,38 @@ const s = StyleSheet.create({
     textAlign: 'right', fontVariant: ['tabular-nums'],
   },
 
-  timeline: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 10,
+  // ── Shot timeline ─────────────────────────────────────────────────────────────
+  timeline:        { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginBottom: 10 },
+  timelineDot:     { width: 12, height: 12, borderRadius: 6 },
+  dotMake:         { backgroundColor: Colors.primary },
+  dotMiss:         {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5, borderColor: 'rgba(11,14,18,0.20)',
   },
-  timelineDot: { width: 12, height: 12, borderRadius: 6 },
-  dotMake: { backgroundColor: Colors.success },
-  dotMiss: { backgroundColor: Colors.danger },
-  timelineLegend: { flexDirection: 'row', gap: 16 },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendText: { fontSize: 12, color: Colors.textMuted },
+  timelineLegend:  { flexDirection: 'row', gap: 16 },
+  legendRow:       { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendDot:       { width: 8, height: 8, borderRadius: 4 },
+  legendText:      { fontSize: 12, color: Colors.textMuted },
 
+  // ── Coach X card ─────────────────────────────────────────────────────────────
   coachCard: {
-    backgroundColor: Colors.primarySoft,
-    borderRadius: 22, borderWidth: 1, borderColor: 'rgba(201,162,74,0.25)',
+    backgroundColor: Colors.primarySoft, borderRadius: 22,
+    borderWidth: 1, borderColor: 'rgba(201,162,74,0.25)',
     padding: 20, marginBottom: 20,
   },
-  coachHeader: { marginBottom: 10 },
-  coachLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  coachHeader:    { marginBottom: 10 },
+  coachLabelRow:  { flexDirection: 'row', alignItems: 'center', gap: 5 },
   coachLabel: {
     fontSize: 11, fontWeight: '600', color: Colors.primary,
     letterSpacing: 1.1, textTransform: 'uppercase',
   },
-  coachLoading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  coachLoading:     { flexDirection: 'row', alignItems: 'center', gap: 10 },
   coachLoadingText: { fontSize: 14, color: Colors.textMuted, fontStyle: 'italic' },
   coachMessage: {
-    fontSize: 15, color: Colors.primaryPressed, lineHeight: 22,
-    letterSpacing: -0.1, fontStyle: 'italic',
+    fontSize: 15, fontWeight: '300', color: Colors.primaryPressed,
+    lineHeight: 22, letterSpacing: -0.1, fontStyle: 'italic',
   },
-  coachEmpty: { fontSize: 14, color: Colors.textMuted, fontStyle: 'italic' },
+  coachEmpty:  { fontSize: 14, fontWeight: '300', color: Colors.textMuted, fontStyle: 'italic' },
   adjustBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(201,162,74,0.12)',
@@ -313,6 +321,7 @@ const s = StyleSheet.create({
   },
   adjustText: { fontSize: 12, fontWeight: '600', color: Colors.primary },
 
+  // ── Done button ───────────────────────────────────────────────────────────────
   doneBtn: {
     backgroundColor: Colors.textPrimary, borderRadius: 100,
     paddingVertical: 16, alignItems: 'center',
