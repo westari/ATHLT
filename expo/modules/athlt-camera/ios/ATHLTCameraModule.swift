@@ -49,8 +49,8 @@ final class BallTrackingPipeline {
     private static let bufferMax      = 60      // frames at ~5fps → ~12s history
     private static let ageSeconds     = 4.0     // drop positions older than this
     private static let jumpThresh     = 0.28    // max Euclidean jump in normalized coords
-    private static let minBallConf    = 0.40    // minimum Vision confidence for ball
-    static let minHoopConf: Float = 0.45  // minimum confidence to lock hoop (internal for module access)
+    private static let minBallConf    = 0.25    // lowered: blurry balls get low conf; jump filter handles FP
+    static let minHoopConf: Float = 0.30  // lowered: hoop detection threshold (internal for module access)
     private static let cooldownSec    = 2.0     // minimum seconds between scored shots
     private static let flightTimeout  = 2.5     // abort in-flight state after this long
     private static let makeTolerance  = 0.55    // X within hoopWidth * tolerance → MAKE
@@ -71,8 +71,11 @@ final class BallTrackingPipeline {
     private var buffer:   [BallPoint] = []
     private var prevBall: BallPoint?  = nil   // for jump-rejection
 
+    /// Most-recent accepted ball position — exposed for debug stats.
+    var latestBall: BallPoint? { buffer.last }
+
     // MARK: – Shot-in-flight state
-    private var inFlight:    Bool   = false
+    private(set) var inFlight: Bool   = false
     private var peakY:       Double = 1.0    // minimum y seen so far (y=0 at top)
     private var flightStart: Double = 0.0
 
@@ -439,12 +442,20 @@ public class ATHLTCameraModule: Module {
     private var lastDiagnosticEventTime: Double = 0
     private let diagnosticEventThrottle: Double = 0.25
 
+    // MARK: – Debug stats (session-aggregate counters, reset on startTracking)
+    private var totalBallDetections: Int   = 0
+    private var totalHoopDetections: Int   = 0
+    private var peakBallConfidence: Double = 0.0
+    private var peakHoopConfidence: Double = 0.0
+    private var lastDebugStatsTime: Double = 0.0
+    private let debugStatsThrottle: Double = 1.0   // emit once per second
+
     // MARK: – Module definition ─────────────────────────────────────────────────
 
     public func definition() -> ModuleDefinition {
         Name("ATHLTCamera")
 
-        Events("onShotDetected", "onError", "onCameraState", "onHoopDetected", "onDetectionDebug")
+        Events("onShotDetected", "onError", "onCameraState", "onHoopDetected", "onDetectionDebug", "onDebugStats")
 
         View(ATHLTCameraView.self) {
             Prop("isActive") { (_: ATHLTCameraView, _: Bool) in }
@@ -513,8 +524,14 @@ public class ATHLTCameraModule: Module {
         AsyncFunction("startTracking") { (promise: Promise) in
             self.inferenceQueue.async {
                 self.pipeline.resetSession()
-                self.isTracking  = true
-                self.currentMode = "tracking"
+                self.isTracking           = true
+                self.currentMode          = "tracking"
+                // Reset debug stat counters for this session
+                self.totalBallDetections  = 0
+                self.totalHoopDetections  = 0
+                self.peakBallConfidence   = 0.0
+                self.peakHoopConfidence   = 0.0
+                self.lastDebugStatsTime   = 0.0
                 NSLog("[ATHLTCamera] tracking started — hoop locked: %@",
                       self.pipeline.hoopLocked ? "YES" : "NO (will auto-detect)")
                 promise.resolve()
@@ -722,7 +739,31 @@ public class ATHLTCameraModule: Module {
         if recentFrameTimestamps.count > 10 { recentFrameTimestamps.removeFirst() }
         framesAnalyzed += 1
 
+        // Count ALL detections before any threshold filtering so debug stats
+        // show what the model actually sees, even low-confidence outputs.
+        for obs in observations {
+            guard let top = obs.labels.first else { continue }
+            let name = top.identifier.lowercased()
+            let conf = Double(top.confidence)
+            if name == "ball" {
+                totalBallDetections += 1
+                if conf > peakBallConfidence { peakBallConfidence = conf }
+            } else if name == "basket" || name == "hoop" || name == "rim" {
+                totalHoopDetections += 1
+                if conf > peakHoopConfidence { peakHoopConfidence = conf }
+            }
+        }
+
         if diagnosticMode { emitDiagnosticEvent(observations) }
+
+        // Emit debug stats once per second while tracking (JS debug panel reads these)
+        if isTracking {
+            let now = Date().timeIntervalSinceReferenceDate
+            if now - lastDebugStatsTime >= debugStatsThrottle {
+                lastDebugStatsTime = now
+                emitDebugStats()
+            }
+        }
 
         switch currentMode {
         case "detection": handleDetectionMode(observations, timestamp: timestamp)
@@ -738,7 +779,7 @@ public class ATHLTCameraModule: Module {
     // feedback even though the pipeline ignores them.
 
     private func handleDetectionMode(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
-        let minConf: Float = 0.40
+        let minConf: Float = 0.30   // lowered to match minHoopConf lock threshold
         var bestBasket: VNRecognizedObjectObservation?
         var bestConf:   Float = 0
 
@@ -825,6 +866,33 @@ public class ATHLTCameraModule: Module {
             ],
             "makes":    pipeline.makes,
             "attempts": pipeline.attempts,
+        ])
+    }
+
+    // MARK: – Debug stats event ────────────────────────────────────────────────
+    //
+    // Emitted once per second during tracking so the JS debug panel can show
+    // real-time counters without the user needing Xcode logs.
+
+    private func emitDebugStats() {
+        let h      = pipeline.hoop
+        let latest = pipeline.latestBall
+
+        sendEvent("onDebugStats", [
+            "totalBallDetections": totalBallDetections,
+            "totalHoopDetections": totalHoopDetections,
+            "peakBallConf":  peakBallConfidence,
+            "peakHoopConf":  peakHoopConfidence,
+            "ballX":         latest?.x ?? -1.0,
+            "ballY":         latest?.y ?? -1.0,
+            "hoopLocked":    pipeline.hoopLocked,
+            "hoopX":         Double(h?.midX ?? -1),
+            "hoopY":         Double(h?.midY ?? -1),
+            "hoopW":         Double(h?.width  ?? 0),
+            "hoopH":         Double(h?.height ?? 0),
+            "inFlight":      pipeline.inFlight,
+            "makes":         pipeline.makes,
+            "attempts":      pipeline.attempts,
         ])
     }
 

@@ -42,6 +42,24 @@ export interface DetectionDebugEvent {
   fps: number;           // analyzed frames per second (~5 at default throttle)
 }
 
+/** Emitted every 1 second while tracking. Shows session-aggregate debug counters. */
+export interface DebugStatsEvent {
+  totalBallDetections: number;   // ALL ball detections this session (any confidence)
+  totalHoopDetections: number;   // ALL hoop/basket/rim detections this session
+  peakBallConf:        number;   // highest ball confidence seen (0..1)
+  peakHoopConf:        number;   // highest hoop confidence seen (0..1)
+  ballX:               number;   // latest accepted ball X (-1 if none)
+  ballY:               number;   // latest accepted ball Y (-1 if none)
+  hoopLocked:          boolean;  // whether hoop bbox is locked
+  hoopX:               number;   // hoop center X (-1 if unlocked)
+  hoopY:               number;   // hoop center Y (-1 if unlocked)
+  hoopW:               number;   // hoop width
+  hoopH:               number;   // hoop height
+  inFlight:            boolean;  // whether a shot is currently in flight
+  makes:               number;
+  attempts:            number;
+}
+
 export interface StartSessionResult {
   success: boolean;
   error?: string;
@@ -178,6 +196,13 @@ export function addDetectionDebugListener(
 ): EventSubscription {
   if (!nativeEmitter) return { remove: () => {} };
   return nativeEmitter.addListener('onDetectionDebug', callback);
+}
+
+export function addDebugStatsListener(
+  callback: (event: DebugStatsEvent) => void
+): EventSubscription {
+  if (!nativeEmitter) return { remove: () => {} };
+  return nativeEmitter.addListener('onDebugStats', callback);
 }
 
 export function addErrorListener(

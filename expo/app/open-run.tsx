@@ -25,9 +25,10 @@ import GlassPanel from '@/components/ui/GlassPanel';
 import CVCameraView from '@/components/cv/CameraView';
 import PostSessionRecap from '@/components/cv/PostSessionRecap';
 import type { ShotEvent } from '@/lib/cv/ShotTracker';
-import type { HoopDetectedEvent, DetectionDebugEvent } from '@/modules/athlt-camera/src/index';
+import type { HoopDetectedEvent, DetectionDebugEvent, DebugStatsEvent } from '@/modules/athlt-camera/src/index';
 import {
-  flipCamera, setDiagnosticMode, addDetectionDebugListener, setManualHoopRegion,
+  flipCamera, setDiagnosticMode, addDetectionDebugListener,
+  setManualHoopRegion, addDebugStatsListener,
 } from '@/modules/athlt-camera/src/index';
 import { CVSessionSync, type SessionRecap } from '@/lib/cv/ShotSync';
 import { supabase } from '@/constants/supabase';
@@ -93,9 +94,18 @@ export default function OpenRunScreen() {
   });
 
   // ── Tap-to-mark hoop fallback ────────────────────────────────────────────────
-  // Screen-coordinate position of the user's tap, used to draw the gold marker.
-  const [manualMark, setManualMark]       = useState<{ sx: number; sy: number } | null>(null);
+  const [manualMark, setManualMark]         = useState<{ sx: number; sy: number } | null>(null);
   const [showManualHint, setShowManualHint] = useState(false);
+
+  // ── Debug panel ──────────────────────────────────────────────────────────────
+  const [debugVisible, setDebugVisible] = useState(false);
+  const [debugStats, setDebugStats]     = useState<DebugStatsEvent>({
+    totalBallDetections: 0, totalHoopDetections: 0,
+    peakBallConf: 0, peakHoopConf: 0,
+    ballX: -1, ballY: -1,
+    hoopLocked: false, hoopX: -1, hoopY: -1, hoopW: 0, hoopH: 0,
+    inFlight: false, makes: 0, attempts: 0,
+  });
 
   const sync = useMemo(() => new CVSessionSync(), []);
 
@@ -188,6 +198,13 @@ export default function OpenRunScreen() {
   useEffect(() => {
     setDiagnosticMode(diagOpen).catch(() => {});
   }, [diagOpen]);
+
+  // ── Debug stats subscription — always active while tracking ─────────────────
+  useEffect(() => {
+    if (!isTracking) return;
+    const sub = addDebugStatsListener(e => setDebugStats(e));
+    return () => sub.remove();
+  }, [isTracking]);
 
   // ── Cleanup on unmount ───────────────────────────────────────────────────────
   useEffect(() => () => {
@@ -457,6 +474,50 @@ export default function OpenRunScreen() {
         </View>
       )}
 
+      {/* Debug panel — below streak pill, tracking only, toggled by DBG button */}
+      {isTracking && debugVisible && (
+        <View style={[s.dbgPanel, { top: barY + 36 + 6 + 26 + 8, left: leftX }]}>
+          <GlassPanel style={s.dbgInner} borderRadius={10} tint="dark" intensity={70}>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Balls </Text>
+              <Text style={s.dbgVal}>{debugStats.totalBallDetections}</Text>
+              <Text style={s.dbgKey}>  Pk </Text>
+              <Text style={s.dbgVal}>{debugStats.peakBallConf.toFixed(2)}</Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Hoops </Text>
+              <Text style={s.dbgVal}>{debugStats.totalHoopDetections}</Text>
+              <Text style={s.dbgKey}>  Pk </Text>
+              <Text style={s.dbgVal}>{debugStats.peakHoopConf.toFixed(2)}</Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Ball  </Text>
+              <Text style={s.dbgVal}>
+                {debugStats.ballX >= 0
+                  ? `${debugStats.ballX.toFixed(2)}, ${debugStats.ballY.toFixed(2)}`
+                  : 'none'}
+              </Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Hoop  </Text>
+              <Text style={[s.dbgVal, { color: debugStats.hoopLocked ? Colors.primary : 'rgba(255,255,255,0.45)' }]}>
+                {debugStats.hoopLocked
+                  ? `${debugStats.hoopX.toFixed(2)}, ${debugStats.hoopY.toFixed(2)}`
+                  : 'unlocked'}
+              </Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Shot  </Text>
+              <Text style={[s.dbgVal, { color: debugStats.inFlight ? Colors.primary : 'rgba(255,255,255,0.6)' }]}>
+                {debugStats.inFlight ? 'IN FLIGHT' : 'idle'}
+              </Text>
+              <Text style={s.dbgKey}>  </Text>
+              <Text style={s.dbgVal}>{debugStats.makes}/{debugStats.attempts}</Text>
+            </Text>
+          </GlassPanel>
+        </View>
+      )}
+
       {/* Camera flip — top-right */}
       <View style={[s.topRight, { top: barY, right: rightX }]}>
         <GlassPanel style={[s.flipBtn, isFlipping && { opacity: 0.5 }]} borderRadius={16} tint="dark" intensity={55}>
@@ -465,6 +526,18 @@ export default function OpenRunScreen() {
           </TouchableOpacity>
         </GlassPanel>
       </View>
+
+      {/* DBG toggle — below flip button, tracking only, intentionally subtle */}
+      {isTracking && (
+        <TouchableOpacity
+          style={[s.dbgToggle, { top: barY + 32 + 6, right: rightX + 2 }]}
+          onPress={() => setDebugVisible(v => !v)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, left: 10, right: 8, bottom: 8 }}
+        >
+          <Text style={[s.dbgToggleText, debugVisible && s.dbgToggleTextActive]}>DBG</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Title / REC+timer */}
       <View style={[s.topCenter, { top: barY }]} pointerEvents="none">
@@ -717,6 +790,17 @@ const s = StyleSheet.create({
   diagToggleBtn:        { position: 'absolute', zIndex: 30, paddingVertical: 8 },
   diagToggleText:       { color: 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: '500' },
   diagToggleTextActive: { color: Colors.primary },
+
+  // ── Debug stats panel ─────────────────────────────────────────────────────────
+  dbgToggle:          { position: 'absolute', zIndex: 30 },
+  dbgToggleText:      { color: 'rgba(255,255,255,0.28)', fontSize: 9, fontWeight: '700', letterSpacing: 0.8 },
+  dbgToggleTextActive:{ color: Colors.primary },
+
+  dbgPanel: { position: 'absolute', zIndex: 35 },
+  dbgInner: { paddingHorizontal: 10, paddingVertical: 8, overflow: 'hidden', gap: 2, minWidth: 160 },
+  dbgLine:  { fontSize: 10, lineHeight: 16 },
+  dbgKey:   { color: 'rgba(255,255,255,0.40)', fontWeight: '500' },
+  dbgVal:   { color: '#FFFFFF', fontWeight: '600', fontVariant: ['tabular-nums'] },
 
   dockWrap: { position: 'absolute', zIndex: 30 },
   dock: { width: 136, paddingHorizontal: 12, paddingVertical: 10, gap: 7, overflow: 'hidden' },
