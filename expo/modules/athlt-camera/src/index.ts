@@ -58,6 +58,17 @@ export interface DebugStatsEvent {
   inFlight:            boolean;  // whether a shot is currently in flight
   makes:               number;
   attempts:            number;
+  // Deep-trace fields (see MARK: Deep-trace counters in ATHLTCameraModule.swift)
+  totalFramesAnalyzed: number;   // raw inference calls since startTracking; 0 = frame processor not running
+  lastRawObsClass:     string;   // top class from last frame BEFORE confidence filter ("none" if empty)
+  lastRawObsConf:      number;   // confidence of lastRawObsClass (0..1)
+}
+
+/** Emitted once when loadModel completes (success or failure). */
+export interface ModelLoadStatusEvent {
+  loaded:     boolean;
+  modelPath:  string;   // filename of the loaded model, or "" if not found
+  error?:     string;   // present only on failure
 }
 
 export interface StartSessionResult {
@@ -210,6 +221,13 @@ export function addErrorListener(
 ): EventSubscription {
   if (!nativeEmitter) return { remove: () => {} };
   return nativeEmitter.addListener('onError', callback);
+}
+
+export function addModelLoadStatusListener(
+  callback: (event: ModelLoadStatusEvent) => void
+): EventSubscription {
+  if (!nativeEmitter) return { remove: () => {} };
+  return nativeEmitter.addListener('onModelLoadStatus', callback);
 }
 
 // ─── Native View ──────────────────────────────────────────────────────────────

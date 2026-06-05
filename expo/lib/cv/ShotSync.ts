@@ -15,6 +15,8 @@ import {
   getRecentShotSessions,
   type ShotSessionInput,
 } from '../shotSync';
+import { supabase } from '@/constants/supabase';
+import type { CourtHeatmapZones } from '../../components/CourtHeatmap';
 import type { DetectedShot } from '../shotDetection';
 import type { ShotEvent } from './ShotTracker';
 import type { TrackerSummary } from './ShotTracker';
@@ -204,5 +206,86 @@ export class CVSessionSync {
       console.warn('[CVSessionSync] fetchCoachAnalysis failed:', e);
       return null;
     }
+  }
+}
+
+// ─── Zone mapping: fine CourtZones → 6-zone heatmap ──────────────────────────
+
+const HEATMAP_ZONE_MAP: Record<string, keyof CourtHeatmapZones> = {
+  'Restricted Area': 'paint',
+  'Left Block':      'paint',
+  'Right Block':     'paint',
+  'Free Throw':      'paint',
+  'Left Elbow':      'paint',
+  'Right Elbow':     'paint',
+  'Left Mid':        'paint',
+  'Right Mid':       'paint',
+  'Left Corner 3':   'leftCorner',
+  'Right Corner 3':  'rightCorner',
+  'Left Wing 3':     'leftWing',
+  'Right Wing 3':    'rightWing',
+  'Top of Key 3':    'topOfKey',
+};
+
+// ─── Read: zone heatmap for TodayHome ────────────────────────────────────────
+
+/**
+ * Aggregate the user's shots from the last 30 days into the 6-zone heatmap
+ * shape consumed by <CourtHeatmap />. Pass a userId to skip the auth lookup
+ * (useful when you already have it from Zustand/session).
+ */
+export async function getUserShotZones(userId?: string): Promise<CourtHeatmapZones> {
+  const empty: CourtHeatmapZones = {
+    leftCorner:  { makes: 0, attempts: 0 },
+    leftWing:    { makes: 0, attempts: 0 },
+    topOfKey:    { makes: 0, attempts: 0 },
+    rightWing:   { makes: 0, attempts: 0 },
+    rightCorner: { makes: 0, attempts: 0 },
+    paint:       { makes: 0, attempts: 0 },
+  };
+
+  try {
+    let uid = userId;
+    if (!uid) {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return empty;
+      uid = user.id;
+    }
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+
+    const { data, error } = await supabase
+      .from('shots')
+      .select('zone, made')
+      .eq('user_id', uid)
+      .gte('created_at', cutoff.toISOString())
+      .not('zone', 'is', null);
+
+    if (error || !data) {
+      console.warn('[CVSessionSync] getUserShotZones error:', error?.message);
+      return empty;
+    }
+
+    const result: CourtHeatmapZones = {
+      leftCorner:  { makes: 0, attempts: 0 },
+      leftWing:    { makes: 0, attempts: 0 },
+      topOfKey:    { makes: 0, attempts: 0 },
+      rightWing:   { makes: 0, attempts: 0 },
+      rightCorner: { makes: 0, attempts: 0 },
+      paint:       { makes: 0, attempts: 0 },
+    };
+
+    for (const row of data) {
+      const key = HEATMAP_ZONE_MAP[row.zone as string];
+      if (!key) continue;
+      result[key].attempts++;
+      if (row.made) result[key].makes++;
+    }
+
+    return result;
+  } catch (e) {
+    console.warn('[CVSessionSync] getUserShotZones failed:', e);
+    return empty;
   }
 }

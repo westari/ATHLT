@@ -25,10 +25,10 @@ import GlassPanel from '@/components/ui/GlassPanel';
 import CVCameraView from '@/components/cv/CameraView';
 import PostSessionRecap from '@/components/cv/PostSessionRecap';
 import type { ShotEvent } from '@/lib/cv/ShotTracker';
-import type { HoopDetectedEvent, DetectionDebugEvent, DebugStatsEvent } from '@/modules/athlt-camera/src/index';
+import type { HoopDetectedEvent, DetectionDebugEvent, DebugStatsEvent, ModelLoadStatusEvent } from '@/modules/athlt-camera/src/index';
 import {
   flipCamera, setDiagnosticMode, addDetectionDebugListener,
-  setManualHoopRegion, addDebugStatsListener,
+  setManualHoopRegion, addDebugStatsListener, addModelLoadStatusListener,
 } from '@/modules/athlt-camera/src/index';
 import { CVSessionSync, type SessionRecap } from '@/lib/cv/ShotSync';
 import { supabase } from '@/constants/supabase';
@@ -105,7 +105,9 @@ export default function OpenRunScreen() {
     ballX: -1, ballY: -1,
     hoopLocked: false, hoopX: -1, hoopY: -1, hoopW: 0, hoopH: 0,
     inFlight: false, makes: 0, attempts: 0,
+    totalFramesAnalyzed: 0, lastRawObsClass: 'none', lastRawObsConf: 0,
   });
+  const [modelStatus, setModelStatus] = useState<ModelLoadStatusEvent | null>(null);
 
   const sync = useMemo(() => new CVSessionSync(), []);
 
@@ -205,6 +207,12 @@ export default function OpenRunScreen() {
     const sub = addDebugStatsListener(e => setDebugStats(e));
     return () => sub.remove();
   }, [isTracking]);
+
+  // ── Model load status — fires once when loadModel() completes ────────────────
+  useEffect(() => {
+    const sub = addModelLoadStatusListener(e => setModelStatus(e));
+    return () => sub.remove();
+  }, []);
 
   // ── Cleanup on unmount ───────────────────────────────────────────────────────
   useEffect(() => () => {
@@ -514,6 +522,20 @@ export default function OpenRunScreen() {
               <Text style={s.dbgKey}>  </Text>
               <Text style={s.dbgVal}>{debugStats.makes}/{debugStats.attempts}</Text>
             </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Frames </Text>
+              <Text style={[s.dbgVal, { color: debugStats.totalFramesAnalyzed > 0 ? '#FFFFFF' : '#FF3B30' }]}>
+                {debugStats.totalFramesAnalyzed}
+              </Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Raw   </Text>
+              <Text style={[s.dbgVal, { color: debugStats.lastRawObsClass !== 'none' ? Colors.primary : 'rgba(255,255,255,0.35)' }]}>
+                {debugStats.lastRawObsClass !== 'none'
+                  ? `${debugStats.lastRawObsClass} ${(debugStats.lastRawObsConf * 100).toFixed(0)}%`
+                  : 'none'}
+              </Text>
+            </Text>
           </GlassPanel>
         </View>
       )}
@@ -599,8 +621,14 @@ export default function OpenRunScreen() {
             <Text style={s.diagTitle}>DETECTION DIAGNOSTIC</Text>
             <View style={s.diagRow}>
               <Text style={s.diagKey}>Model</Text>
-              <Text style={[s.diagVal, { color: cameraReady ? Colors.primary : 'rgba(255,255,255,0.5)' }]}>
-                {cameraReady ? '✓ ready' : 'loading…'}
+              <Text style={[s.diagVal, {
+                color: modelStatus
+                  ? (modelStatus.loaded ? Colors.primary : '#FF3B30')
+                  : (cameraReady ? Colors.primary : 'rgba(255,255,255,0.5)'),
+              }]}>
+                {modelStatus
+                  ? (modelStatus.loaded ? `✓ ${modelStatus.modelPath}` : `✗ ${modelStatus.error ?? 'failed'}`)
+                  : (cameraReady ? '✓ ready' : 'loading…')}
               </Text>
             </View>
             <View style={s.diagRow}>

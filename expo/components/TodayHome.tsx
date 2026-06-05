@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Platform, ScrollView,
 } from 'react-native';
@@ -11,6 +11,9 @@ import Colors from '@/constants/colors';
 import { usePlanStore } from '@/store/planStore';
 import { resolvePlanDrill } from '@/lib/resolveDrill';
 import ProgressRing from '@/components/ui/ProgressRing';
+import CourtHeatmap, { EMPTY_ZONES, hotZoneName } from '@/components/CourtHeatmap';
+import type { CourtHeatmapZones } from '@/components/CourtHeatmap';
+import { getUserShotZones } from '@/lib/cv/ShotSync';
 
 const DAYS_SHORT = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -56,6 +59,14 @@ export default function TodayHome() {
     }
     return { sessionsCompleted, streak };
   }, [plan, completedDrills, currentDayIndex]);
+
+  const [shotZones, setShotZones] = useState<CourtHeatmapZones>(EMPTY_ZONES);
+
+  useEffect(() => {
+    getUserShotZones().then(setShotZones).catch(() => {});
+  }, []);
+
+  const hotZone = useMemo(() => hotZoneName(shotZones), [shotZones]);
 
   const totalDrillsDone = Object.keys(completedDrills).length;
   const today = new Date();
@@ -175,6 +186,27 @@ export default function TodayHome() {
               <Text style={styles.statCardSub}>{card.sub}</Text>
             </View>
           ))}
+        </View>
+
+        {/* Shot Map */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>SHOT MAP</Text>
+          <TouchableOpacity onPress={() => router.push('/progress' as any)} activeOpacity={0.7}>
+            <Text style={styles.sectionAction}>See all</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.heatmapCard}>
+          <CourtHeatmap
+            zones={shotZones}
+            showLabels={true}
+            onZoneTap={() => {}}
+          />
+          <Text style={styles.heatmapSummary}>
+            {hotZone
+              ? <>Hot zone: <Text style={{ color: Colors.primary }}>{hotZone}</Text></>
+              : 'Track your shots to unlock'}
+          </Text>
         </View>
 
         {/* Today's Plan */}
@@ -460,4 +492,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7, paddingVertical: 3, borderRadius: 100,
   },
   lastSessionBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.success },
+
+  heatmapCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: Colors.hairline,
+    padding: 16,
+    marginHorizontal: 24,
+    marginBottom: 24,
+    shadowColor: Colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+  },
+  heatmapSummary: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    marginTop: 10,
+    letterSpacing: -0.1,
+    textAlign: 'center',
+  },
 });

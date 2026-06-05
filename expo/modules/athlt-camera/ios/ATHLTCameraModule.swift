@@ -450,12 +450,19 @@ public class ATHLTCameraModule: Module {
     private var lastDebugStatsTime: Double = 0.0
     private let debugStatsThrottle: Double = 1.0   // emit once per second
 
+    // MARK: – Deep-trace counters (reset on startTracking)
+    // totalFramesAnalyzed: incremented at the very top of runInference, before any guard.
+    // If this stays 0 the frame processor is not routing to inference at all.
+    private var totalFramesAnalyzed: Int = 0
+    private var lastRawObsClass: String  = "none"
+    private var lastRawObsConf: Double   = 0.0
+
     // MARK: – Module definition ─────────────────────────────────────────────────
 
     public func definition() -> ModuleDefinition {
         Name("ATHLTCamera")
 
-        Events("onShotDetected", "onError", "onCameraState", "onHoopDetected", "onDetectionDebug", "onDebugStats")
+        Events("onShotDetected", "onError", "onCameraState", "onHoopDetected", "onDetectionDebug", "onDebugStats", "onModelLoadStatus")
 
         View(ATHLTCameraView.self) {
             Prop("isActive") { (_: ATHLTCameraView, _: Bool) in }
@@ -532,6 +539,9 @@ public class ATHLTCameraModule: Module {
                 self.peakBallConfidence   = 0.0
                 self.peakHoopConfidence   = 0.0
                 self.lastDebugStatsTime   = 0.0
+                self.totalFramesAnalyzed  = 0
+                self.lastRawObsClass      = "none"
+                self.lastRawObsConf       = 0.0
                 NSLog("[ATHLTCamera] tracking started — hoop locked: %@",
                       self.pipeline.hoopLocked ? "YES" : "NO (will auto-detect)")
                 promise.resolve()
@@ -664,6 +674,7 @@ public class ATHLTCameraModule: Module {
                 .map { $0.lastPathComponent }.joined(separator: ", ")
             let msg = "best.mlmodelc not found. Present: [\(found)]"
             NSLog("[ATHLTCamera] %@", msg)
+            sendEvent("onModelLoadStatus", ["loaded": false, "modelPath": "", "error": msg])
             promise.resolve(["loaded": false, "error": msg])
             return
         }
@@ -672,12 +683,14 @@ public class ATHLTCameraModule: Module {
         config.computeUnits = .all
         do {
             let mlModel = try MLModel(contentsOf: url, configuration: config)
-            visionModel  = try VNCoreMLModel(for: mlModel)
+            visionModel   = try VNCoreMLModel(for: mlModel)
             isModelLoaded = true
             NSLog("[ATHLTCamera] model loaded: %@", url.lastPathComponent)
+            sendEvent("onModelLoadStatus", ["loaded": true, "modelPath": url.lastPathComponent])
             promise.resolve(["loaded": true, "modelName": url.lastPathComponent])
         } catch {
             NSLog("[ATHLTCamera] model FAILED: %@", error.localizedDescription)
+            sendEvent("onModelLoadStatus", ["loaded": false, "modelPath": url.lastPathComponent, "error": error.localizedDescription])
             promise.resolve(["loaded": false, "error": error.localizedDescription])
         }
     }
@@ -709,6 +722,9 @@ public class ATHLTCameraModule: Module {
     // MARK: – CoreML inference ─────────────────────────────────────────────────
 
     private func runInference(pixelBuffer: CVPixelBuffer, model: VNCoreMLModel, timestamp: Double) {
+        // Increment BEFORE any other logic — if this never advances, runInference is never called.
+        totalFramesAnalyzed += 1
+
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFit
 
@@ -725,7 +741,31 @@ public class ATHLTCameraModule: Module {
                 NSLog("[ATHLTCamera] WARNING: model returns %@, not VNRecognizedObjectObservation. Re-export with nms=True.",
                       String(describing: type(of: raw[0])))
             }
+            // No observations at all — update raw trace to reflect empty output
+            lastRawObsClass = "none"
+            lastRawObsConf  = 0.0
             return
+        }
+
+        // Log ALL raw observations BEFORE any confidence filtering.
+        // If model is running but silent, these NSLogs will never appear.
+        if observations.isEmpty {
+            NSLog("[ATHLTCamera] frame %d — model returned 0 observations", totalFramesAnalyzed)
+            lastRawObsClass = "none"
+            lastRawObsConf  = 0.0
+        } else {
+            var topClass = "none"
+            var topConf: Float = 0
+            for obs in observations {
+                guard let lbl = obs.labels.first else { continue }
+                NSLog("[ATHLTCamera] raw obs: class=%@ conf=%.3f bbox=(%.2f,%.2f,%.2f×%.2f)",
+                      lbl.identifier, lbl.confidence,
+                      obs.boundingBox.origin.x, obs.boundingBox.origin.y,
+                      obs.boundingBox.width, obs.boundingBox.height)
+                if lbl.confidence > topConf { topClass = lbl.identifier; topConf = lbl.confidence }
+            }
+            lastRawObsClass = topClass
+            lastRawObsConf  = Double(topConf)
         }
 
         processObservations(observations, timestamp: timestamp)
@@ -893,6 +933,9 @@ public class ATHLTCameraModule: Module {
             "inFlight":      pipeline.inFlight,
             "makes":         pipeline.makes,
             "attempts":      pipeline.attempts,
+            "totalFramesAnalyzed": totalFramesAnalyzed,
+            "lastRawObsClass":     lastRawObsClass,
+            "lastRawObsConf":      lastRawObsConf,
         ])
     }
 
