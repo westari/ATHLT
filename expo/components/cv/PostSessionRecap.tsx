@@ -266,7 +266,7 @@ const s = StyleSheet.create({
   legendDot:       { width: 8, height: 8, borderRadius: 4 },
   legendText:      { fontSize: 12, color: Colors.textMuted },
   dotMake:         { backgroundColor: Colors.primary },
-  dotMiss:         { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: 'rgba(11,14,18,0.20)' },
+  dotMiss:         { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.25)' },
 
   // Zone rows
   zoneRow:      { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },

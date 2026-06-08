@@ -176,7 +176,7 @@ export default function TodayHome() {
                   strokeWidth={3}
                   useGradient={false}
                   color={Colors.primary}
-                  trackColor="rgba(11,14,18,0.08)"
+                  trackColor="rgba(255,255,255,0.10)"
                 />
               </View>
               <View style={styles.statCardValRow}>

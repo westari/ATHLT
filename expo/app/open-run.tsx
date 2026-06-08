@@ -606,7 +606,7 @@ export default function OpenRunScreen() {
       {/* Hint card */}
       {showHint && !isTracking && (
         <Animated.View style={[s.hintWrap, { opacity: hintFade }]} pointerEvents="box-none">
-          <GlassPanel style={s.hintCard} borderRadius={18} tint="light" intensity={55}>
+          <GlassPanel style={s.hintCard} borderRadius={18} tint="dark" intensity={55}>
             <TouchableOpacity
               style={s.hintX}
               onPress={dismissHint}
@@ -738,7 +738,7 @@ export default function OpenRunScreen() {
       <View style={[s.bottomWrap, { bottom: bottomY }]}>
         <Animated.View style={[s.btnSlot, { opacity: startOpacity }]} pointerEvents={isTracking ? 'none' : 'auto'}>
           <View style={{ opacity: hoopDetected ? 1 : 0.38 }}>
-            <GlassPanel style={s.btn} borderRadius={26} tint="light" tintColor="rgba(201,162,74,0.35)" intensity={60}>
+            <GlassPanel style={s.btn} borderRadius={26} tint="dark" tintColor="rgba(201,162,74,0.40)" intensity={60}>
               <TouchableOpacity style={s.btnInner} onPress={handleStart} activeOpacity={0.85} disabled={!hoopDetected}>
                 <Play size={18} color="#FFFFFF" fill="#FFFFFF" strokeWidth={1.8} />
                 <Text style={[s.btnText, TS]}>Start Tracking</Text>

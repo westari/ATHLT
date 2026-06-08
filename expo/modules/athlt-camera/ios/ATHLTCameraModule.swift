@@ -349,10 +349,14 @@ final class BallTracker {
     /// confidence on a real fast-moving ball. Jump filter handles residual FP.
     static let trackConfidence: Double = 0.25
 
-    /// Consecutive frames at entryConfidence needed to start a track.
-    /// At ~10fps: 2 frames ≈ 200ms of consistent detection. Reduced from 3 to 2 so fast shots
-    /// that only appear for 3-4 frames near the hoop can still establish a track in time to score.
+    /// Consecutive frames at entryConfidence needed to start a track (legacy — kept for the
+    /// scoringState string; actual gate now uses the 2-of-3 sliding window below).
     static let entryConsecutiveRequired: Int = 2
+
+    /// Single-frame confidence threshold for immediate track establishment.
+    /// A very high-confidence single detection can bypass the 2-of-3 window so that a ball
+    /// visible for only 1–2 frames (fast release near the rim) still starts a track.
+    static let highConfEntryThreshold: Double = 0.60
 
     /// Max normalized Euclidean distance between consecutive ball positions.
     /// A ball at full court speed covers ~0.20 of frame width per 100ms.
@@ -421,8 +425,9 @@ final class BallTracker {
 
     // MARK: – Private state
 
-    private var consecutiveFrames: Int       = 0
-    private var prevBall:          BallPoint? = nil   // for jump check and prevBall during gate
+    private var consecutiveFrames: Int       = 0   // kept for legacy NSLog only
+    private var recentGateFrames: [Bool]     = []   // sliding 3-frame window for 2-of-3 gate
+    private var prevBall:         BallPoint? = nil   // for jump check and prevBall during gate
 
     // MARK: – Ingestion ────────────────────────────────────────────────────────
     //
@@ -472,16 +477,30 @@ final class BallTracker {
         // Entry persistence gate.
         // prevBall is updated here so jump filter stays calibrated during the gate window,
         // but we don't add the position to the buffer until the gate passes.
+        // Gate rules:
+        //   1. Single frame at conf >= highConfEntryThreshold → establish immediately.
+        //   2. Otherwise: 2 of the last 3 frames must pass entryConfidence threshold.
         if !isEstablished {
-            consecutiveFrames += 1
             prevBall = BallPoint(x: x, y: y, t: timestamp, conf: conf, bboxW: bboxW, bboxH: bboxH)
-            if consecutiveFrames >= Self.entryConsecutiveRequired {
-                isEstablished = true
-                NSLog("[BallTracker] track ESTABLISHED after %d frames (conf=%.2f pos=%.3f,%.3f)",
-                      consecutiveFrames, conf, x, y)
+
+            if conf >= Self.highConfEntryThreshold {
+                isEstablished    = true
+                recentGateFrames = []
+                NSLog("[BallTracker] track ESTABLISHED (high-conf=%.2f) pos=%.3f,%.3f", conf, x, y)
             } else {
-                NSLog("[BallTracker] entry gate %d/%d", consecutiveFrames, Self.entryConsecutiveRequired)
-                return false
+                recentGateFrames.append(true)
+                if recentGateFrames.count > 3 { recentGateFrames.removeFirst() }
+                let hits = recentGateFrames.filter { $0 }.count
+                if hits >= 2 {
+                    isEstablished    = true
+                    recentGateFrames = []
+                    NSLog("[BallTracker] track ESTABLISHED (2-of-3 gate) conf=%.2f pos=%.3f,%.3f",
+                          conf, x, y)
+                } else {
+                    NSLog("[BallTracker] entry gate hits=%d/2 window=%@",
+                          hits, recentGateFrames.map { $0 ? "1" : "0" }.joined())
+                    return false
+                }
             }
         }
 
@@ -499,8 +518,10 @@ final class BallTracker {
 
     private func handleMissedFrame(timestamp: Double) {
         framesLost += 1
-        if !isEstablished { consecutiveFrames = 0 }
-
+        if !isEstablished {
+            recentGateFrames.append(false)
+            if recentGateFrames.count > 3 { recentGateFrames.removeFirst() }
+        }
         if isEstablished && framesLost >= Self.trackDeathFrames {
             NSLog("[BallTracker] track DEAD — %d frames without detection", framesLost)
             killTrack()
@@ -517,6 +538,7 @@ final class BallTracker {
         isEstablished     = false
         framesLost        = 0
         consecutiveFrames = 0
+        recentGateFrames  = []
         prevBall          = nil
         velocity          = .zero
     }
@@ -529,6 +551,7 @@ final class BallTracker {
         isEstablished     = false
         framesLost        = 0
         consecutiveFrames = 0
+        recentGateFrames  = []
         prevBall          = nil
         velocity          = .zero
     }
@@ -718,16 +741,22 @@ final class BallTrackingPipeline {
     /// rim center on both axes for disappearance to be inferred as a make.
     static let pathCHoopProximity: Double = 0.15
 
+    /// Path A: ball must descend this far BELOW rimLineY (while still descending) before
+    /// a make is confirmed. Prevents a rim-kiss that reverses upward from scoring as a make.
+    /// ~0.04 ≈ 4% of frame height, roughly the depth of the net opening.
+    static let makeConfirmMargin: Double = 0.04
+
     /// Shared cooldown across all paths: minimum seconds between any two scored shots.
     /// 1.5s prevents one physical shot from being double-counted by multiple paths.
     static let shotCooldownSeconds: Double = 1.5
 
     // MARK: – Path A state (trajectory arc)
-    private var pathA_inFlight    = false
-    private var pathA_peakY       = 1.0     // smallest y seen while in flight (highest on screen)
-    private var pathA_flightStart = 0.0
-    private var pathA_wasRising   = false   // observed upward velocity before peak
-    private var pathA_peaked      = false   // transitioned rising → falling
+    private var pathA_inFlight       = false
+    private var pathA_peakY          = 1.0     // smallest y seen while in flight (highest on screen)
+    private var pathA_flightStart    = 0.0
+    private var pathA_wasRising      = false   // observed upward velocity before peak
+    private var pathA_peaked         = false   // transitioned rising → falling
+    private var pathA_awaitingResult = false   // ball crossed rim line — waiting for make/miss confirm
 
     // MARK: – Path B state (ball through hoop region)
     private enum PathBPhase { case idle, above, inRegion }
@@ -840,7 +869,7 @@ final class BallTrackingPipeline {
         guard ballTracker.isEstablished, ballTracker.framesLost == 0,
               let latest = ballTracker.latestBall else {
             if !ballTracker.isEstablished {
-                scoringState = "waiting for ball (\(BallTracker.entryConsecutiveRequired) consecutive frames needed)"
+                scoringState = "waiting for ball (2-of-3 frames or high-conf)"
             } else {
                 scoringState = pathA_inFlight
                     ? "Path A in-flight — ball temporarily lost"
@@ -907,17 +936,48 @@ final class BallTrackingPipeline {
             }
         }
 
-        // Score: ball descended to rim line after peaking above it
-        let crossedRim     = ballY >= rimLineY
         let peakedAboveRim = pathA_peakY < rimLineY - Self.minimumPeakAboveRim
         let stillNearX     = abs(ballX - rimCenterX) < rimWidth * Self.nearHoopXFactor * 1.5
 
+        // --- Already waiting to confirm make vs miss ---
+        if pathA_awaitingResult {
+            let confirmedMake = ballY > rimLineY + Self.makeConfirmMargin && vel.isFalling
+            let rimBounce     = ballY < rimLineY   // reversed back above rim
+            let rimOut        = !stillNearX
+
+            if confirmedMake {
+                NSLog("[PathA] MAKE confirmed — ball %.3f below rim (margin=%.2f)",
+                      ballY - rimLineY, Self.makeConfirmMargin)
+                return scorePathA(hoop: hoop, timestamp: timestamp)
+            }
+            if rimBounce {
+                NSLog("[PathA] MISS — rim bounce (ball reversed above rim)")
+                scoringState = "MISS Path A — rim bounce"
+                resetPathA(); resetPathB()
+                return ("miss", 0.65)
+            }
+            if rimOut {
+                NSLog("[PathA] MISS — rim out (ball exited sideways during await)")
+                scoringState = "MISS Path A — rim out"
+                resetPathA(); resetPathB()
+                return ("miss", 0.60)
+            }
+            scoringState = String(format: "Path A awaiting: y=%.3f / need %.3f %@",
+                                  ballY, rimLineY + Self.makeConfirmMargin,
+                                  vel.isFalling ? "[desc]" : "[ascending]")
+            return nil
+        }
+
+        // --- Check if ball just reached the rim line ---
+        let crossedRim = ballY >= rimLineY
         if crossedRim && peakedAboveRim && stillNearX {
-            return scorePathA(hoop: hoop, timestamp: timestamp)
+            pathA_awaitingResult = true
+            NSLog("[PathA] rim crossed — awaiting make/miss confirmation y=%.3f rimY=%.3f", ballY, rimLineY)
+            scoringState = String(format: "Path A awaiting: y=%.3f crossed rim", ballY)
+            return nil
         }
 
         // Log every in-flight frame so Xcode console shows ball.y vs rimLineY in real time.
-        // This proves whether coordinate systems match: crossed=%@ should flip to YES when ball goes through.
         NSLog("[PathA] in-flight: ball=(%.3f,%.3f) rimY=%.3f rimX=%.3f±%.3f | crossed=%@ peaked=%@ nearX=%@",
               ballX, ballY, rimLineY, rimCenterX, rimWidth * Self.nearHoopXFactor,
               crossedRim ? "YES" : "no", peakedAboveRim ? "YES" : "no", stillNearX ? "YES" : "no")
@@ -1044,20 +1104,31 @@ final class BallTrackingPipeline {
 
         guard let last = ballTracker.latestBall else { return nil }
 
+        // Ball vanished ABOVE the rim — it rose out of frame, not through the net.
+        // Do NOT reset Path A (the ball may still arc back down) and do NOT start cooldown.
+        if last.y < hoop.rimLineY {
+            NSLog("[PathC] ignored — ball exited above rim (y=%.3f rimY=%.3f)", last.y, hoop.rimLineY)
+            scoringState = String(format: "Path C ignored — ball exited upward (y=%.3f)", last.y)
+            return nil
+        }
+
+        // Ball was at or below the rim. Must also be within X range of the rim.
         let dx = abs(last.x - hoop.rimCenterX)
-        let dy = abs(last.y - hoop.rimLineY)
-
-        guard dx <= Self.pathCHoopProximity && dy <= Self.pathCHoopProximity else {
-            NSLog("[PathC] disappeared far from rim dx=%.3f dy=%.3f — abort", dx, dy)
-            resetPathA(); return nil
-        }
-        guard last.y <= hoop.rimLineY + 0.06 else {
-            NSLog("[PathC] disappeared below rim (y=%.3f rimY=%.3f) — abort",
-                  last.y, hoop.rimLineY)
+        guard dx <= Self.pathCHoopProximity else {
+            NSLog("[PathC] disappeared far from rim (dx=%.3f) — abort", dx)
             resetPathA(); return nil
         }
 
-        NSLog("[PathC] MAKE — in-flight ball vanished near rim (%.3f,%.3f)", last.x, last.y)
+        // Must have been moving downward — an upward-moving ball near the rim is bouncing away.
+        let vel = ballTracker.velocity
+        guard vel.isFalling else {
+            NSLog("[PathC] ignored — near rim but velocity upward (dy=%.4f) — reset", vel.dy)
+            scoringState = "Path C ignored — vanished near rim without downward motion"
+            resetPathA(); return nil
+        }
+
+        NSLog("[PathC] MAKE — in-flight ball vanished at/below rim (%.3f,%.3f) vel.dy=%.3f",
+              last.x, last.y, vel.dy)
         scoringState = "MAKE Path C — ball vanished near rim (net occlusion) conf=0.55"
         resetPathA(); resetPathB()
         return ("make", 0.55)
@@ -1078,8 +1149,12 @@ final class BallTrackingPipeline {
     // MARK: – State resets ─────────────────────────────────────────────────────
 
     private func resetPathA() {
-        pathA_inFlight = false; pathA_peakY = 1.0; pathA_flightStart = 0.0
-        pathA_wasRising = false; pathA_peaked = false
+        pathA_inFlight       = false
+        pathA_peakY          = 1.0
+        pathA_flightStart    = 0.0
+        pathA_wasRising      = false
+        pathA_peaked         = false
+        pathA_awaitingResult = false
     }
 
     private func resetPathB() {

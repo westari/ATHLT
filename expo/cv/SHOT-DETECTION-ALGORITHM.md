@@ -65,7 +65,11 @@ If no basket detection arrives for `staleFrameThreshold = 30` frames (~3s at 10f
 **Purpose:** Maintain a clean, noise-rejected ball position history.
 
 **Entry gate (persistence):**
-`entryConsecutiveRequired = 2` frames at `entryConfidence ≥ 0.40` before positions enter the buffer. Eliminates single-frame false positives (orange jerseys, logo circles, etc). Reduced from 3 to 2 so fast shots that are only visible for 3–4 frames near the hoop can establish a track before the ball exits frame. The jump filter stays calibrated during this window — `framesLost` is reset each time a frame passes confidence threshold.
+Two ways to establish a track (either is sufficient):
+1. **High-confidence single frame:** `conf >= highConfEntryThreshold (0.60)` → established immediately. Catches fast shots that are only visible 1–2 frames.
+2. **2-of-3 sliding window:** 2 of the last 3 gate-window frames pass `entryConfidence ≥ 0.40` (not required to be consecutive). A single missed frame between two detections no longer resets the gate.
+
+`prevBall` is updated during the gate so the jump filter stays calibrated. Positions only enter the buffer after establishment.
 
 **Track maintenance:**
 Once established, `trackConfidence = 0.25` floor is used. When ball isn't detected, `framesLost` increments. At `trackDeathFrames = 12` consecutive missed frames, the track dies (`isEstablished = false`, `framesLost` reset). The buffer is **not** cleared on track death — Path C needs `latestBall` to check the disappearance location.
@@ -142,14 +146,15 @@ Shots below `0.60` should be flagged as unverified in the UI.
 - `pathA_peakY` tracks the minimum y seen (highest point on screen)
 - Phase transitions: `pathA_wasRising = true` when `vel.isRising`, then `pathA_peaked = true` when `vel.isFalling` after having been rising
 
-**Scoring trigger:**
-```
-ball.y >= rimLineY          // ball descended to rim opening
-peakY  < rimLineY − 0.03   // ball actually peaked above rim (minimum arc)
-abs(ballX − rimCenterX) < rimWidth × nearHoopXFactor × 1.5  // still near hoop
-```
+**Rim-crossing → awaiting result (Bug 3 fix):**
+When `ballY >= rimLineY && peakedAboveRim && stillNearX`, Path A enters `pathA_awaitingResult = true` instead of scoring immediately. This prevents a rim-kiss that bounces back from being counted as a make.
 
-**Make/miss:** `predictXAtY` over last 7 smoothed positions → `inside = abs(crossX − rimCenterX) ≤ rimWidth × 0.55`.
+While awaiting:
+- `ballY > rimLineY + makeConfirmMargin (0.04)` AND `vel.isFalling` → **MAKE** (ball went through the net)
+- `ballY < rimLineY` (reversed above rim) → **MISS** (0.65 conf) — rim bounce
+- Ball exits near-X range → **MISS** (0.60 conf) — rim out
+
+**Make/miss scoring:** `predictXAtY` over last 7 smoothed positions → `inside = abs(crossX − rimCenterX) ≤ rimWidth × 0.55`.
 
 **Why `rimLineY` not `rimMidY` (the critical fix):**
 The previous implementation scored at `hoopMidY` (center of hoop bbox). At 10fps, a fast shot can skip from above the rim to well below center in a single frame, bypassing the trigger entirely. `rimLineY` (top of bbox = actual rim opening) is the correct and earlier trigger — the ball crosses it on every real shot.
@@ -180,14 +185,18 @@ idle → above → inRegion → SCORE / RESET
 
 ## PATH C — Disappearance heuristic (tertiary path)
 
-**Concept:** Ball sometimes vanishes when it drops into the net (net temporarily occludes it). If Path A was in-flight and the ball disappears within `pathCMaxDisappearanceFrames = 8` frames, and the last known position was near the rim, assume MAKE.
+**Concept:** Ball sometimes vanishes when it drops into the net (net temporarily occludes it). If Path A was in-flight and the ball disappears within `pathCMaxDisappearanceFrames = 8` frames, and the last known position was below the rim and near it, assume MAKE.
 
-**Conditions:**
-- `pathA_inFlight = true`
-- `ballTracker.framesLost` between 2 and 8
-- `latestBall.x` within `pathCHoopProximity (0.15)` of `rimCenterX`
-- `latestBall.y` within `pathCHoopProximity (0.15)` of `rimLineY`
-- `latestBall.y ≤ rimLineY + 0.06` (ball was at or above rim level when it disappeared)
+**Conditions (all must be met):**
+1. `pathA_inFlight = true`
+2. `ballTracker.framesLost` between 2 and 8
+3. `latestBall.y >= rimLineY` — ball's LAST KNOWN position was AT or BELOW the rim (Bug 1 fix)
+4. `abs(latestBall.x − rimCenterX) <= pathCHoopProximity (0.15)` — within X range of rim
+5. `vel.isFalling` — ball was moving downward when it disappeared (not arcing upward out of frame)
+
+**Rejected cases (no cooldown, Path A stays active):**
+- Ball's last position was ABOVE the rim (`last.y < rimLineY`) — ball rose out of frame, not through the net. Path A is left running so the ball can be re-acquired if it descends back into frame.
+- Ball was near the rim but velocity was upward — consistent with a rim bounce, not a make.
 
 **Output:** `("make", 0.55)` — lowest confidence of the three paths. Treat as unverified until corroborated by match count across many shots.
 
@@ -251,14 +260,20 @@ Every frame's pipeline state is summarized in `pipeline.scoringState` (a plain s
 
 ```
 idle — no hoop (60% accumulated)
-waiting for ball (3 consecutive frames needed)
+waiting for ball (2-of-3 frames or high-conf)
 tracking (0.42,0.38) — not near rim [rimX=0.51 ±0.22]
 Path A: y=0.18 peak=0.14 rim=0.22 [rising→]
 Path A: y=0.21 peak=0.14 rim=0.22 [peaked]
+Path A awaiting: y=0.27 crossed rim
+Path A awaiting: y=0.28 / need 0.29 [desc]
+MISS Path A — rim bounce
+MISS Path A — rim out
 MAKE Path A crossX=0.498 r2=0.87 conf=0.89
 Path B: above rim 3 frames y=0.19
 Path B: in hoop region — watching for through or bounce
 MAKE Path B — 40% through hoop conf=0.82
+Path C ignored — ball exited upward (y=0.12)
+Path C ignored — vanished near rim without downward motion
 MAKE Path C — ball vanished near rim (net occlusion) conf=0.55
 cooldown — 1.2s remaining
 ```
@@ -278,9 +293,9 @@ cooldown — 1.2s remaining
 | `HoopTracker.relockDistanceThreshold` | 0.20 | HoopTracker | Distance triggering re-lock |
 | `HoopTracker.relockConsecutiveRequired` | 8 | HoopTracker | Frames far away before re-locking |
 | `HoopTracker.candidateJumpThreshold` | 0.12 | HoopTracker | Max candidate jump during accumulation |
-| `BallTracker.entryConfidence` | 0.40 | BallTracker | Min conf during entry gate |
+| `BallTracker.entryConfidence` | 0.40 | BallTracker | Min conf during 2-of-3 gate window |
 | `BallTracker.trackConfidence` | 0.25 | BallTracker | Min conf once established |
-| `BallTracker.entryConsecutiveRequired` | 2 | BallTracker | Consecutive frames for establishment (reduced from 3 — fast shots only visible 3-4 frames near hoop) |
+| `BallTracker.highConfEntryThreshold` | 0.60 | BallTracker | Single-frame conf for immediate establishment |
 | `BallTracker.jumpThreshold` | 0.35 | BallTracker | Max normal jump distance |
 | `BallTracker.reacquireJumpThreshold` | 0.55 | BallTracker | Relaxed jump after 4+ lost frames |
 | `BallTracker.lostFramesForRelaxedJump` | 4 | BallTracker | Lost frames before threshold relaxes |
@@ -292,12 +307,13 @@ cooldown — 1.2s remaining
 | `BallTrackingPipeline.nearHoopXFactor` | 2.5 | Pipeline | Path A X-range as multiple of rim width |
 | `BallTrackingPipeline.launchToleranceY` | 0.04 | Pipeline | Path A: how far below rim to allow flight start |
 | `BallTrackingPipeline.minimumPeakAboveRim` | 0.03 | Pipeline | Path A: min arc height above rim |
+| `BallTrackingPipeline.makeConfirmMargin` | 0.04 | Pipeline | Path A: how far below rim before confirming make |
 | `BallTrackingPipeline.flightTimeoutSeconds` | 3.0 | Pipeline | Path A: max time before aborting flight |
 | `BallTrackingPipeline.makeTolerance` | 0.55 | Pipeline | Path A: make window as multiple of rim width |
 | `BallTrackingPipeline.pathBMinFramesAbove` | 2 | Pipeline | Path B: frames above rim before entry |
 | `BallTrackingPipeline.pathBMakeDepthFraction` | 0.40 | Pipeline | Path B: depth into hoop for MAKE |
 | `BallTrackingPipeline.pathBMaxFramesInRegion` | 18 | Pipeline | Path B: max frames in region before timeout |
 | `BallTrackingPipeline.pathCMaxDisappearanceFrames` | 8 | Pipeline | Path C: max frames lost for disappearance |
-| `BallTrackingPipeline.pathCHoopProximity` | 0.15 | Pipeline | Path C: max distance from rim for disappearance |
+| `BallTrackingPipeline.pathCHoopProximity` | 0.15 | Pipeline | Path C: max X distance from rim center |
 | `BallTrackingPipeline.shotCooldownSeconds` | 1.5 | Pipeline | Shared cooldown between any two shots |
 | `frameSkip` | 3 | ATHLTCameraModule | 1 in N frames analyzed (~10fps from 30fps) |

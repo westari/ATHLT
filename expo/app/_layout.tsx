@@ -61,7 +61,7 @@ export default function RootLayout() {
     <View style={s.container} onLayout={onLayoutRootView}>
       {/* translucent lets the warm bone root View show behind the status bar.
            backgroundColor is the Android fallback; on iOS the view hierarchy handles it. */}
-      <StatusBar style="dark" backgroundColor={Colors.background} translucent />
+      <StatusBar style="light" backgroundColor={Colors.background} translucent />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: Colors.background } }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="session" />

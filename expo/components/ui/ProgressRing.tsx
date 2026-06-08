@@ -46,7 +46,7 @@ export default function ProgressRing({
       {/* Track */}
       <Circle
         cx={cx} cy={cy} r={r}
-        stroke={trackColor ?? 'rgba(11,14,18,0.05)'}
+        stroke={trackColor ?? 'rgba(255,255,255,0.10)'}
         strokeWidth={strokeWidth}
         fill="none"
       />

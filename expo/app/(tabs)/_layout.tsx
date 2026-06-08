@@ -92,7 +92,7 @@ function CustomTabBar({ state, navigation }: any) {
           }}
           activeOpacity={0.85}
         >
-          <Plus size={28} color={Colors.textPrimary} strokeWidth={2.5} />
+          <Plus size={28} color={Colors.black} strokeWidth={2.5} />
         </TouchableOpacity>
       </View>
 
