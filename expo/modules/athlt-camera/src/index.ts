@@ -59,9 +59,10 @@ export interface DebugStatsEvent {
   makes:               number;
   attempts:            number;
   // Deep-trace fields (see MARK: Deep-trace counters in ATHLTCameraModule.swift)
-  totalFramesAnalyzed: number;   // raw inference calls since startTracking; 0 = frame processor not running
-  lastRawObsClass:     string;   // top class from last frame BEFORE confidence filter ("none" if empty)
-  lastRawObsConf:      number;   // confidence of lastRawObsClass (0..1)
+  totalFramesReceived:  number;  // pre-throttle camera frames; 0 = delegate not firing at all
+  totalFramesAnalyzed:  number;  // frames that passed all guards and entered runInference; 0 + received>0 = guard blocking
+  lastRawObsClass:      string;  // top class from last frame BEFORE confidence filter ("none" if empty)
+  lastRawObsConf:       number;  // confidence of lastRawObsClass (0..1)
 }
 
 /** Emitted once when loadModel completes (success or failure). */

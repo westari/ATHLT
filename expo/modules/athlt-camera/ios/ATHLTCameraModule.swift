@@ -451,9 +451,13 @@ public class ATHLTCameraModule: Module {
     private let debugStatsThrottle: Double = 1.0   // emit once per second
 
     // MARK: – Deep-trace counters (reset on startTracking)
-    // totalFramesAnalyzed: incremented at the very top of runInference, before any guard.
-    // If this stays 0 the frame processor is not routing to inference at all.
-    private var totalFramesAnalyzed: Int = 0
+    // totalFramesReceived: pre-throttle, pre-guard — incremented on sessionQueue inside handleSampleBuffer.
+    //   0 → camera delegate never fired (wiring broken).
+    //   >0 but totalFramesAnalyzed==0 → guard on inferenceQueue is blocking.
+    // totalFramesAnalyzed: incremented at the very top of runInference (on inferenceQueue).
+    //   0 → guard or mode/model condition blocked every frame.
+    private var totalFramesReceived: Int = 0   // sessionQueue — camera-alive indicator
+    private var totalFramesAnalyzed: Int = 0   // inferenceQueue — inference-ran indicator
     private var lastRawObsClass: String  = "none"
     private var lastRawObsConf: Double   = 0.0
 
@@ -696,11 +700,20 @@ public class ATHLTCameraModule: Module {
     }
 
     // MARK: – Frame handling ───────────────────────────────────────────────────
+    //
+    // FIX: currentMode and isModelLoaded are written on inferenceQueue (via setMode /
+    // doLoadModel) but were previously read here on sessionQueue — a data race that
+    // made the guard see stale values ("idle" / false) and silently drop all frames.
+    // Guard is now inside the inferenceQueue.async block so it reads the same queue
+    // where those properties are written.
 
     func handleSampleBuffer(_ buffer: CMSampleBuffer) {
+        // ── Pre-throttle counter — increments every frame the camera delivers. ──
+        // If this stays 0 the AVCaptureSession output delegate is not firing at all.
+        totalFramesReceived += 1
+
         frameCounter += 1
         guard frameCounter % frameSkip == 0 else { return }
-        guard currentMode != "idle", isModelLoaded, let model = visionModel else { return }
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(buffer) else { return }
 
         let ts = CMSampleBufferGetPresentationTimeStamp(buffer)
@@ -710,12 +723,35 @@ public class ATHLTCameraModule: Module {
 
         CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
         let cap = pixelBuffer
-        let mod = model
         let t   = timestampSec
 
         inferenceQueue.async { [weak self] in
             defer { CVPixelBufferUnlockBaseAddress(cap, .readOnly) }
-            self?.runInference(pixelBuffer: cap, model: mod, timestamp: t)
+            guard let self else { return }
+
+            // ── Mode / model guard — evaluated on inferenceQueue where both
+            //    properties are written. Logs reason on the first 30+ frames
+            //    with no analysis, so we can see exactly which check is failing.
+            let neverAnalyzed = self.totalFramesAnalyzed == 0 && self.totalFramesReceived >= 30
+
+            guard self.currentMode != "idle" else {
+                if neverAnalyzed {
+                    NSLog("[ATHLTCamera] GUARD BLOCK: currentMode='idle' after %d frames rx — setMode('detection') not called or lost",
+                          self.totalFramesReceived)
+                }
+                return
+            }
+            guard self.isModelLoaded, let model = self.visionModel else {
+                if neverAnalyzed {
+                    NSLog("[ATHLTCamera] GUARD BLOCK: model not loaded after %d frames rx (isModelLoaded=%@, visionModel=%@)",
+                          self.totalFramesReceived,
+                          self.isModelLoaded ? "YES" : "NO",
+                          self.visionModel == nil ? "nil" : "set")
+                }
+                return
+            }
+
+            self.runInference(pixelBuffer: cap, model: model, timestamp: t)
         }
     }
 
@@ -771,6 +807,37 @@ public class ATHLTCameraModule: Module {
         processObservations(observations, timestamp: timestamp)
     }
 
+    // MARK: – Class name helpers ──────────────────────────────────────────────
+    //
+    // The exported model's class identifiers depend on the training dataset and
+    // export toolchain. We've seen two formats in practice:
+    //
+    //   Human-readable (ideal):  "Ball", "Basket", "Ball_in_Basket", etc.
+    //   Numeric string (bug):    "0", "1", "2", "3", "4"
+    //
+    // For the SwishAI 5-class dataset (basketball-6vyfz/basketball-detection-srfkd):
+    //   0 = Ball           → ball
+    //   1 = Ball_in_Basket → ball (also a ball position for tracking)
+    //   2 = Player         → ignored
+    //   3 = Basket         → basket/hoop
+    //   4 = Player_Shooting→ ignored
+    //
+    // ALL comparisons use lowercased() so case variants like "BALL" also match.
+
+    private static func isBallClass(_ identifier: String) -> Bool {
+        switch identifier.lowercased() {
+        case "ball", "0", "ball_in_basket", "1": return true
+        default: return false
+        }
+    }
+
+    private static func isBasketClass(_ identifier: String) -> Bool {
+        switch identifier.lowercased() {
+        case "basket", "hoop", "rim", "basketball hoop", "basketball_hoop", "3": return true
+        default: return false
+        }
+    }
+
     // MARK: – Mode dispatch ────────────────────────────────────────────────────
 
     private func processObservations(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
@@ -783,12 +850,11 @@ public class ATHLTCameraModule: Module {
         // show what the model actually sees, even low-confidence outputs.
         for obs in observations {
             guard let top = obs.labels.first else { continue }
-            let name = top.identifier.lowercased()
             let conf = Double(top.confidence)
-            if name == "ball" {
+            if ATHLTCameraModule.isBallClass(top.identifier) {
                 totalBallDetections += 1
                 if conf > peakBallConfidence { peakBallConfidence = conf }
-            } else if name == "basket" || name == "hoop" || name == "rim" {
+            } else if ATHLTCameraModule.isBasketClass(top.identifier) {
                 totalHoopDetections += 1
                 if conf > peakHoopConfidence { peakHoopConfidence = conf }
             }
@@ -796,8 +862,9 @@ public class ATHLTCameraModule: Module {
 
         if diagnosticMode { emitDiagnosticEvent(observations) }
 
-        // Emit debug stats once per second while tracking (JS debug panel reads these)
-        if isTracking {
+        // Emit debug stats once per second in detection AND tracking modes.
+        // Gating on isTracking only meant no diagnostics were visible before Start.
+        if isTracking || currentMode == "detection" {
             let now = Date().timeIntervalSinceReferenceDate
             if now - lastDebugStatsTime >= debugStatsThrottle {
                 lastDebugStatsTime = now
@@ -825,8 +892,7 @@ public class ATHLTCameraModule: Module {
 
         for obs in observations {
             guard let top = obs.labels.first else { continue }
-            let name = top.identifier.lowercased()
-            if (name == "basket" || name == "hoop" || name == "rim") && top.confidence >= minConf {
+            if ATHLTCameraModule.isBasketClass(top.identifier) && top.confidence >= minConf {
                 if top.confidence > bestConf { bestBasket = obs; bestConf = top.confidence }
             }
         }
@@ -871,12 +937,10 @@ public class ATHLTCameraModule: Module {
 
         for obs in observations {
             guard let top = obs.labels.first, top.confidence >= minConf else { continue }
-            switch top.identifier.lowercased() {
-            case "ball":
+            if ATHLTCameraModule.isBallClass(top.identifier) {
                 if ball == nil || top.confidence > (ball?.labels.first?.confidence ?? 0) { ball = obs }
-            case "basket", "hoop", "rim":
+            } else if ATHLTCameraModule.isBasketClass(top.identifier) {
                 if basket == nil || top.confidence > (basket?.labels.first?.confidence ?? 0) { basket = obs }
-            default: break
             }
         }
 
@@ -933,6 +997,7 @@ public class ATHLTCameraModule: Module {
             "inFlight":      pipeline.inFlight,
             "makes":         pipeline.makes,
             "attempts":      pipeline.attempts,
+            "totalFramesReceived":  totalFramesReceived,
             "totalFramesAnalyzed": totalFramesAnalyzed,
             "lastRawObsClass":     lastRawObsClass,
             "lastRawObsConf":      lastRawObsConf,

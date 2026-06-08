@@ -105,7 +105,7 @@ export default function OpenRunScreen() {
     ballX: -1, ballY: -1,
     hoopLocked: false, hoopX: -1, hoopY: -1, hoopW: 0, hoopH: 0,
     inFlight: false, makes: 0, attempts: 0,
-    totalFramesAnalyzed: 0, lastRawObsClass: 'none', lastRawObsConf: 0,
+    totalFramesReceived: 0, totalFramesAnalyzed: 0, lastRawObsClass: 'none', lastRawObsConf: 0,
   });
   const [modelStatus, setModelStatus] = useState<ModelLoadStatusEvent | null>(null);
 
@@ -201,12 +201,11 @@ export default function OpenRunScreen() {
     setDiagnosticMode(diagOpen).catch(() => {});
   }, [diagOpen]);
 
-  // ── Debug stats subscription — always active while tracking ─────────────────
+  // ── Debug stats subscription — always active (emitted in detection + tracking)
   useEffect(() => {
-    if (!isTracking) return;
     const sub = addDebugStatsListener(e => setDebugStats(e));
     return () => sub.remove();
-  }, [isTracking]);
+  }, []);
 
   // ── Model load status — fires once when loadModel() completes ────────────────
   useEffect(() => {
@@ -459,6 +458,20 @@ export default function OpenRunScreen() {
         )}
       </Animated.View>
 
+      {/* Model status banner — always visible, shows load result immediately */}
+      {modelStatus !== null && (
+        <View
+          style={[s.modelBanner, { top: barY }]}
+          pointerEvents="none"
+        >
+          <Text style={[s.modelBannerText, { color: modelStatus.loaded ? Colors.primary : '#FF3B30' }]}>
+            {modelStatus.loaded
+              ? `model: ${modelStatus.modelPath}`
+              : `model failed: ${modelStatus.error ?? 'unknown'}`}
+          </Text>
+        </View>
+      )}
+
       {/* X / close */}
       <View style={[s.topLeft, { top: barY, left: leftX }]}>
         <GlassPanel style={s.xBtn} borderRadius={18} tint="dark" intensity={55}>
@@ -482,8 +495,8 @@ export default function OpenRunScreen() {
         </View>
       )}
 
-      {/* Debug panel — below streak pill, tracking only, toggled by DBG button */}
-      {isTracking && debugVisible && (
+      {/* Debug panel — visible in detection + tracking when DBG toggled */}
+      {(isTracking || phase === 'idle') && debugVisible && (
         <View style={[s.dbgPanel, { top: barY + 36 + 6 + 26 + 8, left: leftX }]}>
           <GlassPanel style={s.dbgInner} borderRadius={10} tint="dark" intensity={70}>
             <Text style={s.dbgLine}>
@@ -523,7 +536,11 @@ export default function OpenRunScreen() {
               <Text style={s.dbgVal}>{debugStats.makes}/{debugStats.attempts}</Text>
             </Text>
             <Text style={s.dbgLine}>
-              <Text style={s.dbgKey}>Frames </Text>
+              <Text style={s.dbgKey}>Recv  </Text>
+              <Text style={[s.dbgVal, { color: debugStats.totalFramesReceived > 0 ? '#FFFFFF' : '#FF3B30' }]}>
+                {debugStats.totalFramesReceived}
+              </Text>
+              <Text style={s.dbgKey}>{'  '}Infrd </Text>
               <Text style={[s.dbgVal, { color: debugStats.totalFramesAnalyzed > 0 ? '#FFFFFF' : '#FF3B30' }]}>
                 {debugStats.totalFramesAnalyzed}
               </Text>
@@ -549,8 +566,8 @@ export default function OpenRunScreen() {
         </GlassPanel>
       </View>
 
-      {/* DBG toggle — below flip button, tracking only, intentionally subtle */}
-      {isTracking && (
+      {/* DBG toggle — below flip button, visible in detection + tracking modes */}
+      {(isTracking || phase === 'idle') && (
         <TouchableOpacity
           style={[s.dbgToggle, { top: barY + 32 + 6, right: rightX + 2 }]}
           onPress={() => setDebugVisible(v => !v)}
@@ -818,6 +835,16 @@ const s = StyleSheet.create({
   diagToggleBtn:        { position: 'absolute', zIndex: 30, paddingVertical: 8 },
   diagToggleText:       { color: 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: '500' },
   diagToggleTextActive: { color: Colors.primary },
+
+  // ── Model status banner ───────────────────────────────────────────────────────
+  modelBanner: {
+    position: 'absolute', left: 0, right: 0,
+    alignItems: 'center', zIndex: 50,
+  },
+  modelBannerText: {
+    fontSize: 9, fontWeight: '600', letterSpacing: 0.3, opacity: 0.75,
+    textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2,
+  },
 
   // ── Debug stats panel ─────────────────────────────────────────────────────────
   dbgToggle:          { position: 'absolute', zIndex: 30 },
