@@ -54,6 +54,10 @@ final class BallTrackingPipeline {
     private static let cooldownSec    = 2.0     // minimum seconds between scored shots
     private static let flightTimeout  = 2.5     // abort in-flight state after this long
     private static let makeTolerance  = 0.55    // X within hoopWidth * tolerance → MAKE
+    private static let ballInitialConf: Double  = 0.40  // higher bar for first N frames — filters flickering FP
+    private static let ballPersistenceRequired  = 3     // consecutive frames needed to establish ball tracking
+    private static let hoopLockRequired         = 5     // frames at hoopLockConfThreshold before locking
+    private static let hoopLockConfThreshold: Float = 0.35  // per-frame hoop conf needed during persistence window
 
     // MARK: – Ball point (top-left normalized coords)
     struct BallPoint {
@@ -84,13 +88,51 @@ final class BallTrackingPipeline {
     private(set) var attempts: Int = 0
     private var lastShotT: Double = 0.0
 
+    // MARK: – Ball persistence state
+    private var ballConsecutiveFrames = 0      // consecutive frames ball seen above ballInitialConf
+    private var ballEstablished       = false  // true once persistence threshold is met
+
+    // MARK: – Hoop persistence state  (Vision-coord bbox of candidate; reset only on resetAll)
+    private var hoopLockCount:     Int     = 0
+    private var hoopLockCandidate: CGRect? = nil
+
     // MARK: – Hoop locking ─────────────────────────────────────────────────────
     //
     // Convert Vision bbox (bottom-left origin) → top-left coords, then lock.
     // Once locked, hoop position is fixed for the session regardless of what
     // the model detects in subsequent frames — this prevents jitter.
 
-    func lockHoop(visionBBox: CGRect) {
+    // Persistence-filtered hoop detection. Call this instead of lockHoop directly.
+    // Requires hoopLockRequired consecutive frames at hoopLockConfThreshold before committing.
+    // Resets progress when the candidate position jumps (different object detected).
+    func considerHoop(visionBBox: CGRect, confidence: Float) {
+        guard !hoopLocked else { return }
+        guard confidence >= Self.hoopLockConfThreshold else {
+            hoopLockCount = max(0, hoopLockCount - 1)
+            return
+        }
+
+        if let candidate = hoopLockCandidate {
+            let dx = abs(Double(visionBBox.midX) - Double(candidate.midX))
+            let dy = abs(Double(visionBBox.midY) - Double(candidate.midY))
+            if dx > 0.12 || dy > 0.12 {
+                NSLog("[BallTracking] hoop candidate reset (jump dx=%.3f dy=%.3f)", dx, dy)
+                hoopLockCount     = 1
+                hoopLockCandidate = visionBBox
+                return
+            }
+        } else {
+            hoopLockCandidate = visionBBox
+        }
+
+        hoopLockCount += 1
+        NSLog("[BallTracking] hoop persistence %d/%d (conf=%.2f)", hoopLockCount, Self.hoopLockRequired, confidence)
+        if hoopLockCount >= Self.hoopLockRequired {
+            lockHoop(visionBBox: hoopLockCandidate ?? visionBBox)
+        }
+    }
+
+    private func lockHoop(visionBBox: CGRect) {
         guard !hoopLocked else { return }
         let x = Double(visionBBox.origin.x)
         let y = 1.0 - Double(visionBBox.origin.y) - Double(visionBBox.height)
@@ -116,21 +158,25 @@ final class BallTrackingPipeline {
     // Called on startTracking. Keeps hoop lock from detection mode.
     func resetSession() {
         buffer.removeAll()
-        prevBall    = nil
-        inFlight    = false
-        peakY       = 1.0
-        flightStart = 0.0
-        makes       = 0
-        attempts    = 0
-        lastShotT   = 0.0
+        prevBall              = nil
+        inFlight              = false
+        peakY                 = 1.0
+        flightStart           = 0.0
+        makes                 = 0
+        attempts              = 0
+        lastShotT             = 0.0
+        ballConsecutiveFrames = 0
+        ballEstablished       = false
         NSLog("[BallTracking] session reset — hoop locked: %@", hoopLocked ? "YES" : "NO")
     }
 
     // Called on stopSession (full teardown). Clears everything including hoop.
     func resetAll() {
         resetSession()
-        hoop       = nil
-        hoopLocked = false
+        hoop              = nil
+        hoopLocked        = false
+        hoopLockCount     = 0
+        hoopLockCandidate = nil
         NSLog("[BallTracking] full reset")
     }
 
@@ -146,10 +192,9 @@ final class BallTrackingPipeline {
     ) -> (type: String, confidence: Double)? {
 
         // Auto-lock hoop from basket detections if not already locked.
-        // Used as a fallback when user skips the detection-mode setup.
-        if !hoopLocked, let b = basket, let top = b.labels.first,
-           top.confidence >= Self.minHoopConf {
-            lockHoop(visionBBox: b.boundingBox)
+        // Uses persistence filtering — requires hoopLockRequired consistent frames.
+        if let b = basket, let top = b.labels.first {
+            considerHoop(visionBBox: b.boundingBox, confidence: top.confidence)
         }
 
         ingestBall(obs: ball, timestamp: timestamp)
@@ -163,9 +208,20 @@ final class BallTrackingPipeline {
         let cutoff = timestamp - Self.ageSeconds
         buffer.removeAll { $0.t < cutoff }
 
-        guard let obs = obs,
-              let top = obs.labels.first,
-              Double(top.confidence) >= Self.minBallConf else { return }
+        guard let obs = obs, let top = obs.labels.first else {
+            // No detection this frame — reset persistence counter if still accumulating
+            if !ballEstablished { ballConsecutiveFrames = 0 }
+            return
+        }
+
+        // Require higher confidence for the initial persistence window.
+        // Once established (N consecutive frames seen), drop back to minBallConf so
+        // motion blur / partial occlusion mid-flight don't drop the track.
+        let requiredConf = ballEstablished ? Self.minBallConf : Self.ballInitialConf
+        guard Double(top.confidence) >= requiredConf else {
+            if !ballEstablished { ballConsecutiveFrames = 0 }
+            return
+        }
 
         let bb = obs.boundingBox
         let x  = Double(bb.midX)
@@ -176,7 +232,25 @@ final class BallTrackingPipeline {
             let dist = (pow(x - prev.x, 2) + pow(y - prev.y, 2)).squareRoot()
             if dist > Self.jumpThresh {
                 NSLog("[BallTracking] jump rejected: dist=%.3f", dist)
+                if !ballEstablished { ballConsecutiveFrames = 0 }
                 return
+            }
+        }
+
+        // Persistence gate: require ballPersistenceRequired consecutive valid frames
+        // before adding positions to the tracking buffer. A real ball stays in the
+        // same area frame-to-frame; a false positive (orange shirt, logo, etc) appears
+        // and vanishes sporadically. prevBall is updated during the window so the jump
+        // filter stays calibrated even before we commit to tracking.
+        if !ballEstablished {
+            ballConsecutiveFrames += 1
+            prevBall = BallPoint(x: x, y: y, t: timestamp, conf: Double(top.confidence))
+            if ballConsecutiveFrames >= Self.ballPersistenceRequired {
+                ballEstablished = true
+                NSLog("[BallTracking] ball ESTABLISHED after %d frames (conf=%.2f)",
+                      ballConsecutiveFrames, Double(top.confidence))
+            } else {
+                return  // still accumulating — don't add to buffer yet
             }
         }
 
@@ -280,16 +354,22 @@ final class BallTrackingPipeline {
 
         let inside   = abs(crossX - hoopMidX) <= hoopW * Self.makeTolerance
         let shotType = inside ? "make" : "miss"
-        let shotConf = inside ? 0.80 : 0.72
+
+        // Shot confidence = how clean the trajectory was.
+        // R² of the linear y(t) fit over the scoring positions: 1.0 = perfectly
+        // consistent descent, 0.0 = scattered noise. Maps to [0.45, 0.95].
+        // A low-confidence shot (< ~0.60) should be treated as a possible false positive.
+        let r2       = computeRSquared(points: pts)
+        let shotConf = max(0.45, 0.45 + r2 * 0.50)
 
         if inside { makes += 1 }
         attempts += 1
         lastShotT = timestamp
         resetFlight()
 
-        NSLog("[BallTracking] %@ | crossX=%.3f hoopMidX=%.3f hoopW=%.3f inside=%@ | %d/%d",
+        NSLog("[BallTracking] %@ | crossX=%.3f hoopMidX=%.3f hoopW=%.3f inside=%@ r2=%.2f conf=%.2f | %d/%d",
               shotType.uppercased(), crossX, hoopMidX, hoopW,
-              inside ? "YES" : "NO", makes, attempts)
+              inside ? "YES" : "NO", r2, shotConf, makes, attempts)
 
         return (shotType, shotConf)
     }
@@ -384,6 +464,38 @@ final class BallTrackingPipeline {
     }
 
     // MARK: – Helpers
+
+    // R² of linear y(t) fit. Measures how consistently the ball moved through
+    // the scored positions. High R² = clean straight descent through hoop = reliable result.
+    // Low R² = scattered points = noisy detection = treat shot with skepticism.
+    private func computeRSquared(points: [BallPoint]) -> Double {
+        let n = Double(points.count)
+        guard n >= 3 else { return 0.5 }
+
+        var sumT = 0.0, sumY = 0.0, sumTY = 0.0, sumT2 = 0.0
+        for p in points {
+            sumT  += p.t
+            sumY  += p.y
+            sumTY += p.t * p.y
+            sumT2 += p.t * p.t
+        }
+
+        let denom = n * sumT2 - sumT * sumT
+        guard abs(denom) > 1e-12 else { return 0.9 }  // all same timestamp → degenerate
+
+        let mY    = (n * sumTY - sumT * sumY) / denom
+        let bY    = (sumY - mY * sumT) / n
+        let meanY = sumY / n
+
+        var ssRes = 0.0, ssTot = 0.0
+        for p in points {
+            ssRes += pow(p.y - (mY * p.t + bY), 2)
+            ssTot += pow(p.y - meanY, 2)
+        }
+
+        guard ssTot > 1e-12 else { return 0.9 }  // all same y → perfectly consistent
+        return max(0.0, min(1.0, 1.0 - ssRes / ssTot))
+    }
 
     private func resetFlight() {
         inFlight    = false
@@ -899,10 +1011,10 @@ public class ATHLTCameraModule: Module {
 
         guard let found = bestBasket else { return }
 
-        // Lock hoop on pipeline when confidence is high enough
-        if !pipeline.hoopLocked, bestConf >= BallTrackingPipeline.minHoopConf {
-            pipeline.lockHoop(visionBBox: found.boundingBox)
-        }
+        // Accumulate hoop evidence — pipeline requires hoopLockRequired consecutive
+        // frames at hoopLockConfThreshold before committing. Prevents a single
+        // high-confidence frame on a non-hoop object from locking the wrong region.
+        pipeline.considerHoop(visionBBox: found.boundingBox, confidence: bestConf)
 
         // Throttle onHoopDetected events
         let now = Date().timeIntervalSinceReferenceDate
