@@ -24,166 +24,769 @@ final class ATHLTSessionHolder {
     }
 }
 
-// ─── BallTrackingPipeline ──────────────────────────────────────────────────────
+// ─── HoopTracker ──────────────────────────────────────────────────────────────
 //
-// Trajectory-based shot detection modeled on open-source basketball CV research
-// (avishah3/AI-Basketball-Shot-Detection-Tracker, nitinhemaraj/Basketball-shot-detection).
+// Owns the hoop bounding box for a session. Accumulates evidence before locking
+// (avoids locking onto the wrong object), then applies EMA smoothing after locking
+// to handle slow camera drift. Detects camera repositioning and re-locks to the
+// new position. Manual tap always overrides automatic detection.
 //
-// Core idea:
-//   1. Lock the hoop bbox once during setup — never re-detect during a session.
-//   2. Maintain a rolling 60-frame ball position buffer with data cleaning.
-//   3. Detect shot-in-flight when ball rises above the hoop and is near its X.
-//   4. Score the shot at the moment ball descends back to hoop-center Y:
-//        • Use linear regression on the last 5 positions to predict exact X at crossing.
-//        • MAKE if predicted/actual X lands inside the hoop bbox (±55% half-width).
-//        • MISS otherwise.
-//   5. Enforce a 2-second cooldown between scored shots.
-//
-// All coordinates in this class are top-left origin (y=0 at top, y=1 at bottom),
-// the inverse of Vision's native bottom-left origin. Conversion happens in ingestBall()
-// and lockHoop() at the boundary.
+// All stored geometry uses top-left origin (y=0 top, y=1 bottom).
+// Vision observations arrive in bottom-left origin — toTopLeft() converts at ingestion.
 
-final class BallTrackingPipeline {
+final class HoopTracker {
 
-    // MARK: – Tuning constants
-    private static let bufferMax      = 60      // frames at ~5fps → ~12s history
-    private static let ageSeconds     = 4.0     // drop positions older than this
-    private static let jumpThresh     = 0.28    // max Euclidean jump in normalized coords
-    private static let minBallConf    = 0.25    // lowered: blurry balls get low conf; jump filter handles FP
-    static let minHoopConf: Float = 0.30  // lowered: hoop detection threshold (internal for module access)
-    private static let cooldownSec    = 2.0     // minimum seconds between scored shots
-    private static let flightTimeout  = 2.5     // abort in-flight state after this long
-    private static let makeTolerance  = 0.55    // X within hoopWidth * tolerance → MAKE
-    private static let ballInitialConf: Double  = 0.40  // higher bar for first N frames — filters flickering FP
-    private static let ballPersistenceRequired  = 3     // consecutive frames needed to establish ball tracking
-    private static let hoopLockRequired         = 5     // frames at hoopLockConfThreshold before locking
-    private static let hoopLockConfThreshold: Float = 0.35  // per-frame hoop conf needed during persistence window
+    // MARK: – Tuning constants (all magic numbers live here, documented)
 
-    // MARK: – Ball point (top-left normalized coords)
-    struct BallPoint {
-        let x: Double
-        let y: Double
-        let t: Double      // seconds since epoch
-        let conf: Double
+    /// Min confidence per frame to count toward the lock accumulation window.
+    /// Lower = locks faster but risks locking on a wrong object. 0.35 is conservative.
+    static let lockConfThreshold: Float = 0.35
+
+    /// Number of consecutive high-confidence frames at a stable position required
+    /// before committing the lock. Prevents single-frame false positives.
+    static let lockConsecutiveRequired: Int = 5
+
+    /// EMA smoothing factor applied to hoop position after lock.
+    /// 0.10 = new detections contribute 10% each frame → very stable against jitter.
+    /// Increase toward 0.25 if the phone moves frequently and lock drifts too slowly.
+    static let emaAlpha: Double = 0.10
+
+    /// Frames without a valid hoop detection before the lock is marked "stale".
+    /// Stale = keep using last known position, but flag it for the debug panel.
+    static let staleFrameThreshold: Int = 30
+
+    /// If the hoop is consistently detected this far (normalized) from the locked
+    /// position, the camera was repositioned — trigger a re-lock.
+    static let relockDistanceThreshold: Double = 0.20
+
+    /// Consecutive frames with a far-away detection needed to trigger re-lock.
+    /// Prevents a single bad detection frame from wiping the lock.
+    static let relockConsecutiveRequired: Int = 8
+
+    /// Max center displacement (normalized) between consecutive accumulation frames.
+    /// If the candidate position jumps beyond this, restart the accumulation window.
+    static let candidateJumpThreshold: Double = 0.12
+
+    // MARK: – Geometry (top-left origin, normalized 0..1)
+
+    struct HoopGeometry {
+        var center:     CGPoint  // midpoint of the hoop bbox
+        var bbox:       CGRect   // full bounding box
+        var rimLineY:   Double   // Y of the rim opening (top edge of bbox; ball crosses this line)
+        var rimMinX:    Double   // left edge of the rim opening
+        var rimMaxX:    Double   // right edge of the rim opening
+        var rimCenterX: Double   // horizontal midpoint of the rim
+        var rimWidth:   Double   // width of the rim opening (used for make tolerance math)
     }
 
-    // MARK: – Hoop (locked once; top-left normalized)
-    private(set) var hoop: CGRect?       = nil
-    private(set) var hoopLocked: Bool    = false
+    // MARK: – Public state
 
-    // MARK: – Ball position buffer
-    private var buffer:   [BallPoint] = []
-    private var prevBall: BallPoint?  = nil   // for jump-rejection
+    private(set) var geometry:  HoopGeometry? = nil
+    private(set) var isLocked:  Bool = false
+    private(set) var isStale:   Bool = false   // locked but camera may have drifted away
+    private(set) var isManual:  Bool = false   // true when locked via user tap
 
-    /// Most-recent accepted ball position — exposed for debug stats.
-    var latestBall: BallPoint? { buffer.last }
+    /// 0.0–1.0 progress toward initial lock (for UI loading indicator).
+    var lockProgress: Double {
+        guard !isLocked else { return 1.0 }
+        guard Self.lockConsecutiveRequired > 0 else { return 0.0 }
+        return Double(candidateFrames) / Double(Self.lockConsecutiveRequired)
+    }
 
-    // MARK: – Shot-in-flight state
-    private(set) var inFlight: Bool   = false
-    private var peakY:       Double = 1.0    // minimum y seen so far (y=0 at top)
-    private var flightStart: Double = 0.0
+    // MARK: – Private accumulation state
 
-    // MARK: – Counters (exposed for stopTracking return value)
-    private(set) var makes:    Int = 0
-    private(set) var attempts: Int = 0
-    private var lastShotT: Double = 0.0
+    private var candidateFrames:    Int     = 0
+    private var candidateSumX:      Double  = 0
+    private var candidateSumY:      Double  = 0
+    private var candidateSumW:      Double  = 0
+    private var candidateSumH:      Double  = 0
+    private var lastCandidateMidX:  Double? = nil
+    private var lastCandidateMidY:  Double? = nil
 
-    // MARK: – Ball persistence state
-    private var ballConsecutiveFrames = 0      // consecutive frames ball seen above ballInitialConf
-    private var ballEstablished       = false  // true once persistence threshold is met
+    // MARK: – Private post-lock maintenance state
 
-    // MARK: – Hoop persistence state  (Vision-coord bbox of candidate; reset only on resetAll)
-    private var hoopLockCount:     Int     = 0
-    private var hoopLockCandidate: CGRect? = nil
+    private var framesSinceDetection: Int = 0
+    private var relockFrames:          Int = 0
 
-    // MARK: – Hoop locking ─────────────────────────────────────────────────────
+    // MARK: – Ingestion ────────────────────────────────────────────────────────
     //
-    // Convert Vision bbox (bottom-left origin) → top-left coords, then lock.
-    // Once locked, hoop position is fixed for the session regardless of what
-    // the model detects in subsequent frames — this prevents jitter.
+    // Call once per analyzed frame. Pass the best basket/hoop VNRecognizedObjectObservation
+    // (nil if none was detected or confidence was below caller's pre-filter threshold).
+    // visionBBox is in Vision coordinates (bottom-left origin, normalized 0..1).
 
-    // Persistence-filtered hoop detection. Call this instead of lockHoop directly.
-    // Requires hoopLockRequired consecutive frames at hoopLockConfThreshold before committing.
-    // Resets progress when the candidate position jumps (different object detected).
-    func considerHoop(visionBBox: CGRect, confidence: Float) {
-        guard !hoopLocked else { return }
-        guard confidence >= Self.hoopLockConfThreshold else {
-            hoopLockCount = max(0, hoopLockCount - 1)
-            return
-        }
+    func ingest(visionBBox: CGRect?, confidence: Float) {
+        guard !isManual else { return }   // manual lock is immutable until resetAll()
 
-        if let candidate = hoopLockCandidate {
-            let dx = abs(Double(visionBBox.midX) - Double(candidate.midX))
-            let dy = abs(Double(visionBBox.midY) - Double(candidate.midY))
-            if dx > 0.12 || dy > 0.12 {
-                NSLog("[BallTracking] hoop candidate reset (jump dx=%.3f dy=%.3f)", dx, dy)
-                hoopLockCount     = 1
-                hoopLockCandidate = visionBBox
-                return
-            }
+        if isLocked {
+            handlePostLockUpdate(visionBBox: visionBBox, confidence: confidence)
         } else {
-            hoopLockCandidate = visionBBox
-        }
-
-        hoopLockCount += 1
-        NSLog("[BallTracking] hoop persistence %d/%d (conf=%.2f)", hoopLockCount, Self.hoopLockRequired, confidence)
-        if hoopLockCount >= Self.hoopLockRequired {
-            lockHoop(visionBBox: hoopLockCandidate ?? visionBBox)
+            handleAccumulation(visionBBox: visionBBox, confidence: confidence)
         }
     }
 
-    private func lockHoop(visionBBox: CGRect) {
-        guard !hoopLocked else { return }
-        let x = Double(visionBBox.origin.x)
-        let y = 1.0 - Double(visionBBox.origin.y) - Double(visionBBox.height)
-        let w = Double(visionBBox.width)
-        let h = Double(visionBBox.height)
-        hoop = CGRect(x: x, y: y, width: w, height: h)
-        hoopLocked = true
-        NSLog("[BallTracking] hoop LOCKED (auto) — origin(%.3f,%.3f) size(%.3f×%.3f)", x, y, w, h)
-    }
+    // MARK: – Manual lock ──────────────────────────────────────────────────────
+    //
+    // Called when the user taps the camera preview to mark the hoop.
+    // Coordinates are top-left normalized — the caller converts from screen pixels.
+    // Overrides any in-progress accumulation or existing auto lock immediately.
 
-    // Set hoop from a manual tap on the camera preview.
-    // Coordinates are top-left normalized (same convention used throughout the pipeline).
-    // Overrides any previous auto-detected hoop — force-sets hoopLocked regardless of
-    // prior state so the user can always correct a bad auto-detection.
-    func setManualHoop(x: Double, y: Double, width: Double, height: Double) {
-        hoop = CGRect(x: x, y: y, width: width, height: height)
-        hoopLocked = true
-        NSLog("[BallTracking] hoop LOCKED (manual) — origin(%.3f,%.3f) size(%.3f×%.3f)", x, y, width, height)
+    func setManual(x: Double, y: Double, width: Double, height: Double) {
+        let bbox = CGRect(x: x, y: y, width: width, height: height)
+        geometry = makeGeometry(from: bbox)
+        isLocked = true
+        isManual = true
+        isStale  = false
+        framesSinceDetection = 0
+        relockFrames = 0
+        resetAccumulation()
+        NSLog("[HoopTracker] LOCKED (manual) center=(%.3f,%.3f) rim=(%.3f–%.3f @ y=%.3f)",
+              x + width / 2, y + height / 2, x, x + width, y)
     }
 
     // MARK: – Session management ───────────────────────────────────────────────
 
-    // Called on startTracking. Keeps hoop lock from detection mode.
+    /// Called on startTracking. Keeps hoop lock across detection→tracking transition.
+    func resetSession() {
+        framesSinceDetection = 0
+        relockFrames = 0
+        isStale = false
+        // geometry, isLocked, isManual intentionally preserved
+    }
+
+    /// Called on stopSession. Wipes everything including the lock.
+    func resetAll() {
+        geometry     = nil
+        isLocked     = false
+        isStale      = false
+        isManual     = false
+        framesSinceDetection = 0
+        relockFrames = 0
+        resetAccumulation()
+        NSLog("[HoopTracker] full reset")
+    }
+
+    // MARK: – Pre-lock: accumulation ───────────────────────────────────────────
+
+    private func handleAccumulation(visionBBox: CGRect?, confidence: Float) {
+        guard let bb = visionBBox, confidence >= Self.lockConfThreshold else {
+            if candidateFrames > 0 {
+                NSLog("[HoopTracker] accumulation reset (no detection / conf %.2f < %.2f)", confidence, Self.lockConfThreshold)
+                resetAccumulation()
+            }
+            return
+        }
+
+        let tl   = toTopLeft(visionBBox: bb)
+        let midX = Double(tl.midX)
+        let midY = Double(tl.midY)
+
+        // Reject if candidate position jumped significantly (probably a different object).
+        if let lastX = lastCandidateMidX, let lastY = lastCandidateMidY {
+            let dx = abs(midX - lastX)
+            let dy = abs(midY - lastY)
+            if dx > Self.candidateJumpThreshold || dy > Self.candidateJumpThreshold {
+                NSLog("[HoopTracker] accumulation reset (position jump dx=%.3f dy=%.3f)", dx, dy)
+                resetAccumulation()
+                // Count this frame as the new start (don't waste it)
+                candidateFrames   = 1
+                candidateSumX     = midX;  candidateSumY = midY
+                candidateSumW     = Double(tl.width);  candidateSumH = Double(tl.height)
+                lastCandidateMidX = midX;  lastCandidateMidY = midY
+                return
+            }
+        }
+
+        candidateFrames   += 1
+        candidateSumX     += midX
+        candidateSumY     += midY
+        candidateSumW     += Double(tl.width)
+        candidateSumH     += Double(tl.height)
+        lastCandidateMidX  = midX
+        lastCandidateMidY  = midY
+
+        NSLog("[HoopTracker] accumulating %d/%d (conf=%.2f pos=%.3f,%.3f)",
+              candidateFrames, Self.lockConsecutiveRequired, confidence, midX, midY)
+
+        guard candidateFrames >= Self.lockConsecutiveRequired else { return }
+
+        // Average all accumulated positions for a stable initial lock.
+        let n    = Double(candidateFrames)
+        let avgX = candidateSumX / n
+        let avgY = candidateSumY / n
+        let avgW = candidateSumW / n
+        let avgH = candidateSumH / n
+        let avgBBox = CGRect(x: avgX - avgW / 2, y: avgY - avgH / 2, width: avgW, height: avgH)
+
+        geometry             = makeGeometry(from: avgBBox)
+        isLocked             = true
+        isStale              = false
+        framesSinceDetection = 0
+        resetAccumulation()
+
+        if let g = geometry {
+            NSLog("[HoopTracker] LOCKED (auto, %d-frame avg) center=(%.3f,%.3f) rim=(%.3f–%.3f @ y=%.3f)",
+                  Int(n), Double(g.center.x), Double(g.center.y), g.rimMinX, g.rimMaxX, g.rimLineY)
+        }
+    }
+
+    // MARK: – Post-lock: EMA smoothing + drift detection + re-lock ─────────────
+
+    private func handlePostLockUpdate(visionBBox: CGRect?, confidence: Float) {
+        guard var g = geometry else { return }
+
+        guard let bb = visionBBox, confidence >= Self.lockConfThreshold else {
+            framesSinceDetection += 1
+            if framesSinceDetection >= Self.staleFrameThreshold && !isStale {
+                isStale = true
+                NSLog("[HoopTracker] STALE — no detection for %d frames (using last known position)",
+                      framesSinceDetection)
+            }
+            relockFrames = 0  // no competing candidate visible; don't count toward re-lock
+            return
+        }
+
+        // Hoop re-appeared (or continued being detected).
+        framesSinceDetection = 0
+        if isStale {
+            isStale = false
+            NSLog("[HoopTracker] RECOVERED — hoop re-detected")
+        }
+
+        let tl      = toTopLeft(visionBBox: bb)
+        let newMidX = Double(tl.midX)
+        let newMidY = Double(tl.midY)
+        let locX    = Double(g.center.x)
+        let locY    = Double(g.center.y)
+        let dist    = ((newMidX - locX) * (newMidX - locX) + (newMidY - locY) * (newMidY - locY)).squareRoot()
+
+        if dist > Self.relockDistanceThreshold {
+            relockFrames += 1
+            NSLog("[HoopTracker] far detection dist=%.3f (%d/%d for re-lock)",
+                  dist, relockFrames, Self.relockConsecutiveRequired)
+
+            if relockFrames >= Self.relockConsecutiveRequired {
+                // Camera repositioned — re-lock to new hoop position.
+                NSLog("[HoopTracker] RE-LOCK triggered — camera repositioned")
+                isLocked  = false
+                isStale   = false
+                isManual  = false
+                geometry  = nil
+                relockFrames = 0
+                resetAccumulation()
+                handleAccumulation(visionBBox: bb, confidence: confidence)
+            }
+            return  // Don't apply EMA until we decide whether to re-lock
+        }
+
+        // Nearby detection — apply EMA to smooth the locked position.
+        relockFrames = 0
+        let a = Self.emaAlpha
+        let sX = Double(g.bbox.origin.x) * (1 - a) + Double(tl.origin.x) * a
+        let sY = Double(g.bbox.origin.y) * (1 - a) + Double(tl.origin.y) * a
+        let sW = Double(g.bbox.width)    * (1 - a) + Double(tl.width)    * a
+        let sH = Double(g.bbox.height)   * (1 - a) + Double(tl.height)   * a
+        geometry = makeGeometry(from: CGRect(x: sX, y: sY, width: sW, height: sH))
+    }
+
+    // MARK: – Coordinate conversion ────────────────────────────────────────────
+
+    private func toTopLeft(visionBBox bb: CGRect) -> CGRect {
+        CGRect(
+            x:      Double(bb.origin.x),
+            y:      1.0 - Double(bb.origin.y) - Double(bb.height),
+            width:  Double(bb.width),
+            height: Double(bb.height)
+        )
+    }
+
+    // Derives full HoopGeometry from a top-left-origin bbox.
+    // The rim opening is the TOP edge of the bbox — where the ball enters the hoop.
+    private func makeGeometry(from tl: CGRect) -> HoopGeometry {
+        HoopGeometry(
+            center:     CGPoint(x: tl.midX, y: tl.midY),
+            bbox:       tl,
+            rimLineY:   Double(tl.minY),
+            rimMinX:    Double(tl.minX),
+            rimMaxX:    Double(tl.maxX),
+            rimCenterX: Double(tl.midX),
+            rimWidth:   Double(tl.width)
+        )
+    }
+
+    private func resetAccumulation() {
+        candidateFrames   = 0
+        candidateSumX     = 0
+        candidateSumY     = 0
+        candidateSumW     = 0
+        candidateSumH     = 0
+        lastCandidateMidX = nil
+        lastCandidateMidY = nil
+    }
+}
+
+// ─── BallTracker ──────────────────────────────────────────────────────────────
+//
+// Owns the ball position buffer for a tracking session. Handles entry persistence
+// (prevents false-positive tracks from single-frame detections), jump rejection
+// (prevents teleporting ball positions from polluting the buffer), track death
+// (cleans up when ball is genuinely lost), velocity tracking, size tracking,
+// and the math helpers (regression, R²) used by the scoring paths.
+//
+// All stored positions use top-left origin (y=0 top, y=1 bottom).
+// Vision observations are in bottom-left origin — conversion happens at ingest().
+
+final class BallTracker {
+
+    // MARK: – Tuning constants
+
+    /// Confidence required during the entry persistence window (pre-track).
+    /// Higher bar catches false positives early — a jersey number needs 3 clean
+    /// high-confidence frames to start a track; a real ball gets that easily.
+    static let entryConfidence: Double = 0.40
+
+    /// Confidence required once a track is established (mid-flight).
+    /// Lower than entry because motion blur and partial occlusion reduce model
+    /// confidence on a real fast-moving ball. Jump filter handles residual FP.
+    static let trackConfidence: Double = 0.25
+
+    /// Consecutive frames at entryConfidence needed to start a track.
+    /// At ~10fps: 3 frames ≈ 300ms of consistent detection. Flickering FPs rarely last this long.
+    static let entryConsecutiveRequired: Int = 3
+
+    /// Max normalized Euclidean distance between consecutive ball positions.
+    /// A ball at full court speed covers ~0.20 of frame width per 100ms.
+    /// 0.35 gives generous headroom while still blocking teleporting detections.
+    static let jumpThreshold: Double = 0.35
+
+    /// Relaxed jump threshold used when ball was lost for lostFramesForRelaxedJump+ frames.
+    /// Ball may have genuinely moved far while untracked (fast shot, camera pan).
+    /// Still bounded to prevent completely random re-acquisition.
+    static let reacquireJumpThreshold: Double = 0.55
+
+    /// If ball has been lost for this many frames, switch to relaxed jump threshold
+    /// to allow re-acquisition after a gap. Still tight enough to filter noise.
+    static let lostFramesForRelaxedJump: Int = 4
+
+    /// If ball is missing for this many frames, kill the track (clear tracking state).
+    /// At ~10fps: 12 frames ≈ 1.2s. Any real in-flight shot resolves well within this.
+    static let trackDeathFrames: Int = 12
+
+    /// Rolling buffer capacity. At ~10fps, 90 frames ≈ 9s of position history.
+    /// Large enough to capture full arc from release to landing.
+    static let bufferMax: Int = 90
+
+    /// Drop buffer entries older than this many seconds regardless of count.
+    static let ageSeconds: Double = 5.0
+
+    /// Number of recent buffer frames used for velocity computation.
+    /// Small window → more responsive to direction changes during flight.
+    static let velocityWindowFrames: Int = 5
+
+    // MARK: – Data types
+
+    struct BallPoint {
+        let x:     Double   // center X (top-left normalized)
+        let y:     Double   // center Y (top-left normalized)
+        let t:     Double   // presentation timestamp in seconds
+        let conf:  Double   // model confidence 0..1
+        let bboxW: Double   // bbox width  (for size trend)
+        let bboxH: Double   // bbox height (for size trend)
+    }
+
+    struct Velocity {
+        let dx:    Double   // normalized units/second; positive = moving right
+        let dy:    Double   // normalized units/second; positive = moving down (top-left coords)
+        let speed: Double   // magnitude = hypot(dx, dy)
+
+        static let zero = Velocity(dx: 0, dy: 0, speed: 0)
+
+        /// True when the ball is moving upward (negative dy in top-left = rising).
+        var isRising: Bool  { dy < -0.05 }   // 0.05 dead zone filters hover noise
+        /// True when the ball is moving downward.
+        var isFalling: Bool { dy >  0.05 }
+        /// True if velocity is large enough to be a real moving ball (not noise).
+        var isSignificant: Bool { speed > 0.10 }
+    }
+
+    // MARK: – Public state
+
+    private(set) var buffer:        [BallPoint] = []
+    private(set) var isEstablished: Bool        = false
+    private(set) var framesLost:    Int         = 0
+    private(set) var velocity:      Velocity    = .zero
+
+    /// The most recent accepted raw ball position.
+    var latestBall: BallPoint? { buffer.last }
+
+    // MARK: – Private state
+
+    private var consecutiveFrames: Int       = 0
+    private var prevBall:          BallPoint? = nil   // for jump check and prevBall during gate
+
+    // MARK: – Ingestion ────────────────────────────────────────────────────────
+    //
+    // Call once per analyzed frame. obs = best ball-class VNRecognizedObjectObservation,
+    // or nil if no ball was detected. Returns true if a position was accepted into buffer.
+
+    @discardableResult
+    func ingest(obs: VNRecognizedObjectObservation?, timestamp: Double) -> Bool {
+        // Prune stale entries before anything else.
+        let cutoff = timestamp - Self.ageSeconds
+        buffer.removeAll { $0.t < cutoff }
+
+        guard let obs = obs, let top = obs.labels.first else {
+            handleMissedFrame(timestamp: timestamp)
+            return false
+        }
+
+        let conf = Double(top.confidence)
+        let requiredConf = isEstablished ? Self.trackConfidence : Self.entryConfidence
+        guard conf >= requiredConf else {
+            handleMissedFrame(timestamp: timestamp)
+            return false
+        }
+
+        // Convert Vision bbox (bottom-left) to top-left.
+        let bb   = obs.boundingBox
+        let x    = Double(bb.midX)
+        let y    = 1.0 - Double(bb.midY)
+        let bboxW = Double(bb.width)
+        let bboxH = Double(bb.height)
+
+        // Jump rejection. Use the relaxed threshold if ball was recently lost
+        // (re-acquisition: ball moved while we couldn't track it).
+        if let prev = prevBall {
+            let dist      = hypot(x - prev.x, y - prev.y)
+            let threshold = framesLost >= Self.lostFramesForRelaxedJump
+                ? Self.reacquireJumpThreshold
+                : Self.jumpThreshold
+            if dist > threshold {
+                NSLog("[BallTracker] jump rejected dist=%.3f threshold=%.3f (lost=%d)",
+                      dist, threshold, framesLost)
+                handleMissedFrame(timestamp: timestamp)
+                return false
+            }
+        }
+
+        // Entry persistence gate.
+        // prevBall is updated here so jump filter stays calibrated during the gate window,
+        // but we don't add the position to the buffer until the gate passes.
+        if !isEstablished {
+            consecutiveFrames += 1
+            prevBall = BallPoint(x: x, y: y, t: timestamp, conf: conf, bboxW: bboxW, bboxH: bboxH)
+            if consecutiveFrames >= Self.entryConsecutiveRequired {
+                isEstablished = true
+                NSLog("[BallTracker] track ESTABLISHED after %d frames (conf=%.2f pos=%.3f,%.3f)",
+                      consecutiveFrames, conf, x, y)
+            } else {
+                NSLog("[BallTracker] entry gate %d/%d", consecutiveFrames, Self.entryConsecutiveRequired)
+                return false
+            }
+        }
+
+        // Accept position into buffer.
+        let pt = BallPoint(x: x, y: y, t: timestamp, conf: conf, bboxW: bboxW, bboxH: bboxH)
+        buffer.append(pt)
+        if buffer.count > Self.bufferMax { buffer.removeFirst(buffer.count - Self.bufferMax) }
+        prevBall   = pt
+        framesLost = 0
+        velocity   = computeVelocity()
+        return true
+    }
+
+    // MARK: – Missed frame handling ────────────────────────────────────────────
+
+    private func handleMissedFrame(timestamp: Double) {
+        framesLost += 1
+        if !isEstablished { consecutiveFrames = 0 }
+
+        if isEstablished && framesLost >= Self.trackDeathFrames {
+            NSLog("[BallTracker] track DEAD — %d frames without detection", framesLost)
+            killTrack()
+        }
+    }
+
+    // MARK: – Track death ──────────────────────────────────────────────────────
+    //
+    // Resets tracking state but does NOT clear the buffer — the scoring logic
+    // needs buffer.last for the disappearance heuristic (Path C). Old entries
+    // are pruned by the ageSeconds cutoff on the next ingest() call.
+
+    func killTrack() {
+        isEstablished     = false
+        framesLost        = 0
+        consecutiveFrames = 0
+        prevBall          = nil
+        velocity          = .zero
+    }
+
+    // MARK: – Session management ───────────────────────────────────────────────
+
+    /// Called on startTracking. Clears the buffer for a fresh shooting session.
     func resetSession() {
         buffer.removeAll()
-        prevBall              = nil
-        inFlight              = false
-        peakY                 = 1.0
-        flightStart           = 0.0
-        makes                 = 0
-        attempts              = 0
-        lastShotT             = 0.0
-        ballConsecutiveFrames = 0
-        ballEstablished       = false
-        NSLog("[BallTracking] session reset — hoop locked: %@", hoopLocked ? "YES" : "NO")
+        isEstablished     = false
+        framesLost        = 0
+        consecutiveFrames = 0
+        prevBall          = nil
+        velocity          = .zero
     }
 
-    // Called on stopSession (full teardown). Clears everything including hoop.
-    func resetAll() {
-        resetSession()
-        hoop              = nil
-        hoopLocked        = false
-        hoopLockCount     = 0
-        hoopLockCandidate = nil
-        NSLog("[BallTracking] full reset")
+    func resetAll() { resetSession() }
+
+    // MARK: – Smoothing ────────────────────────────────────────────────────────
+
+    /// 3-frame moving average over the full buffer. Smooths jitter while preserving
+    /// timing (each smoothed point keeps its original timestamp for regression).
+    func smoothedPositions() -> [BallPoint] {
+        guard buffer.count >= 2 else { return buffer }
+        var out: [BallPoint] = []
+        out.reserveCapacity(buffer.count)
+        for i in 0..<buffer.count {
+            let lo = max(0, i - 1)
+            let hi = min(buffer.count - 1, i + 1)
+            let w  = Double(hi - lo + 1)
+            var ax = 0.0, ay = 0.0, ac = 0.0, abw = 0.0, abh = 0.0
+            for j in lo...hi {
+                ax += buffer[j].x;  ay += buffer[j].y;  ac += buffer[j].conf
+                abw += buffer[j].bboxW;  abh += buffer[j].bboxH
+            }
+            out.append(BallPoint(x: ax/w, y: ay/w, t: buffer[i].t,
+                                 conf: ac/w, bboxW: abw/w, bboxH: abh/w))
+        }
+        return out
     }
 
-    // MARK: – Primary update (call once per analyzed frame) ────────────────────
+    /// Returns up to maxCount recent smoothed positions within [timestamp - seconds, now].
+    func recentSmoothed(within seconds: Double, at timestamp: Double, maxCount: Int = 10) -> [BallPoint] {
+        let cutoff = timestamp - seconds
+        let recent = smoothedPositions().filter { $0.t >= cutoff }
+        guard recent.count > maxCount else { return recent }
+        return Array(recent.suffix(maxCount))
+    }
+
+    // MARK: – Size trend ───────────────────────────────────────────────────────
     //
-    // Pass the best ball and basket VNRecognizedObjectObservation for this frame
-    // (nil if the class wasn't detected). Returns a shot result if one was scored.
+    // Compares bbox area at the start vs end of the last N buffer entries.
+    // Real shots moving away from the camera produce a shrinking bbox.
+    // A static false positive has roughly constant size.
+
+    func bboxSizeTrend(frames n: Int = 6) -> Double {
+        let pts = Array(buffer.suffix(n))
+        guard pts.count >= 2,
+              let first = pts.first, let last = pts.last else { return 0.0 }
+        let firstArea = first.bboxW * first.bboxH
+        guard firstArea > 1e-8 else { return 0.0 }
+        let lastArea = last.bboxW * last.bboxH
+        return (lastArea - firstArea) / firstArea
+    }
+
+    // MARK: – Velocity ─────────────────────────────────────────────────────────
+
+    private func computeVelocity() -> Velocity {
+        let pts = Array(buffer.suffix(Self.velocityWindowFrames))
+        guard pts.count >= 2,
+              let first = pts.first, let last = pts.last else { return .zero }
+        let dt = last.t - first.t
+        guard dt > 1e-6 else { return .zero }
+        let dx = (last.x - first.x) / dt
+        let dy = (last.y - first.y) / dt
+        return Velocity(dx: dx, dy: dy, speed: hypot(dx, dy))
+    }
+
+    // MARK: – Regression math (used by all three scoring paths) ───────────────
+
+    /// Linear OLS regression over points. Fits y(t) and x(t) independently.
+    /// Solves for the timestamp t* when y(t*) = targetY, then returns x(t*).
+    /// Falls back to last known X when regression is degenerate:
+    ///   - fewer than 2 points
+    ///   - all timestamps identical (denom ≈ 0)
+    ///   - ball moving purely horizontally (mY ≈ 0 → can't invert y(t))
+    func predictXAtY(points: [BallPoint], targetY: Double) -> Double {
+        let n = Double(points.count)
+        guard n >= 2 else { return points.last?.x ?? 0.5 }
+        var sumT = 0.0, sumY = 0.0, sumX = 0.0
+        var sumTY = 0.0, sumTX = 0.0, sumT2 = 0.0
+        for p in points {
+            sumT  += p.t;  sumY  += p.y;  sumX  += p.x
+            sumTY += p.t * p.y;  sumTX += p.t * p.x;  sumT2 += p.t * p.t
+        }
+        let denom = n * sumT2 - sumT * sumT
+        guard abs(denom) > 1e-12 else { return points.last?.x ?? 0.5 }
+        let mY = (n * sumTY - sumT * sumY) / denom
+        let bY = (sumY - mY * sumT) / n
+        let mX = (n * sumTX - sumT * sumX) / denom
+        let bX = (sumX - mX * sumT) / n
+        guard abs(mY) > 1e-12 else { return points.last?.x ?? 0.5 }
+        let tCross = (targetY - bY) / mY
+        return max(0.0, min(1.0, mX * tCross + bX))
+    }
+
+    /// R² goodness-of-fit for the linear y(t) model over the given points.
+    /// 1.0 = ball descended in a perfectly straight line (ideal arc crossing).
+    /// 0.0 = scattered, noisy positions (low-quality detection; treat result skeptically).
+    /// Returns 0.5 when there aren't enough points to compute meaningfully.
+    func rSquared(points: [BallPoint]) -> Double {
+        let n = Double(points.count)
+        guard n >= 3 else { return 0.5 }
+        var sumT = 0.0, sumY = 0.0, sumTY = 0.0, sumT2 = 0.0
+        for p in points { sumT += p.t; sumY += p.y; sumTY += p.t * p.y; sumT2 += p.t * p.t }
+        let denom = n * sumT2 - sumT * sumT
+        guard abs(denom) > 1e-12 else { return 0.9 }
+        let mY = (n * sumTY - sumT * sumY) / denom
+        let bY = (sumY - mY * sumT) / n
+        let meanY = sumY / n
+        var ssRes = 0.0, ssTot = 0.0
+        for p in points {
+            ssRes += pow(p.y - (mY * p.t + bY), 2)
+            ssTot += pow(p.y - meanY, 2)
+        }
+        guard ssTot > 1e-12 else { return 0.9 }
+        return max(0.0, min(1.0, 1.0 - ssRes / ssTot))
+    }
+}
+
+// ─── BallTrackingPipeline (Shot Scorer) ──────────────────────────────────────────
+//
+// Composes HoopTracker and BallTracker into three independent shot-scoring paths.
+// Each path can independently detect a make or miss. A shared 1.5s cooldown prevents
+// one physical shot from being counted multiple times across paths or frames.
+//
+// PATH A — Trajectory arc: ball rises above rim, peaks, descends through the rim line.
+//          Fits linear regression to predict exact crossing X. Best for jumpers and 3s.
+//
+// PATH B — Through hoop region: tracks the "above rim → enter region → below" pattern.
+//          Best for layups, runners, floaters, and close shots with shallow arcs.
+//
+// PATH C — Disappearance heuristic: ball in confirmed Path A flight vanishes near rim.
+//          The net physically occludes the ball on a swish. Lower confidence. Last resort.
+//
+// All coordinates: top-left origin (y=0 top, y=1 bottom). Vision observations are
+// converted at ingestion boundaries inside HoopTracker and BallTracker.
+
+final class BallTrackingPipeline {
+
+    // MARK: – Sub-components (composition over inheritance)
+    let hoopTracker = HoopTracker()
+    let ballTracker = BallTracker()
+
+    // MARK: – Tuning constants (every threshold named and documented)
+
+    /// Hoop bbox expansion factor for Path B's detection region.
+    /// 0.20 = 20% larger on each side. The model's bbox rarely perfectly frames the rim opening.
+    static let hoopRegionExpansion: Double = 0.20
+
+    /// Ball must be within this multiple of rimWidth of the rim center to start Path A flight
+    /// or enter the Path B region. 2.5× is generous but still eliminates far-field noise.
+    static let nearHoopXFactor: Double = 2.5
+
+    /// Path A launch: ball may be this far BELOW rimLineY and still count as "at launch height."
+    /// Handles the common detection offset where the model places the ball slightly low.
+    static let launchToleranceY: Double = 0.04
+
+    /// Path A: ball must have peaked this far above rimLineY to qualify as a real shot arc.
+    /// Eliminates slow dribble-bounces near the hoop that would otherwise trigger Path A.
+    static let minimumPeakAboveRim: Double = 0.03
+
+    /// Path A: abandon in-flight tracking after this many seconds with no scoring trigger.
+    /// Real shots resolve in < 1.5s. 3.0s allows very high arcs and slow balls.
+    static let flightTimeoutSeconds: Double = 3.0
+
+    /// Path A: crossing X must be within makeTolerance * rimWidth of rim center → MAKE.
+    /// 0.55 = ±55% of half-rim-width. Slightly generous to handle detection jitter.
+    static let makeTolerance: Double = 0.55
+
+    /// Path B: ball must have been above the rim for at least this many consecutive analyzed
+    /// frames before a region entry can score. Prevents a ball already below the rim from
+    /// triggering a make by passing through the expanded region from below.
+    static let pathBMinFramesAbove: Int = 2
+
+    /// Path B: MAKE scored when ball descends this fraction of hoopHeight below rimLineY.
+    /// 0.40 = ball went 40% through the hoop. Prevents a top-of-rim brush from scoring.
+    static let pathBMakeDepthFraction: Double = 0.40
+
+    /// Path B: reset if ball stays in region longer than this many frames without resolving.
+    /// Ball sitting on the rim or rolling along it does NOT count as a make.
+    static let pathBMaxFramesInRegion: Int = 18
+
+    /// Path C: ball must disappear within this many frames after going in-flight.
+    /// More frames = ball was probably held or dribbled, not shot.
+    static let pathCMaxDisappearanceFrames: Int = 8
+
+    /// Path C: last known ball position must be within this normalized distance of
+    /// rim center on both axes for disappearance to be inferred as a make.
+    static let pathCHoopProximity: Double = 0.15
+
+    /// Shared cooldown across all paths: minimum seconds between any two scored shots.
+    /// 1.5s prevents one physical shot from being double-counted by multiple paths.
+    static let shotCooldownSeconds: Double = 1.5
+
+    // MARK: – Path A state (trajectory arc)
+    private var pathA_inFlight    = false
+    private var pathA_peakY       = 1.0     // smallest y seen while in flight (highest on screen)
+    private var pathA_flightStart = 0.0
+    private var pathA_wasRising   = false   // observed upward velocity before peak
+    private var pathA_peaked      = false   // transitioned rising → falling
+
+    // MARK: – Path B state (ball through hoop region)
+    private enum PathBPhase { case idle, above, inRegion }
+    private var pathB_phase          = PathBPhase.idle
+    private var pathB_framesAbove    = 0
+    private var pathB_framesInRegion = 0
+
+    // MARK: – Shared cooldown + counters
+    private var lastShotTimestamp = 0.0
+    private(set) var makes    = 0
+    private(set) var attempts = 0
+
+    // MARK: – Observability
+    private(set) var scoringState = "idle — no hoop"
+    private(set) var lastShotPath = "none"
+
+    // MARK: – Interface for ATHLTCameraModule (preserves existing call sites)
+    var hoopLocked: Bool                   { hoopTracker.isLocked }
+    var hoop:       CGRect?                { hoopTracker.geometry?.bbox }
+    var inFlight:   Bool                   { pathA_inFlight }
+    var latestBall: BallTracker.BallPoint? { ballTracker.latestBall }
+
+    func considerHoop(visionBBox: CGRect, confidence: Float) {
+        hoopTracker.ingest(visionBBox: visionBBox, confidence: confidence)
+    }
+
+    func setManualHoop(x: Double, y: Double, width: Double, height: Double) {
+        hoopTracker.setManual(x: x, y: y, width: width, height: height)
+    }
+
+    // MARK: – Session management ─────────────────────────────────────────────────
+
+    func resetSession() {
+        ballTracker.resetSession()
+        hoopTracker.resetSession()
+        resetPathA(); resetPathB()
+        makes             = 0
+        attempts          = 0
+        lastShotTimestamp = 0.0
+        scoringState      = "session reset — waiting for ball"
+        lastShotPath      = "none"
+        NSLog("[Pipeline] session reset — hoop locked: %@", hoopTracker.isLocked ? "YES" : "NO")
+    }
+
+    func resetAll() {
+        ballTracker.resetAll()
+        hoopTracker.resetAll()
+        resetPathA(); resetPathB()
+        makes             = 0
+        attempts          = 0
+        lastShotTimestamp = 0.0
+        scoringState      = "idle — no hoop"
+        lastShotPath      = "none"
+        NSLog("[Pipeline] full reset")
+    }
+
+    // MARK: – Primary update ──────────────────────────────────────────────────────
+    //
+    // Called once per analyzed frame from handleTrackingMode.
+    // Returns (type, confidence) if a shot scored this frame, nil otherwise.
 
     func update(
         ball:      VNRecognizedObjectObservation?,
@@ -191,316 +794,286 @@ final class BallTrackingPipeline {
         timestamp: Double
     ) -> (type: String, confidence: Double)? {
 
-        // Auto-lock hoop from basket detections if not already locked.
-        // Uses persistence filtering — requires hoopLockRequired consistent frames.
-        if let b = basket, let top = b.labels.first {
-            considerHoop(visionBBox: b.boundingBox, confidence: top.confidence)
+        // Always update both trackers (nil inputs mark missed frames / possible stale hoop)
+        let hoopConf = basket?.labels.first?.confidence ?? 0
+        hoopTracker.ingest(visionBBox: basket?.boundingBox, confidence: hoopConf)
+        ballTracker.ingest(obs: ball, timestamp: timestamp)
+
+        // Require a locked hoop to score anything
+        guard let hoop = hoopTracker.geometry else {
+            let pct = Int(hoopTracker.lockProgress * 100)
+            scoringState = "idle — no hoop (\(pct)% accumulated)"
+            resetPathA(); resetPathB()
+            return nil
         }
 
-        ingestBall(obs: ball, timestamp: timestamp)
-        return evaluate(timestamp: timestamp)
-    }
-
-    // MARK: – Ball ingestion with data cleaning ────────────────────────────────
-
-    private func ingestBall(obs: VNRecognizedObjectObservation?, timestamp: Double) {
-        // Prune stale entries
-        let cutoff = timestamp - Self.ageSeconds
-        buffer.removeAll { $0.t < cutoff }
-
-        guard let obs = obs, let top = obs.labels.first else {
-            // No detection this frame — reset persistence counter if still accumulating
-            if !ballEstablished { ballConsecutiveFrames = 0 }
-            return
+        // Shared cooldown
+        let coolRemaining = Self.shotCooldownSeconds - (timestamp - lastShotTimestamp)
+        if coolRemaining > 0 {
+            scoringState = String(format: "cooldown — %.1fs remaining", coolRemaining)
+            return nil
         }
 
-        // Require higher confidence for the initial persistence window.
-        // Once established (N consecutive frames seen), drop back to minBallConf so
-        // motion blur / partial occlusion mid-flight don't drop the track.
-        let requiredConf = ballEstablished ? Self.minBallConf : Self.ballInitialConf
-        guard Double(top.confidence) >= requiredConf else {
-            if !ballEstablished { ballConsecutiveFrames = 0 }
-            return
-        }
-
-        let bb = obs.boundingBox
-        let x  = Double(bb.midX)
-        let y  = 1.0 - Double(bb.midY)   // flip to top-left (y increases downward)
-
-        // Jump rejection: Euclidean distance > threshold → likely a noisy false positive.
-        if let prev = prevBall {
-            let dist = (pow(x - prev.x, 2) + pow(y - prev.y, 2)).squareRoot()
-            if dist > Self.jumpThresh {
-                NSLog("[BallTracking] jump rejected: dist=%.3f", dist)
-                if !ballEstablished { ballConsecutiveFrames = 0 }
-                return
+        // PATH C: fires on disappearance while Path A flight was active.
+        // Check BEFORE the established guard since ball may not be visible.
+        if pathA_inFlight,
+           ballTracker.framesLost >= 2,
+           ballTracker.framesLost <= Self.pathCMaxDisappearanceFrames {
+            if let r = evaluatePathC(hoop: hoop, timestamp: timestamp) {
+                return registerShot(type: r.type, confidence: r.confidence,
+                                    path: "C", timestamp: timestamp)
             }
         }
 
-        // Persistence gate: require ballPersistenceRequired consecutive valid frames
-        // before adding positions to the tracking buffer. A real ball stays in the
-        // same area frame-to-frame; a false positive (orange shirt, logo, etc) appears
-        // and vanishes sporadically. prevBall is updated during the window so the jump
-        // filter stays calibrated even before we commit to tracking.
-        if !ballEstablished {
-            ballConsecutiveFrames += 1
-            prevBall = BallPoint(x: x, y: y, t: timestamp, conf: Double(top.confidence))
-            if ballConsecutiveFrames >= Self.ballPersistenceRequired {
-                ballEstablished = true
-                NSLog("[BallTracking] ball ESTABLISHED after %d frames (conf=%.2f)",
-                      ballConsecutiveFrames, Double(top.confidence))
+        // Path A timeout cleanup
+        if pathA_inFlight && timestamp - pathA_flightStart > Self.flightTimeoutSeconds {
+            NSLog("[PathA] timeout after %.1fs", timestamp - pathA_flightStart)
+            scoringState = "Path A timeout — resetting"
+            resetPathA()
+        }
+
+        // Require established ball track with a detection this frame
+        guard ballTracker.isEstablished, ballTracker.framesLost == 0,
+              let latest = ballTracker.latestBall else {
+            if !ballTracker.isEstablished {
+                scoringState = "waiting for ball (\(BallTracker.entryConsecutiveRequired) consecutive frames needed)"
             } else {
-                return  // still accumulating — don't add to buffer yet
+                scoringState = pathA_inFlight
+                    ? "Path A in-flight — ball temporarily lost"
+                    : "ball established — no detection this frame"
             }
-        }
-
-        let pt = BallPoint(x: x, y: y, t: timestamp, conf: Double(top.confidence))
-        buffer.append(pt)
-        if buffer.count > Self.bufferMax {
-            buffer.removeFirst(buffer.count - Self.bufferMax)
-        }
-        prevBall = pt
-    }
-
-    // MARK: – Shot evaluation ──────────────────────────────────────────────────
-
-    private func evaluate(timestamp: Double) -> (type: String, confidence: Double)? {
-        guard let hoop = hoop else { return nil }
-        guard timestamp - lastShotT > Self.cooldownSec else { return nil }
-
-        // Smoothed positions from the last 2 seconds
-        let recent = buffer.filter { timestamp - $0.t < 2.0 }
-
-        // Handle ball disappearance while in flight
-        if inFlight && recent.isEmpty {
-            let elapsed = timestamp - flightStart
-            if elapsed > 0.5 {
-                // Ball vanished while in flight near hoop — assume make
-                let scored = resolveDisappearance(hoop: hoop, timestamp: timestamp)
-                if scored != nil { return scored }
-            }
-            if elapsed > Self.flightTimeout { resetFlight() }
             return nil
         }
 
-        guard recent.count >= 3 else {
-            if inFlight && timestamp - flightStart > Self.flightTimeout { resetFlight() }
-            return nil
+        // PATH A — trajectory arc
+        if let r = evaluatePathA(latest: latest, hoop: hoop, timestamp: timestamp) {
+            return registerShot(type: r.type, confidence: r.confidence,
+                                path: "A", timestamp: timestamp)
         }
 
-        // 3-frame moving average to smooth noise
-        let smoothed = movingAverage(recent)
-        guard let latest = smoothed.last else { return nil }
-
-        let hoopTopY  = Double(hoop.minY)
-        let hoopMidY  = Double(hoop.midY)
-        let hoopMidX  = Double(hoop.midX)
-        let hoopW     = Double(hoop.width)
-
-        // ── Flight detection ──────────────────────────────────────────────────
-        // Ball must be above hoop top AND within 1.5× hoop width of center.
-        // Small y value = high on screen in top-left coords.
-        let aboveHoop = latest.y < hoopTopY
-        let nearHoopX = abs(latest.x - hoopMidX) < hoopW * 1.5
-
-        if aboveHoop && nearHoopX && !inFlight {
-            inFlight    = true
-            peakY       = latest.y
-            flightStart = timestamp
-            NSLog("[BallTracking] FLIGHT START y=%.3f hoopTop=%.3f x=%.3f hoopX=%.3f",
-                  latest.y, hoopTopY, latest.x, hoopMidX)
-        }
-
-        guard inFlight else { return nil }
-
-        // Track highest point reached (smallest y in top-left coords)
-        if latest.y < peakY { peakY = latest.y }
-
-        // Timeout guard
-        if timestamp - flightStart > Self.flightTimeout {
-            NSLog("[BallTracking] flight timeout — aborting")
-            resetFlight()
-            return nil
-        }
-
-        // ── Scoring moment ────────────────────────────────────────────────────
-        // Ball has descended back to hoop-center Y after having peaked above hoop top.
-        // Condition: ball.y >= hoopMidY  AND  ball previously peaked above hoopTopY.
-        if latest.y >= hoopMidY && peakY < hoopTopY {
-            return scoreAtCrossing(smoothed: smoothed, hoop: hoop,
-                                   hoopMidX: hoopMidX, hoopMidY: hoopMidY,
-                                   hoopW: hoopW, timestamp: timestamp)
+        // PATH B — ball through hoop region
+        if let r = evaluatePathB(latest: latest, hoop: hoop, timestamp: timestamp) {
+            return registerShot(type: r.type, confidence: r.confidence,
+                                path: "B", timestamp: timestamp)
         }
 
         return nil
     }
 
-    // ── Score when ball crosses hoop mid-Y ────────────────────────────────────
+    // MARK: – PATH A: Trajectory arc ─────────────────────────────────────────────
 
-    private func scoreAtCrossing(
-        smoothed: [BallPoint],
-        hoop: CGRect,
-        hoopMidX: Double,
-        hoopMidY: Double,
-        hoopW: Double,
+    private func evaluatePathA(
+        latest:    BallTracker.BallPoint,
+        hoop:      HoopTracker.HoopGeometry,
         timestamp: Double
-    ) -> (type: String, confidence: Double) {
+    ) -> (type: String, confidence: Double)? {
 
-        // Use linear regression over the last 5 smoothed positions to predict
-        // the exact ball X when it crossed hoopMidY. This handles the case where
-        // the ball moves faster than our ~5fps capture rate between frames.
-        let pts = Array(smoothed.suffix(5))
-        let crossX = predictXAtY(points: pts, targetY: hoopMidY)
+        let ballX      = latest.x
+        let ballY      = latest.y
+        let vel        = ballTracker.velocity
+        let rimLineY   = hoop.rimLineY
+        let rimCenterX = hoop.rimCenterX
+        let rimWidth   = hoop.rimWidth
 
-        let inside   = abs(crossX - hoopMidX) <= hoopW * Self.makeTolerance
-        let shotType = inside ? "make" : "miss"
-
-        // Shot confidence = how clean the trajectory was.
-        // R² of the linear y(t) fit over the scoring positions: 1.0 = perfectly
-        // consistent descent, 0.0 = scattered noise. Maps to [0.45, 0.95].
-        // A low-confidence shot (< ~0.60) should be treated as a possible false positive.
-        let r2       = computeRSquared(points: pts)
-        let shotConf = max(0.45, 0.45 + r2 * 0.50)
-
-        if inside { makes += 1 }
-        attempts += 1
-        lastShotT = timestamp
-        resetFlight()
-
-        NSLog("[BallTracking] %@ | crossX=%.3f hoopMidX=%.3f hoopW=%.3f inside=%@ r2=%.2f conf=%.2f | %d/%d",
-              shotType.uppercased(), crossX, hoopMidX, hoopW,
-              inside ? "YES" : "NO", r2, shotConf, makes, attempts)
-
-        return (shotType, shotConf)
-    }
-
-    // ── Disappearance-based make detection ────────────────────────────────────
-    // When ball vanishes near the hoop while in flight → likely dropped through.
-
-    private func resolveDisappearance(hoop: CGRect, timestamp: Double) -> (type: String, confidence: Double)? {
-        guard let lastKnown = buffer.last else { return nil }
-
-        let hoopMidX = Double(hoop.midX)
-        let hoopMaxY = Double(hoop.maxY)
-        let hoopW    = Double(hoop.width)
-
-        // Last known position must have been inside/near hoop bbox
-        let nearX = abs(lastKnown.x - hoopMidX) < hoopW * 0.8
-        let nearY = lastKnown.y < hoopMaxY + Double(hoop.height)
-
-        guard nearX && nearY else {
-            // Disappeared far from hoop — flight tracking was probably wrong; reset
-            resetFlight()
+        if !pathA_inFlight {
+            let atOrAboveRim = ballY < rimLineY + Self.launchToleranceY
+            let nearX        = abs(ballX - rimCenterX) < rimWidth * Self.nearHoopXFactor
+            if atOrAboveRim && nearX {
+                pathA_inFlight    = true
+                pathA_peakY       = ballY
+                pathA_flightStart = timestamp
+                pathA_wasRising   = vel.isRising
+                pathA_peaked      = false
+                NSLog("[PathA] FLIGHT START y=%.3f rimY=%.3f x=%.3f rimX=%.3f vel.dy=%.3f",
+                      ballY, rimLineY, ballX, rimCenterX, vel.dy)
+            } else {
+                scoringState = String(format: "tracking (%.2f,%.2f) — not near rim [rimX=%.2f ±%.2f]",
+                                      ballX, ballY, rimCenterX, rimWidth * Self.nearHoopXFactor)
+            }
             return nil
         }
 
-        makes    += 1
-        attempts += 1
-        lastShotT = timestamp
-        resetFlight()
-        NSLog("[BallTracking] MAKE (ball disappeared near hoop) — %d/%d", makes, attempts)
-        return ("make", 0.62)
-    }
+        if ballY < pathA_peakY { pathA_peakY = ballY }
 
-    // MARK: – 3-frame moving average ──────────────────────────────────────────
-
-    private func movingAverage(_ pts: [BallPoint]) -> [BallPoint] {
-        guard pts.count >= 3 else { return pts }
-        var out: [BallPoint] = []
-        for i in 0..<pts.count {
-            let lo = max(0, i - 1)
-            let hi = min(pts.count - 1, i + 1)
-            let w  = Double(hi - lo + 1)
-            var ax = 0.0, ay = 0.0, ac = 0.0
-            for j in lo...hi { ax += pts[j].x; ay += pts[j].y; ac += pts[j].conf }
-            out.append(BallPoint(x: ax/w, y: ay/w, t: pts[i].t, conf: ac/w))
-        }
-        return out
-    }
-
-    // MARK: – Linear regression — predict X at target Y ───────────────────────
-    //
-    // Fits independent linear models:
-    //   y(t) = m_y · t + b_y
-    //   x(t) = m_x · t + b_x
-    //
-    // Solves for t when y(t) = targetY, then evaluates x at that t.
-    // This gives the predicted ball X position when it crosses the hoop mid-line.
-    //
-    // Returns the last known X as a fallback if regression is degenerate.
-
-    private func predictXAtY(points: [BallPoint], targetY: Double) -> Double {
-        let n = Double(points.count)
-        guard n >= 2 else { return points.last?.x ?? 0.5 }
-
-        var sumT  = 0.0, sumY = 0.0, sumX  = 0.0
-        var sumTY = 0.0, sumTX = 0.0, sumT2 = 0.0
-
-        for p in points {
-            sumT  += p.t
-            sumY  += p.y
-            sumX  += p.x
-            sumTY += p.t * p.y
-            sumTX += p.t * p.x
-            sumT2 += p.t * p.t
+        if !pathA_peaked {
+            if vel.isRising  { pathA_wasRising = true }
+            if pathA_wasRising && vel.isFalling {
+                pathA_peaked = true
+                NSLog("[PathA] PEAKED y=%.3f (%.3f above rim)", pathA_peakY, rimLineY - pathA_peakY)
+            }
         }
 
-        let denom = n * sumT2 - sumT * sumT
-        guard abs(denom) > 1e-12 else { return points.last?.x ?? 0.5 }
+        // Score: ball descended to rim line after peaking above it
+        let crossedRim     = ballY >= rimLineY
+        let peakedAboveRim = pathA_peakY < rimLineY - Self.minimumPeakAboveRim
+        let stillNearX     = abs(ballX - rimCenterX) < rimWidth * Self.nearHoopXFactor * 1.5
 
-        let mY = (n * sumTY - sumT * sumY) / denom
-        let bY = (sumY - mY * sumT) / n
-
-        let mX = (n * sumTX - sumT * sumX) / denom
-        let bX = (sumX - mX * sumT) / n
-
-        // Solve y(t) = targetY → t = (targetY - bY) / mY
-        guard abs(mY) > 1e-12 else { return points.last?.x ?? 0.5 }
-        let tCross = (targetY - bY) / mY
-
-        // Clamp result to valid normalized range
-        let predictedX = mX * tCross + bX
-        return max(0.0, min(1.0, predictedX))
-    }
-
-    // MARK: – Helpers
-
-    // R² of linear y(t) fit. Measures how consistently the ball moved through
-    // the scored positions. High R² = clean straight descent through hoop = reliable result.
-    // Low R² = scattered points = noisy detection = treat shot with skepticism.
-    private func computeRSquared(points: [BallPoint]) -> Double {
-        let n = Double(points.count)
-        guard n >= 3 else { return 0.5 }
-
-        var sumT = 0.0, sumY = 0.0, sumTY = 0.0, sumT2 = 0.0
-        for p in points {
-            sumT  += p.t
-            sumY  += p.y
-            sumTY += p.t * p.y
-            sumT2 += p.t * p.t
+        if crossedRim && peakedAboveRim && stillNearX {
+            return scorePathA(hoop: hoop, timestamp: timestamp)
         }
 
-        let denom = n * sumT2 - sumT * sumT
-        guard abs(denom) > 1e-12 else { return 0.9 }  // all same timestamp → degenerate
-
-        let mY    = (n * sumTY - sumT * sumY) / denom
-        let bY    = (sumY - mY * sumT) / n
-        let meanY = sumY / n
-
-        var ssRes = 0.0, ssTot = 0.0
-        for p in points {
-            ssRes += pow(p.y - (mY * p.t + bY), 2)
-            ssTot += pow(p.y - meanY, 2)
-        }
-
-        guard ssTot > 1e-12 else { return 0.9 }  // all same y → perfectly consistent
-        return max(0.0, min(1.0, 1.0 - ssRes / ssTot))
+        scoringState = String(format: "Path A: y=%.3f peak=%.3f rim=%.3f %@",
+                              ballY, pathA_peakY, rimLineY,
+                              pathA_peaked ? "[peaked]" : (pathA_wasRising ? "[rising→]" : "[watching]"))
+        return nil
     }
 
-    private func resetFlight() {
-        inFlight    = false
-        peakY       = 1.0
-        flightStart = 0.0
+    private func scorePathA(
+        hoop:      HoopTracker.HoopGeometry,
+        timestamp: Double
+    ) -> (type: String, confidence: Double) {
+
+        let pts    = ballTracker.recentSmoothed(within: 1.5, at: timestamp, maxCount: 7)
+        let crossX = pts.count >= 2
+            ? ballTracker.predictXAtY(points: pts, targetY: hoop.rimLineY)
+            : (ballTracker.latestBall?.x ?? hoop.rimCenterX)
+        let r2     = pts.count >= 3 ? ballTracker.rSquared(points: pts) : 0.5
+
+        let inside   = abs(crossX - hoop.rimCenterX) <= hoop.rimWidth * Self.makeTolerance
+        let shotType = inside ? "make" : "miss"
+        let shotConf = max(0.45, 0.45 + r2 * 0.50)
+
+        NSLog("[PathA] %@ crossX=%.3f rimCtr=%.3f rimW=%.3f inside=%@ r2=%.2f conf=%.2f",
+              shotType.uppercased(), crossX, hoop.rimCenterX, hoop.rimWidth,
+              inside ? "YES" : "NO", r2, shotConf)
+        scoringState = String(format: "%@ Path A crossX=%.3f r2=%.2f conf=%.2f",
+                              shotType.uppercased(), crossX, r2, shotConf)
+        resetPathA(); resetPathB()
+        return (shotType, shotConf)
+    }
+
+    // MARK: – PATH B: Ball through hoop region ────────────────────────────────────
+
+    private func evaluatePathB(
+        latest:    BallTracker.BallPoint,
+        hoop:      HoopTracker.HoopGeometry,
+        timestamp: Double
+    ) -> (type: String, confidence: Double)? {
+
+        let ballX    = latest.x
+        let ballY    = latest.y
+        let rimLineY = hoop.rimLineY
+        let rimH     = Double(hoop.bbox.height)
+
+        let ex         = (hoop.rimMaxX - hoop.rimMinX) * Self.hoopRegionExpansion
+        let regionMinX = hoop.rimMinX - ex
+        let regionMaxX = hoop.rimMaxX + ex
+        let aboveRim   = ballY < rimLineY
+        let inXRange   = ballX >= regionMinX && ballX <= regionMaxX
+
+        switch pathB_phase {
+
+        case .idle:
+            if aboveRim && inXRange {
+                pathB_phase       = .above
+                pathB_framesAbove = 1
+            }
+
+        case .above:
+            if aboveRim && inXRange {
+                pathB_framesAbove += 1
+                scoringState = String(format: "Path B: above rim %d frames y=%.3f", pathB_framesAbove, ballY)
+            } else if !aboveRim && inXRange && pathB_framesAbove >= Self.pathBMinFramesAbove {
+                pathB_phase          = .inRegion
+                pathB_framesInRegion = 1
+                NSLog("[PathB] ENTERED from above (framesAbove=%d) x=%.3f y=%.3f",
+                      pathB_framesAbove, ballX, ballY)
+                scoringState = "Path B: in hoop region — watching for through or bounce"
+            } else {
+                pathB_phase = .idle; pathB_framesAbove = 0
+            }
+
+        case .inRegion:
+            pathB_framesInRegion += 1
+
+            if pathB_framesInRegion > Self.pathBMaxFramesInRegion {
+                NSLog("[PathB] timeout in region — resetting")
+                resetPathB(); return nil
+            }
+
+            // Ball bounced back above the rim → MISS
+            if aboveRim {
+                NSLog("[PathB] MISS — bounced back above rim (%d frames in region)", pathB_framesInRegion)
+                scoringState = "MISS Path B — bounced back above rim"
+                resetPathA(); resetPathB()
+                return ("miss", 0.70)
+            }
+
+            // Ball descended makeDepthFraction through the hoop → MAKE
+            let makeDepth = rimLineY + rimH * Self.pathBMakeDepthFraction
+            if ballY >= makeDepth && inXRange {
+                NSLog("[PathB] MAKE — descended %.0f%% through hoop (y=%.3f)",
+                      Self.pathBMakeDepthFraction * 100, ballY)
+                scoringState = String(format: "MAKE Path B — %.0f%% through hoop conf=0.82",
+                                      Self.pathBMakeDepthFraction * 100)
+                resetPathA(); resetPathB()
+                return ("make", 0.82)
+            }
+
+            // Ball exited region sideways (rim-out miss)
+            if !inXRange {
+                NSLog("[PathB] MISS — rim out (ball left region sideways)")
+                scoringState = "MISS Path B — rim out"
+                resetPathA(); resetPathB()
+                return ("miss", 0.65)
+            }
+
+            scoringState = String(format: "Path B: %d frames in region y=%.3f / %.3f needed",
+                                  pathB_framesInRegion, ballY, makeDepth)
+        }
+
+        return nil
+    }
+
+    // MARK: – PATH C: Disappearance heuristic ─────────────────────────────────────
+
+    private func evaluatePathC(
+        hoop:      HoopTracker.HoopGeometry,
+        timestamp: Double
+    ) -> (type: String, confidence: Double)? {
+
+        guard let last = ballTracker.latestBall else { return nil }
+
+        let dx = abs(last.x - hoop.rimCenterX)
+        let dy = abs(last.y - hoop.rimLineY)
+
+        guard dx <= Self.pathCHoopProximity && dy <= Self.pathCHoopProximity else {
+            NSLog("[PathC] disappeared far from rim dx=%.3f dy=%.3f — abort", dx, dy)
+            resetPathA(); return nil
+        }
+        guard last.y <= hoop.rimLineY + 0.06 else {
+            NSLog("[PathC] disappeared below rim (y=%.3f rimY=%.3f) — abort",
+                  last.y, hoop.rimLineY)
+            resetPathA(); return nil
+        }
+
+        NSLog("[PathC] MAKE — in-flight ball vanished near rim (%.3f,%.3f)", last.x, last.y)
+        scoringState = "MAKE Path C — ball vanished near rim (net occlusion) conf=0.55"
+        resetPathA(); resetPathB()
+        return ("make", 0.55)
+    }
+
+    // MARK: – Shot registration ─────────────────────────────────────────────────
+
+    private func registerShot(
+        type: String, confidence: Double, path: String, timestamp: Double
+    ) -> (type: String, confidence: Double) {
+        if type == "make" { makes += 1 }
+        attempts += 1; lastShotTimestamp = timestamp; lastShotPath = path
+        NSLog("[Pipeline] SHOT %@ via Path %@ — %d/%d (conf=%.2f)",
+              type.uppercased(), path, makes, attempts, confidence)
+        return (type, confidence)
+    }
+
+    // MARK: – State resets ─────────────────────────────────────────────────────
+
+    private func resetPathA() {
+        pathA_inFlight = false; pathA_peakY = 1.0; pathA_flightStart = 0.0
+        pathA_wasRising = false; pathA_peaked = false
+    }
+
+    private func resetPathB() {
+        pathB_phase = .idle; pathB_framesAbove = 0; pathB_framesInRegion = 0
     }
 }
 
@@ -538,7 +1111,7 @@ public class ATHLTCameraModule: Module {
 
     // MARK: – Frame throttle (~5fps from 30fps input)
     private var frameCounter = 0
-    private let frameSkip    = 6
+    private let frameSkip    = 3   // ~10fps from 30fps input (was 6 → ~5fps)
 
     // MARK: – Shot detection pipeline
     private let pipeline = BallTrackingPipeline()
@@ -1113,6 +1686,8 @@ public class ATHLTCameraModule: Module {
             "totalFramesAnalyzed": totalFramesAnalyzed,
             "lastRawObsClass":     lastRawObsClass,
             "lastRawObsConf":      lastRawObsConf,
+            "scoringState":        pipeline.scoringState,
+            "lastShotPath":        pipeline.lastShotPath,
         ])
     }
 
