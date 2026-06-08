@@ -63,6 +63,9 @@ export interface DebugStatsEvent {
   totalFramesAnalyzed:  number;  // frames that passed all guards and entered runInference; 0 + received>0 = guard blocking
   lastRawObsClass:      string;  // top class from last frame BEFORE confidence filter ("none" if empty)
   lastRawObsConf:       number;  // confidence of lastRawObsClass (0..1)
+  // Scoring pipeline observability
+  scoringState:         string;  // human-readable pipeline state (path A/B/C phase, why not scoring)
+  lastShotPath:         string;  // "A", "B", "C", or "none" — which path scored the last shot
 }
 
 /** Emitted once when loadModel completes (success or failure). */

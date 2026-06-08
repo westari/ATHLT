@@ -65,7 +65,7 @@ If no basket detection arrives for `staleFrameThreshold = 30` frames (~3s at 10f
 **Purpose:** Maintain a clean, noise-rejected ball position history.
 
 **Entry gate (persistence):**
-`entryConsecutiveRequired = 3` frames at `entryConfidence ≥ 0.40` before positions enter the buffer. Eliminates single-frame false positives (orange jerseys, logo circles, etc). The jump filter stays calibrated during this window — `framesLost` is reset each time a frame passes confidence threshold.
+`entryConsecutiveRequired = 2` frames at `entryConfidence ≥ 0.40` before positions enter the buffer. Eliminates single-frame false positives (orange jerseys, logo circles, etc). Reduced from 3 to 2 so fast shots that are only visible for 3–4 frames near the hoop can establish a track before the ball exits frame. The jump filter stays calibrated during this window — `framesLost` is reset each time a frame passes confidence threshold.
 
 **Track maintenance:**
 Once established, `trackConfidence = 0.25` floor is used. When ball isn't detected, `framesLost` increments. At `trackDeathFrames = 12` consecutive missed frames, the track dies (`isEstablished = false`, `framesLost` reset). The buffer is **not** cleared on track death — Path C needs `latestBall` to check the disappearance location.
@@ -213,6 +213,23 @@ let y = 1.0 - Double(bb.midY)   // flip Vision bottom-left → top-left
 
 HoopTracker converts its Vision bbox in `lockHoop()` and `setManual()`.
 
+### Camera orientation — critical detail
+
+`VNImageRequestHandler` is created with `orientation: .up` (no rotation):
+```swift
+let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
+```
+
+**Why `.up` and not `.right`:** The capture connection is configured with `conn.videoOrientation = .landscapeRight`, which causes AVFoundation to deliver pixel buffers already in landscape orientation (1280×720, visually correct). Passing a landscape buffer to Vision with `orientation: .right` would cause Vision to apply an internal 90° CCW rotation, producing bounding boxes in a rotated (portrait-like) coordinate space where the X and Y axes are swapped relative to the screen. With `.up`, Vision uses the buffer as-is and bounding boxes are in the natural landscape space — matching the screen-tap coordinates used by manual hoop marking.
+
+**Symptom of the wrong orientation:** Ball X/Y values in the debug panel would be approximately (screen_Y, 1 - screen_X) instead of (screen_X, screen_Y). The ball would show as horizontally positioned where you'd expect its vertical position, and vice versa. Path A flight would never trigger because `ballY < rimLineY` compares values in incompatible spaces.
+
+### Manual hoop tap coordinate chain
+
+Screen tap → `open-run.tsx` normalizes to top-left ([0,1]) → `setManualHoopRegion(bx, by, w, h)` → Swift `HoopTracker.setManual()` → `makeGeometry(from: tl: CGRect)` → `rimLineY = tl.minY` (top edge of tap box = rim opening).
+
+All coordinates arrive in the pipeline already in top-left space. No further coordinate transformation inside `setManual` or `makeGeometry`.
+
 ---
 
 ## FPS and threading
@@ -263,7 +280,7 @@ cooldown — 1.2s remaining
 | `HoopTracker.candidateJumpThreshold` | 0.12 | HoopTracker | Max candidate jump during accumulation |
 | `BallTracker.entryConfidence` | 0.40 | BallTracker | Min conf during entry gate |
 | `BallTracker.trackConfidence` | 0.25 | BallTracker | Min conf once established |
-| `BallTracker.entryConsecutiveRequired` | 3 | BallTracker | Consecutive frames for establishment |
+| `BallTracker.entryConsecutiveRequired` | 2 | BallTracker | Consecutive frames for establishment (reduced from 3 — fast shots only visible 3-4 frames near hoop) |
 | `BallTracker.jumpThreshold` | 0.35 | BallTracker | Max normal jump distance |
 | `BallTracker.reacquireJumpThreshold` | 0.55 | BallTracker | Relaxed jump after 4+ lost frames |
 | `BallTracker.lostFramesForRelaxedJump` | 4 | BallTracker | Lost frames before threshold relaxes |

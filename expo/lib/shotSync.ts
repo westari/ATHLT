@@ -147,6 +147,8 @@ export async function saveShot(
     } = await supabase.auth.getUser();
     if (!user) return null;
 
+    // Supabase columns are bigint — floor to integer before insert.
+    // Timestamps arrive as floats (iOS CMTime seconds × 1000) like 173197428.812.
     const flightTimeMs = shot.resultTimestamp - shot.releaseTimestamp;
 
     const { data, error } = await supabase
@@ -161,9 +163,9 @@ export async function saveShot(
         zone: shot.zone,
         release_angle: shot.releaseAngle,
         arc_height: shot.arcHeight,
-        release_timestamp_ms: shot.releaseTimestamp,
-        result_timestamp_ms: shot.resultTimestamp,
-        flight_time_ms: flightTimeMs,
+        release_timestamp_ms: Math.floor(shot.releaseTimestamp),
+        result_timestamp_ms:  Math.floor(shot.resultTimestamp),
+        flight_time_ms:       Math.floor(flightTimeMs),
       })
       .select('id')
       .single();

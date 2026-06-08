@@ -350,8 +350,9 @@ final class BallTracker {
     static let trackConfidence: Double = 0.25
 
     /// Consecutive frames at entryConfidence needed to start a track.
-    /// At ~10fps: 3 frames ≈ 300ms of consistent detection. Flickering FPs rarely last this long.
-    static let entryConsecutiveRequired: Int = 3
+    /// At ~10fps: 2 frames ≈ 200ms of consistent detection. Reduced from 3 to 2 so fast shots
+    /// that only appear for 3-4 frames near the hoop can still establish a track in time to score.
+    static let entryConsecutiveRequired: Int = 2
 
     /// Max normalized Euclidean distance between consecutive ball positions.
     /// A ball at full court speed covers ~0.20 of frame width per 100ms.
@@ -799,10 +800,13 @@ final class BallTrackingPipeline {
         hoopTracker.ingest(visionBBox: basket?.boundingBox, confidence: hoopConf)
         ballTracker.ingest(obs: ball, timestamp: timestamp)
 
-        // Require a locked hoop to score anything
-        guard let hoop = hoopTracker.geometry else {
+        // Require an explicitly LOCKED hoop — geometry alone is not enough.
+        // isLocked is only true after HoopTracker's persistence consensus (5 frames)
+        // or a manual tap. Prevents false-positive scoring against an object the model
+        // briefly saw as "basket" before the consensus window completed.
+        guard hoopTracker.isLocked, let hoop = hoopTracker.geometry else {
             let pct = Int(hoopTracker.lockProgress * 100)
-            scoringState = "idle — no hoop (\(pct)% accumulated)"
+            scoringState = "no hoop locked — scoring disabled (\(pct)% accumulated)"
             resetPathA(); resetPathB()
             return nil
         }
@@ -911,6 +915,12 @@ final class BallTrackingPipeline {
         if crossedRim && peakedAboveRim && stillNearX {
             return scorePathA(hoop: hoop, timestamp: timestamp)
         }
+
+        // Log every in-flight frame so Xcode console shows ball.y vs rimLineY in real time.
+        // This proves whether coordinate systems match: crossed=%@ should flip to YES when ball goes through.
+        NSLog("[PathA] in-flight: ball=(%.3f,%.3f) rimY=%.3f rimX=%.3f±%.3f | crossed=%@ peaked=%@ nearX=%@",
+              ballX, ballY, rimLineY, rimCenterX, rimWidth * Self.nearHoopXFactor,
+              crossedRim ? "YES" : "no", peakedAboveRim ? "YES" : "no", stillNearX ? "YES" : "no")
 
         scoringState = String(format: "Path A: y=%.3f peak=%.3f rim=%.3f %@",
                               ballY, pathA_peakY, rimLineY,
@@ -1374,7 +1384,12 @@ public class ATHLTCameraModule: Module {
             let mlModel = try MLModel(contentsOf: url, configuration: config)
             visionModel   = try VNCoreMLModel(for: mlModel)
             isModelLoaded = true
-            NSLog("[ATHLTCamera] model loaded: %@", url.lastPathComponent)
+            // Auto-enter detection mode so hoop accumulation starts immediately.
+            // JS calling setMode("detection") explicitly is now optional — if it
+            // arrives later it's a no-op since mode is already "detection".
+            // Only override "idle"; never override "tracking" (e.g. model reloaded mid-session).
+            if self.currentMode == "idle" { self.currentMode = "detection" }
+            NSLog("[ATHLTCamera] model loaded: %@ — mode → %@", url.lastPathComponent, self.currentMode)
             sendEvent("onModelLoadStatus", ["loaded": true, "modelPath": url.lastPathComponent])
             promise.resolve(["loaded": true, "modelName": url.lastPathComponent])
         } catch {
@@ -1449,7 +1464,17 @@ public class ATHLTCameraModule: Module {
         let request = VNCoreMLRequest(model: model)
         request.imageCropAndScaleOption = .scaleFit
 
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+        // COORDINATE SYSTEM FIX: use .up (no rotation) so Vision returns bounding boxes in the
+        // native landscape pixel buffer space. The buffer is already landscape-oriented because
+        // conn.videoOrientation = .landscapeRight is set on the capture connection.
+        // Previously used .right which caused Vision to rotate the buffer 90° CCW internally,
+        // producing swapped X/Y axes that mismatched screen-tap hoop coordinates.
+        if totalFramesAnalyzed <= 3 {
+            let w = CVPixelBufferGetWidth(pixelBuffer)
+            let h = CVPixelBufferGetHeight(pixelBuffer)
+            NSLog("[ATHLTCamera] pixel buffer: %d×%d (%@)", w, h, w > h ? "landscape ✓" : "portrait — may need orientation fix")
+        }
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
         do {
             try handler.perform([request])
         } catch {

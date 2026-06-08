@@ -106,6 +106,7 @@ export default function OpenRunScreen() {
     hoopLocked: false, hoopX: -1, hoopY: -1, hoopW: 0, hoopH: 0,
     inFlight: false, makes: 0, attempts: 0,
     totalFramesReceived: 0, totalFramesAnalyzed: 0, lastRawObsClass: 'none', lastRawObsConf: 0,
+    scoringState: 'idle — no hoop', lastShotPath: 'none',
   });
   const [modelStatus, setModelStatus] = useState<ModelLoadStatusEvent | null>(null);
 
@@ -552,6 +553,14 @@ export default function OpenRunScreen() {
                   ? `${debugStats.lastRawObsClass} ${(debugStats.lastRawObsConf * 100).toFixed(0)}%`
                   : 'none'}
               </Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>State </Text>
+              <Text style={[s.dbgVal, { color: Colors.primary }]}>{debugStats.scoringState}</Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Path  </Text>
+              <Text style={[s.dbgVal, { color: Colors.primary }]}>{debugStats.lastShotPath}</Text>
             </Text>
           </GlassPanel>
         </View>
