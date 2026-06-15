@@ -761,11 +761,21 @@ final class BallTrackingPipeline {
     /// of rim center. Balls outside this range are ignored entirely.
     static let pathCHoopProximity: Double = 0.15
 
+    // ── Shot window (net-based make/miss arbiter) ─────────────────────────────────
+
+    /// Window stays open this long before timing out.
+    static let shotWindowDurationSeconds: Double = 2.5
+
+    /// Net interspersion threshold — MAKE fires as soon as this is crossed.
+    static let makeInterspersionThreshold: Double = 0.14
+
+    /// Net motion threshold — alternative MAKE trigger (net moving with ball through).
+    static let makeMotionThreshold: Double = 0.15
+
     // ── Cooldown ──────────────────────────────────────────────────────────────────
 
-    /// Minimum seconds between any two scored shots across all paths.
-    /// 1.0s (shortened from 1.5s) since observation-only scoring produces fewer false triggers.
-    static let shotCooldownSeconds: Double = 1.0
+    /// Minimum seconds between any two scored shots.
+    static let shotCooldownSeconds: Double = 1.5
 
     // MARK: – Path A state (trajectory arc)
     private var pathA_inFlight       = false
@@ -781,6 +791,16 @@ final class BallTrackingPipeline {
     private var pathB_framesAbove    = 0
     private var pathB_framesInRegion = 0
 
+    // MARK: – Shot window state (net-based make/miss arbiter)
+    private var shotWindowOpen:         Bool   = false
+    private var shotWindowStart:        Double = 0.0
+    private var windowCandidateType:    String = "miss"
+    private var windowPeakInterspersion: Double = 0.0
+    private var windowPeakMotion:       Double = 0.0
+    private var windowBallBelowRimFrames: Int  = 0
+    private var windowNetPixelsSampled: Int    = 0
+    private(set) var windowPeakInterspersionPublic: Double = 0.0
+
     // MARK: – Shared cooldown + counters
     private var lastShotTimestamp = 0.0
     private(set) var makes    = 0
@@ -794,7 +814,7 @@ final class BallTrackingPipeline {
     var hoopLocked:   Bool                          { hoopTracker.isLocked }
     var hoop:         CGRect?                       { hoopTracker.geometry?.bbox }
     var hoopGeometry: HoopTracker.HoopGeometry?     { hoopTracker.geometry }
-    var inFlight:     Bool                          { pathA_inFlight }
+    var inFlight:     Bool                          { shotWindowOpen || pathA_inFlight }
     var latestBall:   BallTracker.BallPoint?        { ballTracker.latestBall }
 
     func considerHoop(visionBBox: CGRect?, confidence: Float) {
@@ -810,24 +830,26 @@ final class BallTrackingPipeline {
     func resetSession() {
         ballTracker.resetSession()
         hoopTracker.resetSession()
-        resetPathA(); resetPathB()
+        resetPathA(); resetPathB(); resetShotWindow()
         makes             = 0
         attempts          = 0
         lastShotTimestamp = 0.0
         scoringState      = "session reset — waiting for ball"
         lastShotPath      = "none"
+        windowPeakInterspersionPublic = 0
         NSLog("[Pipeline] session reset — hoop locked: %@", hoopTracker.isLocked ? "YES" : "NO")
     }
 
     func resetAll() {
         ballTracker.resetAll()
         hoopTracker.resetAll()
-        resetPathA(); resetPathB()
+        resetPathA(); resetPathB(); resetShotWindow()
         makes             = 0
         attempts          = 0
         lastShotTimestamp = 0.0
         scoringState      = "idle — no hoop"
         lastShotPath      = "none"
+        windowPeakInterspersionPublic = 0
         NSLog("[Pipeline] full reset")
     }
 
@@ -837,53 +859,71 @@ final class BallTrackingPipeline {
     // Returns (type, confidence) if a shot scored this frame, nil otherwise.
 
     func update(
-        ball:      VNRecognizedObjectObservation?,
-        basket:    VNRecognizedObjectObservation?,
-        timestamp: Double
+        ball:             VNRecognizedObjectObservation?,
+        basket:           VNRecognizedObjectObservation?,
+        timestamp:        Double,
+        netInterspersion: Double = 0,
+        netMotion:        Double = 0,
+        netPixelsSampled: Int    = 0
     ) -> (type: String, confidence: Double)? {
 
-        // Always update both trackers (nil inputs mark missed frames / possible stale hoop)
         let hoopConf = basket?.labels.first?.confidence ?? 0
         hoopTracker.ingest(visionBBox: basket?.boundingBox, confidence: hoopConf)
         ballTracker.ingest(obs: ball, timestamp: timestamp)
 
-        // Require an explicitly LOCKED hoop — geometry alone is not enough.
-        // isLocked is only true after HoopTracker's persistence consensus (5 frames)
-        // or a manual tap. Prevents false-positive scoring against an object the model
-        // briefly saw as "basket" before the consensus window completed.
         guard hoopTracker.isLocked, let hoop = hoopTracker.geometry else {
             let pct = Int(hoopTracker.lockProgress * 100)
             scoringState = "no hoop locked — scoring disabled (\(pct)% accumulated)"
-            resetPathA(); resetPathB()
+            resetPathA(); resetPathB(); resetShotWindow()
             return nil
         }
 
-        // Shared cooldown
         let coolRemaining = Self.shotCooldownSeconds - (timestamp - lastShotTimestamp)
         if coolRemaining > 0 {
             scoringState = String(format: "cooldown — %.1fs remaining", coolRemaining)
             return nil
         }
 
+        // ── Shot window: net is the sole make/miss arbiter ────────────────────────
+        // Path A/B/C detecting a make candidate opens the window.
+        // The window accumulates net-pixel signals and decides MAKE or MISS.
+        // MISS signals (rim bounce, side miss, rim out) bypass the window.
+        if shotWindowOpen {
+            if let r = evaluateShotWindow(
+                timestamp: timestamp,
+                netInterspersion: netInterspersion,
+                netMotion: netMotion,
+                netPixelsSampled: netPixelsSampled,
+                latest: ballTracker.latestBall,
+                hoop: hoop
+            ) {
+                return registerShot(type: r.type, confidence: r.confidence,
+                                    path: "Net", timestamp: timestamp)
+            }
+            return nil
+        }
+
         // PATH C: fires on disappearance while Path A flight was active.
-        // Check BEFORE the established guard since ball may not be visible.
         if pathA_inFlight,
            ballTracker.framesLost >= 2,
            ballTracker.framesLost <= Self.pathCMaxDisappearanceFrames {
             if let r = evaluatePathC(hoop: hoop, timestamp: timestamp) {
-                return registerShot(type: r.type, confidence: r.confidence,
-                                    path: "C", timestamp: timestamp)
+                if r.type == "miss" {
+                    return registerShot(type: "miss", confidence: r.confidence,
+                                        path: "C", timestamp: timestamp)
+                } else {
+                    openShotWindow(candidateType: "make", timestamp: timestamp)
+                    return nil
+                }
             }
         }
 
-        // Path A timeout cleanup
         if pathA_inFlight && timestamp - pathA_flightStart > Self.flightTimeoutSeconds {
             NSLog("[PathA] timeout after %.1fs", timestamp - pathA_flightStart)
             scoringState = "Path A timeout — resetting"
             resetPathA()
         }
 
-        // Require established ball track with a detection this frame
         guard ballTracker.isEstablished, ballTracker.framesLost == 0,
               let latest = ballTracker.latestBall else {
             if !ballTracker.isEstablished {
@@ -898,14 +938,24 @@ final class BallTrackingPipeline {
 
         // PATH A — trajectory arc
         if let r = evaluatePathA(latest: latest, hoop: hoop, timestamp: timestamp) {
-            return registerShot(type: r.type, confidence: r.confidence,
-                                path: "A", timestamp: timestamp)
+            if r.type == "miss" {
+                return registerShot(type: "miss", confidence: r.confidence,
+                                    path: "A", timestamp: timestamp)
+            } else {
+                openShotWindow(candidateType: "make", timestamp: timestamp)
+                return nil
+            }
         }
 
         // PATH B — ball through hoop region
         if let r = evaluatePathB(latest: latest, hoop: hoop, timestamp: timestamp) {
-            return registerShot(type: r.type, confidence: r.confidence,
-                                path: "B", timestamp: timestamp)
+            if r.type == "miss" {
+                return registerShot(type: "miss", confidence: r.confidence,
+                                    path: "B", timestamp: timestamp)
+            } else {
+                openShotWindow(candidateType: "make", timestamp: timestamp)
+                return nil
+            }
         }
 
         return nil
@@ -1236,6 +1286,113 @@ final class BallTrackingPipeline {
         return (type, confidence)
     }
 
+    // MARK: – Shot window ──────────────────────────────────────────────────────
+    //
+    // Path A/B/C detect a make-candidate trajectory and open the window.
+    // Each subsequent frame passes net-pixel signals; the window fires MAKE as
+    // soon as the interspersion or motion threshold is crossed, or MISS on timeout.
+    // If net sampling was unavailable (netPixelsSampled==0 throughout), falls back
+    // to the trajectory candidate type — trajectory is still reliable for misses.
+
+    private func openShotWindow(candidateType: String, timestamp: Double) {
+        guard !shotWindowOpen else { return }
+        shotWindowOpen           = true
+        shotWindowStart          = timestamp
+        windowCandidateType      = candidateType
+        windowPeakInterspersion  = 0
+        windowPeakMotion         = 0
+        windowBallBelowRimFrames = 0
+        windowNetPixelsSampled   = 0
+        windowPeakInterspersionPublic = 0
+        NSLog("[Window] OPENED — candidate=%@ ts=%.3f", candidateType, timestamp)
+        scoringState = "shot window open — net deciding (\(candidateType) candidate)"
+    }
+
+    private func resetShotWindow() {
+        shotWindowOpen           = false
+        shotWindowStart          = 0
+        windowCandidateType      = "miss"
+        windowPeakInterspersion  = 0
+        windowPeakMotion         = 0
+        windowBallBelowRimFrames = 0
+        windowNetPixelsSampled   = 0
+    }
+
+    private func evaluateShotWindow(
+        timestamp:        Double,
+        netInterspersion: Double,
+        netMotion:        Double,
+        netPixelsSampled: Int,
+        latest:           BallTracker.BallPoint?,
+        hoop:             HoopTracker.HoopGeometry
+    ) -> (type: String, confidence: Double)? {
+
+        // Accumulate peak signals
+        if netInterspersion > windowPeakInterspersion { windowPeakInterspersion = netInterspersion }
+        if netMotion > windowPeakMotion { windowPeakMotion = netMotion }
+        if netPixelsSampled > 0 { windowNetPixelsSampled = netPixelsSampled }
+        windowPeakInterspersionPublic = windowPeakInterspersion
+
+        // Track ball below rim for rim-bounce detection
+        if let ball = latest, ball.y > hoop.rimLineY {
+            windowBallBelowRimFrames += 1
+        }
+
+        // Rim bounce → immediate MISS (reliable signal, no net needed)
+        if let ball = latest, ball.y < hoop.rimLineY, windowBallBelowRimFrames > 0 {
+            NSLog("[Window] MISS — rim bounce (ball above rim after %d below-rim frames)",
+                  windowBallBelowRimFrames)
+            scoringState = "MISS — rim bounce during shot window"
+            resetShotWindow()
+            return ("miss", 0.65)
+        }
+
+        // Net-signal MAKE (fires immediately when threshold crossed)
+        if windowNetPixelsSampled > 0 {
+            let makeSignal = windowPeakInterspersion >= Self.makeInterspersionThreshold
+                          || windowPeakMotion >= Self.makeMotionThreshold
+            if makeSignal {
+                let conf = min(1.0,
+                    windowPeakInterspersion * 0.55 +
+                    windowPeakMotion        * 0.25 +
+                    0.20  // trajectory baseline
+                )
+                NSLog("[Window] MAKE — intersp=%.3f motion=%.3f conf=%.3f px=%d",
+                      windowPeakInterspersion, windowPeakMotion, conf, windowNetPixelsSampled)
+                scoringState = String(format: "MAKE — net I=%.2f M=%.2f conf=%.2f",
+                                      windowPeakInterspersion, windowPeakMotion, conf)
+                resetShotWindow()
+                return ("make", conf)
+            }
+        }
+
+        // Window timeout
+        let elapsed = timestamp - shotWindowStart
+        if elapsed >= Self.shotWindowDurationSeconds {
+            if windowNetPixelsSampled == 0 {
+                // Net unavailable — fall back to trajectory
+                let type = windowCandidateType
+                NSLog("[Window] TIMEOUT — net unavailable (px=0) → trajectory fallback: %@", type)
+                scoringState = "TIMEOUT — net unavailable → trajectory: \(type)"
+                resetShotWindow()
+                return (type, 0.50)
+            } else {
+                // Net working, no signal → ball was in front of rim
+                NSLog("[Window] MISS — timeout no net signal intersp=%.3f px=%d elapsed=%.1fs",
+                      windowPeakInterspersion, windowNetPixelsSampled, elapsed)
+                scoringState = String(format: "MISS — no net signal after %.1fs (I=%.3f)",
+                                      elapsed, windowPeakInterspersion)
+                resetShotWindow()
+                return ("miss", 0.55)
+            }
+        }
+
+        scoringState = String(format: "window %.1fs/%.1fs peakI=%.3f px=%d",
+                              elapsed, Self.shotWindowDurationSeconds,
+                              windowPeakInterspersion, windowNetPixelsSampled)
+        return nil
+    }
+
     // MARK: – State resets ─────────────────────────────────────────────────────
 
     private func resetPathA() {
@@ -1266,36 +1423,47 @@ final class NetRegionAnalyzer {
     // MARK: – Tuning constants ─────────────────────────────────────────────────
 
     // Net region geometry relative to hoop dimensions (top-left origin, y=0 top)
-    static let netHeightFactor: Double = 1.0  // net depth = rimWidth × 1.0 below rim
-    static let netWidthFactor:  Double = 1.1  // net slightly wider than rim opening
+    static let netHeightFactor: Double = 1.0   // net depth = rimWidth × 1.0 below rim
+    static let netWidthFactor:  Double = 1.1   // net slightly wider than rim opening
 
-    // Sampling stride — sample every N pixels (performance vs coverage)
-    static let sampleStride: Int = 3
+    // Sampling stride — 2 = denser (every other pixel), better coverage at slight perf cost
+    static let sampleStride: Int = 2
 
     // Interspersion grid (N×N cells, ball+net in same cell = mixed)
     static let gridDivisions: Int = 6   // 6×6 = 36 cells
 
-    // Ball-orange HSV thresholds (hue 0–360°, saturation/value 0–1)
-    static let ballHueMin: Double = 10.0   // orange starts ~10°
-    static let ballHueMax: Double = 40.0   // orange ends ~40° (before yellow)
-    static let ballSatMin: Double = 0.40   // must be saturated, not whitish
-    static let ballValMin: Double = 0.28   // reasonable brightness
+    // Ball-orange HSV thresholds — widened for worn/different balls and gym lighting
+    // (hue 0–360°, saturation/value 0–1)
+    static let ballHueMin: Double =  8.0   // allow slightly reddish-orange
+    static let ballHueMax: Double = 45.0   // allow slightly yellow-orange
+    static let ballSatMin: Double = 0.30   // reduced: catches faded balls
+    static let ballValMin: Double = 0.20   // reduced: catches balls in shadow
 
-    // Net white/off-white HSV thresholds
-    static let netSatMax:  Double = 0.28   // nearly achromatic
-    static let netValMin:  Double = 0.60   // high brightness
+    // Net white/off-white HSV thresholds — widened for different lighting conditions
+    static let netSatMax: Double = 0.35    // increased: allows slightly off-white nets
+    static let netValMin: Double = 0.50    // reduced: catches nets in shadow
 
-    // Motion detection — fraction of per-channel change vs previous frame
+    // Motion detection — frame-to-frame delta
     static let motionChannelThreshold: Int = 22   // per-channel delta to count as "changed"
     static let minPixelsForMotion:      Int = 10   // minimum samples required
 
-    // MARK: – State ────────────────────────────────────────────────────────────
+    // MARK: – Diagnostic output (all read on inferenceQueue only) ─────────────
 
-    private(set) var lastInterspersion: Double = 0
-    private(set) var lastMotion:        Double = 0
+    private(set) var lastInterspersion:  Double = 0
+    private(set) var lastMotion:         Double = 0
+    private(set) var lastPixelsSampled:  Int    = 0   // >0 confirms sampling is working
+    private(set) var lastBallPixels:     Int    = 0
+    private(set) var lastNetPixels:      Int    = 0
+    private(set) var lastAvgR:           Double = 0
+    private(set) var lastAvgG:           Double = 0
+    private(set) var lastAvgB:           Double = 0
+    private(set) var lastRegionPxX:      Int    = 0
+    private(set) var lastRegionPxY:      Int    = 0
+    private(set) var lastRegionPxW:      Int    = 0
+    private(set) var lastRegionPxH:      Int    = 0
 
-    // Previous frame's sampled net pixels for motion detection (BGR packed UInt32)
     private var prevNetSamples: [UInt32] = []
+    private var analyzeCallCount: Int = 0
 
     // MARK: – Analysis ─────────────────────────────────────────────────────────
 
@@ -1305,9 +1473,10 @@ final class NetRegionAnalyzer {
         pixelBuffer: CVPixelBuffer,
         hoop: HoopTracker.HoopGeometry
     ) -> (interspersion: Double, motion: Double) {
+        analyzeCallCount += 1
 
         guard let baseAddr = CVPixelBufferGetBaseAddress(pixelBuffer) else {
-            return (0, 0)
+            zeroResult(); return (0, 0)
         }
 
         let bufW = CVPixelBufferGetWidth(pixelBuffer)
@@ -1316,23 +1485,27 @@ final class NetRegionAnalyzer {
         let bytes = baseAddr.bindMemory(to: UInt8.self, capacity: bpr * bufH)
 
         // Derive net region in normalized coords.
-        // Net hangs BELOW the rim: rimLineY (top edge of hoop bbox) downward.
-        // Larger Y = lower on screen (top-left origin, consistent with HoopGeometry).
+        // Net hangs BELOW the rim (larger Y = lower on screen, top-left origin).
         let halfW   = (hoop.rimWidth / 2.0) * NetRegionAnalyzer.netWidthFactor
         let netMinX = max(0.0, hoop.rimCenterX - halfW)
         let netMaxX = min(1.0, hoop.rimCenterX + halfW)
         let netMinY = hoop.rimLineY
         let netMaxY = min(1.0, hoop.rimLineY + hoop.rimWidth * NetRegionAnalyzer.netHeightFactor)
 
-        // Convert to integer pixel coordinates — bounds-checked
-        let pxMinX = max(0,       Int(netMinX * Double(bufW)))
+        let pxMinX = max(0,        Int(netMinX * Double(bufW)))
         let pxMaxX = min(bufW - 1, Int(netMaxX * Double(bufW)))
-        let pxMinY = max(0,       Int(netMinY * Double(bufH)))
+        let pxMinY = max(0,        Int(netMinY * Double(bufH)))
         let pxMaxY = min(bufH - 1, Int(netMaxY * Double(bufH)))
 
+        lastRegionPxX = pxMinX; lastRegionPxY = pxMinY
+        lastRegionPxW = max(0, pxMaxX - pxMinX)
+        lastRegionPxH = max(0, pxMaxY - pxMinY)
+
         guard pxMaxX > pxMinX + 2, pxMaxY > pxMinY + 2 else {
-            lastInterspersion = 0; lastMotion = 0; prevNetSamples = []
-            return (0, 0)
+            NSLog("[NetAnalyzer] WARN region too small: px(%d,%d)–(%d,%d) norm(%.3f,%.3f)–(%.3f,%.3f) buf=%d×%d",
+                  pxMinX, pxMinY, pxMaxX, pxMaxY,
+                  netMinX, netMinY, netMaxX, netMaxY, bufW, bufH)
+            zeroResult(); return (0, 0)
         }
 
         let regionW = max(1, pxMaxX - pxMinX)
@@ -1345,15 +1518,20 @@ final class NetRegionAnalyzer {
         var curSamples: [UInt32] = []
         curSamples.reserveCapacity((regionW / stride + 1) * (regionH / stride + 1))
 
+        var sumR: Double = 0; var sumG: Double = 0; var sumB: Double = 0
+        var ballCount = 0; var netCount = 0
+
         var py = pxMinY
         while py <= pxMaxY {
             var px = pxMinX
             while px <= pxMaxX {
-                // Pixel buffer is BGRA: byte 0=B, 1=G, 2=R, 3=A
+                // BGRA layout: byte 0=B, 1=G, 2=R, 3=A
                 let off = py * bpr + px * 4
                 let b   = bytes[off]
                 let g   = bytes[off + 1]
                 let r   = bytes[off + 2]
+
+                sumR += Double(r); sumG += Double(g); sumB += Double(b)
 
                 let (h, s, v) = bgr2hsv(r: r, g: g, b: b)
                 let isBall = h >= NetRegionAnalyzer.ballHueMin
@@ -1363,6 +1541,9 @@ final class NetRegionAnalyzer {
                 let isNet  = s <= NetRegionAnalyzer.netSatMax
                           && v >= NetRegionAnalyzer.netValMin
 
+                if isBall { ballCount += 1 }
+                if isNet  { netCount  += 1 }
+
                 if isBall || isNet {
                     let cx = min(grid - 1, (px - pxMinX) * grid / regionW)
                     let cy = min(grid - 1, (py - pxMinY) * grid / regionH)
@@ -1371,21 +1552,43 @@ final class NetRegionAnalyzer {
                     if isNet  { cellHasNet[ci]  = true }
                 }
 
-                // Pack B/G/R for frame-to-frame motion comparison (A ignored)
                 curSamples.append(UInt32(b) | (UInt32(g) << 8) | (UInt32(r) << 16))
                 px += stride
             }
             py += stride
         }
 
-        // ── Interspersion (0..1): fraction of grid cells containing BOTH ball and net pixels ──
+        let totalSampled = curSamples.count
+        lastPixelsSampled = totalSampled
+        lastBallPixels    = ballCount
+        lastNetPixels     = netCount
+        if totalSampled > 0 {
+            lastAvgR = sumR / Double(totalSampled)
+            lastAvgG = sumG / Double(totalSampled)
+            lastAvgB = sumB / Double(totalSampled)
+        } else {
+            lastAvgR = 0; lastAvgG = 0; lastAvgB = 0
+        }
+
+        // Periodic diagnostic log (~every 5s at 10fps analyzed)
+        if analyzeCallCount % 50 == 1 {
+            NSLog("[NetAnalyzer] px=%d ball=%d net=%d rgb=(%.0f,%.0f,%.0f) reg=(%d,%d,%dx%d) buf=%dx%d",
+                  totalSampled, ballCount, netCount, lastAvgR, lastAvgG, lastAvgB,
+                  pxMinX, pxMinY, regionW, regionH, bufW, bufH)
+        }
+        if totalSampled == 0 {
+            NSLog("[NetAnalyzer] WARN: 0 pixels sampled! reg=(%d,%d,%dx%d) buf=%dx%d",
+                  pxMinX, pxMinY, regionW, regionH, bufW, bufH)
+        }
+
+        // ── Interspersion: fraction of cells with BOTH ball and net pixels ─────
         var mixedCells = 0
         for i in 0..<(grid * grid) {
             if cellHasBall[i] && cellHasNet[i] { mixedCells += 1 }
         }
         let interspersion = Double(mixedCells) / Double(grid * grid)
 
-        // ── Motion (0..1): fraction of sampled pixels that changed vs previous frame ──
+        // ── Motion: fraction of sampled pixels that changed vs previous frame ──
         var motion = 0.0
         let n = min(curSamples.count, prevNetSamples.count)
         if n >= NetRegionAnalyzer.minPixelsForMotion {
@@ -1413,7 +1616,13 @@ final class NetRegionAnalyzer {
 
     // MARK: – Helpers ──────────────────────────────────────────────────────────
 
-    /// RGB bytes → HSV (hue 0–360°, sat/val 0–1). Handles negative hue for red wrapping.
+    private func zeroResult() {
+        lastInterspersion = 0; lastMotion = 0
+        lastPixelsSampled = 0; lastBallPixels = 0; lastNetPixels = 0
+        lastAvgR = 0; lastAvgG = 0; lastAvgB = 0
+        prevNetSamples = []
+    }
+
     private func bgr2hsv(r: UInt8, g: UInt8, b: UInt8) -> (h: Double, s: Double, v: Double) {
         let rf = Double(r) / 255.0
         let gf = Double(g) / 255.0
@@ -1442,9 +1651,12 @@ final class NetRegionAnalyzer {
     }
 
     func reset() {
-        lastInterspersion = 0
-        lastMotion        = 0
-        prevNetSamples    = []
+        lastInterspersion = 0; lastMotion = 0
+        lastPixelsSampled = 0; lastBallPixels = 0; lastNetPixels = 0
+        lastAvgR = 0; lastAvgG = 0; lastAvgB = 0
+        lastRegionPxX = 0; lastRegionPxY = 0; lastRegionPxW = 0; lastRegionPxH = 0
+        prevNetSamples = []
+        analyzeCallCount = 0
     }
 }
 
@@ -1488,10 +1700,11 @@ public class ATHLTCameraModule: Module {
     private let pipeline    = BallTrackingPipeline()
 
     // MARK: – Net region analysis (all accessed on inferenceQueue only)
-    private let netAnalyzer          = NetRegionAnalyzer()
-    private var lastNetInterspersion: Double = 0
-    private var lastNetMotion:        Double = 0
-    private var lastMakeConfidence:   Double = 0
+    private let netAnalyzer           = NetRegionAnalyzer()
+    private var lastNetInterspersion:  Double = 0
+    private var lastNetMotion:         Double = 0
+    private var lastNetPixelsSampled:  Int    = 0
+    private var lastMakeConfidence:    Double = 0
 
     // MARK: – Hoop detection throttle (detection mode)
     private var lastHoopEventTime: Double = 0
@@ -1611,6 +1824,7 @@ public class ATHLTCameraModule: Module {
                 self.lastRawObsConf          = 0.0
                 self.lastNetInterspersion    = 0
                 self.lastNetMotion           = 0
+                self.lastNetPixelsSampled    = 0
                 self.lastMakeConfidence      = 0
                 NSLog("[ATHLTCamera] tracking started — hoop locked: %@",
                       self.pipeline.hoopLocked ? "YES" : "NO (will auto-detect)")
@@ -1886,13 +2100,13 @@ public class ATHLTCameraModule: Module {
         }
 
         // ── Net region analysis — same pixel buffer, same frame ──────────────────
-        // Run BEFORE processObservations so lastNetInterspersion / lastNetMotion are
-        // populated when handleTrackingMode → computeMakeConfidence runs this frame.
-        // Only samples during tracking when hoop is locked (avoids work in detection mode).
+        // Run BEFORE processObservations so net signals are ready when handleTrackingMode
+        // calls pipeline.update(). Only during tracking when hoop is locked.
         if currentMode == "tracking", pipeline.hoopLocked, let geo = pipeline.hoopGeometry {
             let (intersp, motion) = netAnalyzer.analyze(pixelBuffer: pixelBuffer, hoop: geo)
             lastNetInterspersion = intersp
             lastNetMotion        = motion
+            lastNetPixelsSampled = netAnalyzer.lastPixelsSampled
         }
 
         processObservations(observations, timestamp: timestamp)
@@ -2035,46 +2249,16 @@ public class ATHLTCameraModule: Module {
             }
         }
 
-        // Feed to pipeline — ball may be nil (no detection this frame)
-        if let result = pipeline.update(ball: ball, basket: basket, timestamp: timestamp) {
-            // Apply net-weighted confidence. lastNetInterspersion and lastNetMotion were
-            // set in runInference from the same pixel buffer just before processObservations.
-            let finalConf = computeMakeConfidence(type: result.type, trajectoryConf: result.confidence)
-            lastMakeConfidence = finalConf
-            NSLog("[Net] %@ traj=%.2f net_intersp=%.3f net_motion=%.3f → conf=%.3f",
-                  result.type.uppercased(), result.confidence,
-                  lastNetInterspersion, lastNetMotion, finalConf)
-            emitShotEvent(type: result.type, confidence: finalConf, timestamp: timestamp)
+        // Feed to pipeline — net params were captured in runInference this same frame
+        if let result = pipeline.update(
+            ball: ball, basket: basket, timestamp: timestamp,
+            netInterspersion: lastNetInterspersion,
+            netMotion: lastNetMotion,
+            netPixelsSampled: lastNetPixelsSampled
+        ) {
+            if result.type == "make" { lastMakeConfidence = result.confidence }
+            emitShotEvent(type: result.type, confidence: result.confidence, timestamp: timestamp)
         }
-    }
-
-    // MARK: – Net-weighted make confidence ────────────────────────────────────────
-    //
-    // Trajectory (Path A/B/C) gives a baseline. Net interspersion is the PRIMARY signal.
-    // Weights: interspersion 0.55 + motion 0.25 + trajectory 0.20.
-    // With these weights, trajectory alone peaks at 0.20 — too low to indicate a make
-    // on its own. Net signal is required to produce a high confidence score.
-    // Misses pass through unchanged — net analysis only modulates make confidence.
-
-    private static let netWeightInterspersion: Double = 0.55
-    private static let netWeightMotion:        Double = 0.25
-    private static let netWeightTrajectory:    Double = 0.20
-
-    private func computeMakeConfidence(type: String, trajectoryConf: Double) -> Double {
-        guard type == "make" else { return trajectoryConf }
-
-        let i = max(0.0, min(1.0, lastNetInterspersion))
-        let m = max(0.0, min(1.0, lastNetMotion))
-        let t = max(0.0, min(1.0, trajectoryConf))
-
-        let conf = i * Self.netWeightInterspersion
-                 + m * Self.netWeightMotion
-                 + t * Self.netWeightTrajectory
-
-        let netPresent = i >= 0.10 || m >= 0.10
-        NSLog("[Net] make vote: intersp=%.3f×0.55 + motion=%.3f×0.25 + traj=%.3f×0.20 = %.3f (net %@)",
-              i, m, t, conf, netPresent ? "corroborates" : "absent — low conf")
-        return conf
     }
 
     // MARK: – Shot event emission ──────────────────────────────────────────────
@@ -2130,9 +2314,21 @@ public class ATHLTCameraModule: Module {
             "lastRawObsConf":      lastRawObsConf,
             "scoringState":        pipeline.scoringState,
             "lastShotPath":        pipeline.lastShotPath,
+            // Net-region analysis
             "netInterspersion":    lastNetInterspersion,
             "netMotion":           lastNetMotion,
             "makeConfidence":      lastMakeConfidence,
+            // Net diagnostics (tell us if sampling is working)
+            "netPixelsSampled":    netAnalyzer.lastPixelsSampled,
+            "netBallPixels":       netAnalyzer.lastBallPixels,
+            "netNetPixels":        netAnalyzer.lastNetPixels,
+            "netAvgR":             netAnalyzer.lastAvgR,
+            "netAvgG":             netAnalyzer.lastAvgG,
+            "netAvgB":             netAnalyzer.lastAvgB,
+            "netRegionPxX":        netAnalyzer.lastRegionPxX,
+            "netRegionPxY":        netAnalyzer.lastRegionPxY,
+            "netRegionPxW":        netAnalyzer.lastRegionPxW,
+            "netRegionPxH":        netAnalyzer.lastRegionPxH,
         ])
     }
 

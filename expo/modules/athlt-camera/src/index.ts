@@ -69,7 +69,18 @@ export interface DebugStatsEvent {
   // Net-region analysis (set during tracking when hoop is locked)
   netInterspersion:     number;  // 0..1 — fraction of 6×6 cells containing both ball+net pixels
   netMotion:            number;  // 0..1 — fraction of net-region pixels that changed vs prev frame
-  makeConfidence:       number;  // 0..1 — last make's net-weighted confidence (intersp×0.55 + motion×0.25 + traj×0.20)
+  makeConfidence:       number;  // 0..1 — last make's window confidence (intersp×0.55 + motion×0.25 + 0.20)
+  // Net diagnostics — non-zero confirms pixel sampling is working
+  netPixelsSampled:     number;  // total pixels sampled in net region (0 = sampling not working)
+  netBallPixels:        number;  // pixels classified as ball-orange
+  netNetPixels:         number;  // pixels classified as net-white
+  netAvgR:              number;  // average R channel (0..255) of all sampled pixels
+  netAvgG:              number;  // average G channel
+  netAvgB:              number;  // average B channel
+  netRegionPxX:         number;  // net region left edge in pixel coords
+  netRegionPxY:         number;  // net region top edge in pixel coords
+  netRegionPxW:         number;  // net region width in pixels
+  netRegionPxH:         number;  // net region height in pixels
 }
 
 /** Emitted once when loadModel completes (success or failure). */

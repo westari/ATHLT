@@ -108,6 +108,9 @@ export default function OpenRunScreen() {
     totalFramesReceived: 0, totalFramesAnalyzed: 0, lastRawObsClass: 'none', lastRawObsConf: 0,
     scoringState: 'idle — no hoop', lastShotPath: 'none',
     netInterspersion: 0, netMotion: 0, makeConfidence: 0,
+    netPixelsSampled: 0, netBallPixels: 0, netNetPixels: 0,
+    netAvgR: 0, netAvgG: 0, netAvgB: 0,
+    netRegionPxX: 0, netRegionPxY: 0, netRegionPxW: 0, netRegionPxH: 0,
   });
   const [modelStatus, setModelStatus] = useState<ModelLoadStatusEvent | null>(null);
 
@@ -595,6 +598,18 @@ export default function OpenRunScreen() {
               <Text style={s.dbgKey}>Net   </Text>
               <Text style={[s.dbgVal, { color: debugStats.netInterspersion > 0.10 ? Colors.primary : 'rgba(255,255,255,0.45)' }]}>
                 {`I=${debugStats.netInterspersion.toFixed(2)} M=${debugStats.netMotion.toFixed(2)} conf=${debugStats.makeConfidence.toFixed(2)}`}
+              </Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={[s.dbgKey, { color: debugStats.netPixelsSampled > 0 ? 'rgba(255,255,255,0.55)' : '#FF3B30' }]}>Npx   </Text>
+              <Text style={[s.dbgVal, { color: debugStats.netPixelsSampled > 0 ? '#FFFFFF' : '#FF3B30' }]}>
+                {`px:${debugStats.netPixelsSampled} b=${debugStats.netBallPixels} n=${debugStats.netNetPixels} rgb=(${Math.round(debugStats.netAvgR)},${Math.round(debugStats.netAvgG)},${Math.round(debugStats.netAvgB)})`}
+              </Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Nreg  </Text>
+              <Text style={s.dbgVal}>
+                {`(${debugStats.netRegionPxX},${debugStats.netRegionPxY}) ${debugStats.netRegionPxW}×${debugStats.netRegionPxH}`}
               </Text>
             </Text>
           </GlassPanel>

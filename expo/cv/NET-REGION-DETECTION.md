@@ -1,7 +1,7 @@
 # Net-Region Make Detection
 
 **Status:** Implemented — requires EAS rebuild to take effect.  
-**File:** `modules/athlt-camera/ios/ATHLTCameraModule.swift` — `NetRegionAnalyzer` class  
+**File:** `modules/athlt-camera/ios/ATHLTCameraModule.swift` — `NetRegionAnalyzer` + `BallTrackingPipeline`  
 **Reference:** Ballogy patent US11839805B2
 
 ---
@@ -12,151 +12,162 @@
 - Ball **through** the net (make)
 - Ball **in front of** the rim at the same XY position (ball near rim, no score)
 
-Path A/B/C trajectory analysis correctly identifies WHERE the ball is, but pixel coordinates are identical for both cases. This is the fundamental flaw that causes false makes.
+Path A/B/C trajectory correctly identifies WHERE the ball is, but pixel coordinates are identical for both cases. This is the fundamental flaw that causes false makes.
 
 ---
 
-## The Solution: Net-Pixel Interspersion
+## The Solution: Net-Pixel Interspersion + Shot Window
 
 When a basketball goes **through** the net:
 - Orange ball pixels appear inside the net bounding box
 - White net cord pixels are also present in the same region
-- Ball and net pixels are **interspersed** — they appear in the same grid cells
+- Ball and net pixels are **interspersed** in the same grid cells
 
 No other scenario produces this pattern:
 - Ball **in front** of rim: orange pixels present, but no net cord (net is behind the ball)
-- Ball **off to the side**: neither ball nor net pixels in the region
-- False positive from crowd/wall: won't produce simultaneous orange+white in net geometry
+- Ball **off to the side**: neither ball nor net pixels in region
+- False positives from crowd/wall: won't produce simultaneous orange+white in net geometry
 
 ---
 
-## Implementation
+## Architecture: Shot Window
 
-### `NetRegionAnalyzer` class (in ATHLTCameraModule.swift)
+**Path A/B/C are demoted to "attempt detectors" only — they NEVER register makes directly.**
 
-**Net region geometry** — derived from locked `HoopGeometry`:
+```
+Path A/B detects make candidate
+    → openShotWindow(candidateType: "make")
+    → evaluateShotWindow() runs each frame:
+        • Accumulate windowPeakInterspersion, windowPeakMotion
+        • If net threshold crossed → MAKE (fires immediately)
+        • If rim bounce detected → MISS (immediate, reliable)
+        • If window timeout + net was sampling → MISS (ball in front of rim)
+        • If window timeout + net unavailable → trajectory fallback
+```
+
+**Path A/B/C misses (rim bounce, side miss, rim out) bypass the window and register directly.** These are mechanical events that don't need net corroboration.
+
+---
+
+## `NetRegionAnalyzer` Implementation
+
+### Net region geometry (derived from locked `HoopGeometry`)
 ```
 netMinX = rimCenterX - (rimWidth/2) × netWidthFactor  (1.1)
 netMaxX = rimCenterX + (rimWidth/2) × netWidthFactor
-netMinY = rimLineY                                      (top edge of hoop = rim line)
+netMinY = rimLineY                                      (top edge of hoop bbox)
 netMaxY = rimLineY + rimWidth × netHeightFactor         (1.0)
 ```
-Net hangs BELOW the rim (larger Y = lower on screen, top-left origin).
+Net hangs BELOW the rim. Larger Y = lower on screen (top-left origin).
 
-**Pixel sampling** — BGRA pixel buffer (`kCVPixelFormatType_32BGRA`, 1280×720):
-- Stride: every 3 pixels (performance/coverage tradeoff)
-- Region: only net bounding box, not full frame
+### Pixel sampling (BGRA buffer, 1280×720)
+- Stride: every 2 pixels (denser than before for better coverage)
+- Region: only net bounding box
 
-**Color classification** — BGR → HSV conversion:
-- Ball orange: hue 10–40°, sat ≥ 0.40, val ≥ 0.28
-- Net white: sat ≤ 0.28, val ≥ 0.60
+### Color classification (BGR → HSV)
+- Ball orange: hue 8–45°, sat ≥ 0.30, val ≥ 0.20
+- Net white: sat ≤ 0.35, val ≥ 0.50
 
-**Interspersion score** — 6×6 grid (36 cells):
-- Divide net region into 6×6 cells
-- Flag each cell as `hasBall` or `hasNet` based on sampled pixels
+### Interspersion score (6×6 grid, 36 cells)
+- Flag each cell as `hasBall` or `hasNet`
 - `interspersion = cells_with_both / 36`
-- Range: 0.0 (no co-location) → 1.0 (all cells have both)
 
-**Motion score** — frame-to-frame delta:
-- Compare current net samples to previous frame
-- Count pixels where any channel changed > 22 units
+### Motion score (frame-to-frame delta)
 - `motion = changed_pixels / total_samples`
-- Rises when ball enters net, falls to baseline during idle
 
 ---
 
-## Confidence Voting
+## Shot Window Constants
 
-When a shot is detected (Path A/B/C returns a result), the final confidence is:
+| Constant | Value | Description |
+|---|---|---|
+| `shotWindowDurationSeconds` | 2.5 | Max time window stays open before timeout |
+| `makeInterspersionThreshold` | 0.14 | Interspersion value that fires MAKE |
+| `makeMotionThreshold` | 0.15 | Motion value that fires MAKE |
+| `shotCooldownSeconds` | 1.5 | Min time between any two shots |
 
-```
-makeConfidence = interspersion × 0.55
-              + motion          × 0.25
-              + trajectory      × 0.20
-```
-
-**Weights rationale:**
-- Interspersion (0.55): PRIMARY signal — physical proof of ball in mesh
-- Motion (0.25): secondary corroboration — net moves when ball goes through
-- Trajectory (0.20): necessary but not sufficient alone
-
-**Key property:** Trajectory alone peaks at 0.20 (below any useful threshold). Net signal is **required** for high make confidence. No net signal = low confidence make.
-
-**Misses:** Confidence passes through unchanged. Net analysis only modulates make confidence.
-
----
-
-## Constants
+## NetRegionAnalyzer Constants
 
 | Constant | Value | Description |
 |---|---|---|
 | `netHeightFactor` | 1.0 | Net depth = rimWidth × 1.0 |
 | `netWidthFactor` | 1.1 | Net slightly wider than rim |
-| `sampleStride` | 3 | Sample every 3rd pixel |
+| `sampleStride` | 2 | Sample every 2nd pixel |
 | `gridDivisions` | 6 | 6×6 = 36 cells |
-| `ballHueMin` | 10° | Ball orange hue start |
-| `ballHueMax` | 40° | Ball orange hue end |
-| `ballSatMin` | 0.40 | Ball saturation minimum |
-| `ballValMin` | 0.28 | Ball value minimum |
-| `netSatMax` | 0.28 | Net max saturation (nearly white) |
-| `netValMin` | 0.60 | Net minimum brightness |
+| `ballHueMin` | 8° | Ball orange hue start |
+| `ballHueMax` | 45° | Ball orange hue end |
+| `ballSatMin` | 0.30 | Ball saturation minimum |
+| `ballValMin` | 0.20 | Ball value minimum |
+| `netSatMax` | 0.35 | Net max saturation |
+| `netValMin` | 0.50 | Net minimum brightness |
 | `motionChannelThreshold` | 22 | Per-channel delta for "changed" |
-| `netWeightInterspersion` | 0.55 | Interspersion voting weight |
-| `netWeightMotion` | 0.25 | Motion voting weight |
-| `netWeightTrajectory` | 0.20 | Trajectory voting weight |
 
 ---
 
 ## Debug Observability
 
-**DBG panel** (open-run.tsx, toggle with DBG button):
+### DBG panel (open-run.tsx)
 ```
 Net   I=0.72 M=0.61 conf=0.88
+Npx   px:420 b=18 n=95 rgb=(142,98,65)    ← red if px=0 (sampling broken)
+Nreg  (582,310) 138×138                   ← pixel coords of net region
 ```
-- `I` = interspersion score (gold if > 0.10)
-- `M` = motion score
-- `conf` = last make's net-weighted confidence
+- `I` = interspersion (gold if > 0.10)
+- `M` = motion
+- `conf` = last make's window confidence
+- `px` = pixels sampled (0 = sampling broken — check region + thresholds)
+- `b` = ball-orange pixels, `n` = net-white pixels
+- `rgb` = average RGB of all sampled pixels (diagnostic for threshold tuning)
+- Nreg = net region pixel coords (verify it's pointing at the actual net)
 
-**NSLog strings** (Xcode console):
+### NSLog strings (Xcode console)
 ```
-[Net] MAKE traj=0.75 net_intersp=0.42 net_motion=0.31 → conf=0.49
-[Net] make vote: intersp=0.42×0.55 + motion=0.31×0.25 + traj=0.75×0.20 = 0.49 (net corroborates)
+[NetAnalyzer] px=420 ball=18 net=95 rgb=(142,98,65) reg=(582,310,138x138) buf=1280x720
+[NetAnalyzer] WARN region too small: px(0,0)-(0,0) norm...   ← hoop off-screen
+[NetAnalyzer] WARN: 0 pixels sampled! reg=(...)               ← guard passed but loop empty
+[Window] OPENED — candidate=make ts=1234.5
+[Window] MAKE — intersp=0.18 motion=0.22 conf=0.46 px=420
+[Window] MISS — rim bounce (ball above rim after 3 below-rim frames)
+[Window] MISS — timeout no net signal intersp=0.03 px=420 elapsed=2.5s
+[Window] TIMEOUT — net unavailable (px=0) → trajectory fallback: make
+[Pipeline] SHOT MAKE via Path Net — 3/5 (conf=0.46)
 ```
 
-**DebugStatsEvent fields** (JS):
+### DebugStatsEvent fields (JS)
 - `netInterspersion` — current frame interspersion (0..1)
 - `netMotion` — current frame motion (0..1)
-- `makeConfidence` — last make's final confidence
+- `makeConfidence` — last make's window confidence
+- `netPixelsSampled` — total pixels sampled (0 = broken)
+- `netBallPixels` — pixels classified as ball-orange
+- `netNetPixels` — pixels classified as net-white
+- `netAvgR/G/B` — average RGB of all sampled pixels
+- `netRegionPxX/Y/W/H` — net region in pixel coordinates
 
 ---
 
 ## Tuning Guide
 
-**If valid makes have low confidence (interspersion near 0):**
-- Lower `netValMin` or `netSatMax` (catch off-white nets in different lighting)
-- Lower `ballSatMin` (faded balls, worn leather)
-- Check Xcode logs for `[Net] make vote` lines to see raw scores
+**`netPixelsSampled = 0` in DBG panel:**
+1. Check `Nreg` — if `(0,0) 0×0`, the hoop region is off-screen. Tap to set hoop manually.
+2. If Nreg looks valid but px=0, the guard `pxMaxX > pxMinX + 2` is failing — hoop too small.
+3. Check `[NetAnalyzer] WARN` in Xcode logs for exact pixel coordinates.
 
-**If false makes persist (interspersion > 0 on misses):**
+**Makes not registering (window times out as MISS despite ball going through):**
+- Lower `makeInterspersionThreshold` (try 0.08)
+- Check avg RGB — if `rgb=(250,250,250)` the region is all sky, not net. Check hoop lock position.
+- Lower `netValMin` (catch nets under fluorescent lighting, e.g. 0.40)
+- Lower `ballSatMin` (faded balls, e.g. 0.20)
+
+**False makes (ball in front of rim scoring as MAKE):**
+- Raise `makeInterspersionThreshold` (tighter gate)
 - Raise `ballHueMin` / lower `ballHueMax` (tighter orange range)
-- Raise `netValMin` (only catch bright white, not gray)
-- The ball occasionally reflects off the rim at similar orange hues — expected
+- The rim itself can produce orange pixels — check if `rgb` avg is orangeish when ball is near rim but not through
 
-**If motion is always near 0:**
-- Normal when phone is very still and ball passes quickly (< 1 frame in net)
-- Motion is a secondary signal; interspersion is primary
-- Consider lowering `motionChannelThreshold`
-
-**Testing without a rebuild:**
-Add `NSLog` prints in `analyze()` to see real color values vs thresholds.
+**Rim bounce detected incorrectly:**
+- `windowBallBelowRimFrames > 0` check requires ball to have been seen below rim at least once before bouncing back above. This prevents false MISS on balls that were never below the rim.
 
 ---
 
 ## What Is NOT Changed
 
-The existing Path A / Path B / Path C scoring logic is untouched. Net analysis is **additive** — it modulates confidence but does not gate or block shot events. All three paths continue to fire shots; net analysis adjusts the confidence of makes reported to the JS layer.
-
-To add a confidence gate (only count makes above a threshold), filter in `handleShotDetected` in `open-run.tsx`:
-```javascript
-if (event.type === 'make' && event.confidence < 0.35) return; // skip low-conf makes
-```
+Path A/B/C detection logic is completely unchanged. They still detect flight, rim crossing, make zones, and disappearance. The only change is that their **make results** open a shot window instead of registering directly. **Miss results** still register directly (rim bounce, side miss, rim out are reliable mechanical signals).
