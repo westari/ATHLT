@@ -72,7 +72,7 @@ const queuePending = async (payload: PendingPayload) => {
     list.push(payload);
     await AsyncStorage.setItem(PENDING_SESSIONS_KEY, JSON.stringify(list));
   } catch (e) {
-    console.error('[shotSync] failed to queue pending session', e);
+    console.warn('[shotSync] failed to queue pending session', e);
   }
 };
 
@@ -115,14 +115,14 @@ export async function createShotSession(
       .single();
 
     if (error) {
-      console.error('[shotSync] createShotSession insert error:', error.message, '— falling back to local id:', localId);
+      console.warn('[shotSync] createShotSession insert error:', error.message, '— falling back to local id:', localId);
       return localId;
     }
 
     console.log('[shotSync] session created in Supabase, id:', data.id);
     return data.id;
   } catch (e) {
-    console.error('[shotSync] createShotSession failed:', e, '— falling back to local id:', localId);
+    console.warn('[shotSync] createShotSession failed:', e, '— falling back to local id:', localId);
     return localId;
   }
 }
@@ -171,12 +171,12 @@ export async function saveShot(
       .single();
 
     if (error) {
-      console.error('[shotSync] saveShot error:', error.message);
+      console.warn('[shotSync] saveShot error:', error.message);
       return null;
     }
     return data.id;
   } catch (e) {
-    console.error('[shotSync] saveShot failed:', e);
+    console.warn('[shotSync] saveShot failed:', e);
     return null;
   }
 }
@@ -240,12 +240,12 @@ export async function finalizeShotSession(input: FinalizeInput): Promise<boolean
       .eq('id', input.sessionId);
 
     if (error) {
-      console.error('[shotSync] finalizeShotSession error:', error.message);
+      console.warn('[shotSync] finalizeShotSession error:', error.message);
       return false;
     }
     return true;
   } catch (e) {
-    console.error('[shotSync] finalizeShotSession failed:', e);
+    console.warn('[shotSync] finalizeShotSession failed:', e);
     return false;
   }
 }
@@ -270,12 +270,12 @@ export async function correctShot(
       .eq('id', shotId);
 
     if (error) {
-      console.error('[shotSync] correctShot error:', error.message);
+      console.warn('[shotSync] correctShot error:', error.message);
       return false;
     }
     return true;
   } catch (e) {
-    console.error('[shotSync] correctShot failed:', e);
+    console.warn('[shotSync] correctShot failed:', e);
     return false;
   }
 }
@@ -293,7 +293,7 @@ export async function getShotSession(sessionId: string) {
       .eq('id', sessionId)
       .single();
     if (sessionErr) {
-      console.error('[shotSync] getShotSession session error:', sessionErr.message);
+      console.warn('[shotSync] getShotSession session error:', sessionErr.message);
       return null;
     }
 
@@ -303,13 +303,13 @@ export async function getShotSession(sessionId: string) {
       .eq('session_id', sessionId)
       .order('shot_index', { ascending: true });
     if (shotsErr) {
-      console.error('[shotSync] getShotSession shots error:', shotsErr.message);
+      console.warn('[shotSync] getShotSession shots error:', shotsErr.message);
       return { session, shots: [] };
     }
 
     return { session, shots: shots || [] };
   } catch (e) {
-    console.error('[shotSync] getShotSession failed:', e);
+    console.warn('[shotSync] getShotSession failed:', e);
     return null;
   }
 }
@@ -333,12 +333,12 @@ export async function getRecentShotSessions(limit: number = 10) {
       .limit(limit);
 
     if (error) {
-      console.error('[shotSync] getRecentShotSessions error:', error.message);
+      console.warn('[shotSync] getRecentShotSessions error:', error.message);
       return [];
     }
     return data || [];
   } catch (e) {
-    console.error('[shotSync] getRecentShotSessions failed:', e);
+    console.warn('[shotSync] getRecentShotSessions failed:', e);
     return [];
   }
 }
@@ -365,7 +365,7 @@ export async function getWeeklyShootingStats(weeksBack: number = 1) {
       .not('ended_at', 'is', null);
 
     if (error) {
-      console.error('[shotSync] getWeeklyShootingStats error:', error.message);
+      console.warn('[shotSync] getWeeklyShootingStats error:', error.message);
       return null;
     }
 
@@ -389,7 +389,7 @@ export async function getWeeklyShootingStats(weeksBack: number = 1) {
       fgPercentage: parseFloat(fgPercentage.toFixed(1)),
     };
   } catch (e) {
-    console.error('[shotSync] getWeeklyShootingStats failed:', e);
+    console.warn('[shotSync] getWeeklyShootingStats failed:', e);
     return null;
   }
 }
@@ -419,7 +419,7 @@ export async function getZoneStats() {
     }
     return data || [];
   } catch (e) {
-    console.error('[shotSync] getZoneStats failed:', e);
+    console.warn('[shotSync] getZoneStats failed:', e);
     return [];
   }
 }
@@ -485,7 +485,7 @@ export async function buildShootingContextString(): Promise<string> {
 
     return str;
   } catch (e) {
-    console.error('[shotSync] buildShootingContextString failed:', e);
+    console.warn('[shotSync] buildShootingContextString failed:', e);
     return 'No tracked shooting data available.';
   }
 }

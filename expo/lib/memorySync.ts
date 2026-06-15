@@ -75,7 +75,7 @@ export async function logDrillResult(params: {
   });
 
   if (drillErr) {
-    console.error('logDrillResult: insert failed:', drillErr);
+    console.warn('logDrillResult: insert failed:', drillErr);
     return { success: false, reason: 'insert_failed', error: drillErr };
   }
 
@@ -88,7 +88,7 @@ export async function logDrillResult(params: {
     .maybeSingle();
 
   if (readErr) {
-    console.error('logDrillResult: read skill_state failed:', readErr);
+    console.warn('logDrillResult: read skill_state failed:', readErr);
     return { success: true, reason: 'drill_saved_but_state_read_failed' };
   }
 
@@ -107,7 +107,7 @@ export async function logDrillResult(params: {
       total_sessions_worked: 1,
     });
     if (insertErr) {
-      console.error('logDrillResult: insert skill_state failed:', insertErr);
+      console.warn('logDrillResult: insert skill_state failed:', insertErr);
     }
     return { success: true, reason: 'created_new_skill_state' };
   }
@@ -141,7 +141,7 @@ export async function logDrillResult(params: {
     .eq('skill_category', params.primarySkill);
 
   if (updateErr) {
-    console.error('logDrillResult: update skill_state failed:', updateErr);
+    console.warn('logDrillResult: update skill_state failed:', updateErr);
     return { success: true, reason: 'drill_saved_but_state_update_failed' };
   }
 
@@ -175,7 +175,7 @@ export async function logSession(params: {
   });
 
   if (error) {
-    console.error('logSession failed:', error);
+    console.warn('logSession failed:', error);
     return { success: false, error };
   }
 

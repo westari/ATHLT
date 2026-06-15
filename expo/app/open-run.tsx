@@ -107,6 +107,7 @@ export default function OpenRunScreen() {
     inFlight: false, makes: 0, attempts: 0,
     totalFramesReceived: 0, totalFramesAnalyzed: 0, lastRawObsClass: 'none', lastRawObsConf: 0,
     scoringState: 'idle — no hoop', lastShotPath: 'none',
+    netInterspersion: 0, netMotion: 0, makeConfidence: 0,
   });
   const [modelStatus, setModelStatus] = useState<ModelLoadStatusEvent | null>(null);
 
@@ -338,7 +339,7 @@ export default function OpenRunScreen() {
     setPhase('tracking');
 
     try { await sync.start({ sessionType: 'open_run' }); }
-    catch (e) { console.error('[open-run] sync.start error:', e); }
+    catch (e) { console.warn('[open-run] sync.start error:', e); }
   };
 
   // ── Stop ─────────────────────────────────────────────────────────────────────
@@ -359,7 +360,7 @@ export default function OpenRunScreen() {
       const sessionRecap = await sync.finish(summary as any, userId);
       setRecap(sessionRecap);
     } catch (e) {
-      console.error('[open-run] stop error:', e);
+      console.warn('[open-run] stop error:', e);
       setRecap(null);
     } finally {
       setRecapLoading(false);
@@ -483,32 +484,14 @@ export default function OpenRunScreen() {
           s.hoopBox,
           { borderColor: hoopDetected ? Colors.primary : 'rgba(255,255,255,0.55)', opacity: hoopPulse },
         ]} />
-        <Text style={[s.hoopLabel, hoopDetected && s.hoopLabelDetected, TS]}>
-          {hoopDetected
-            ? (manualMark ? 'Hoop marked ✓' : 'Hoop detected ✓')
-            : 'Point at the hoop or tap to set it'}
-        </Text>
-        {/* Manual hint — fades in after 5s if auto-detection hasn't fired */}
-        {showManualHint && !hoopDetected && (
-          <Text style={[s.manualHintText, TS]}>
-            Or tap the hoop to mark it manually
-          </Text>
-        )}
-      </Animated.View>
-
-      {/* Model status banner — always visible, shows load result immediately */}
-      {modelStatus !== null && (
-        <View
-          style={[s.modelBanner, { top: barY }]}
-          pointerEvents="none"
-        >
-          <Text style={[s.modelBannerText, { color: modelStatus.loaded ? Colors.primary : '#FF3B30' }]}>
-            {modelStatus.loaded
-              ? `model: ${modelStatus.modelPath}`
-              : `model failed: ${modelStatus.error ?? 'unknown'}`}
+        <View style={[s.hoopLabelPill, hoopDetected && s.hoopLabelPillDetected]}>
+          <Text style={[s.hoopLabel, hoopDetected && s.hoopLabelDetected, TS]}>
+            {hoopDetected
+              ? (manualMark ? 'Hoop marked ✓' : 'Hoop detected ✓')
+              : 'Point at the hoop or tap to set it'}
           </Text>
         </View>
-      )}
+      </Animated.View>
 
       {/* X / close */}
       <View style={[s.topLeft, { top: barY, left: leftX }]}>
@@ -526,11 +509,7 @@ export default function OpenRunScreen() {
       {/* Reset hoop — below X, idle mode only, when hoop is locked */}
       {hoopDetected && !isTracking && (
         <View style={[s.resetHoopWrap, { top: barY + 36 + 6, left: leftX }]}>
-          <TouchableOpacity
-            onPress={handleResetHoop}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, left: 8, right: 12, bottom: 8 }}
-          >
+          <TouchableOpacity style={s.resetHoopBtn} onPress={handleResetHoop} activeOpacity={0.8}>
             <Text style={s.resetHoopText}>Reset hoop</Text>
           </TouchableOpacity>
         </View>
@@ -611,6 +590,12 @@ export default function OpenRunScreen() {
             <Text style={s.dbgLine}>
               <Text style={s.dbgKey}>Path  </Text>
               <Text style={[s.dbgVal, { color: Colors.primary }]}>{debugStats.lastShotPath}</Text>
+            </Text>
+            <Text style={s.dbgLine}>
+              <Text style={s.dbgKey}>Net   </Text>
+              <Text style={[s.dbgVal, { color: debugStats.netInterspersion > 0.10 ? Colors.primary : 'rgba(255,255,255,0.45)' }]}>
+                {`I=${debugStats.netInterspersion.toFixed(2)} M=${debugStats.netMotion.toFixed(2)} conf=${debugStats.makeConfidence.toFixed(2)}`}
+              </Text>
             </Text>
           </GlassPanel>
         </View>
@@ -858,7 +843,9 @@ const s = StyleSheet.create({
 
   hoopOverlayWrap: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', zIndex: 15 },
   hoopBox:          { width: '60%', aspectRatio: 3 / 2, borderWidth: 3, borderRadius: 10, borderColor: 'rgba(255,255,255,0.55)' },
-  hoopLabel:        { marginTop: 14, color: '#FFFFFF', fontSize: 13, fontWeight: '600', letterSpacing: -0.1, textAlign: 'center' },
+  hoopLabelPill:    { marginTop: 14, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 24, paddingHorizontal: 18, paddingVertical: 10 },
+  hoopLabelPillDetected: { backgroundColor: 'rgba(0,0,0,0.30)' },
+  hoopLabel:        { color: '#FFFFFF', fontSize: 15, fontWeight: '600', letterSpacing: -0.1, textAlign: 'center' },
   hoopLabelDetected:{ color: Colors.primary },
   manualHintText:   { marginTop: 6, color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: '400', letterSpacing: -0.1, textAlign: 'center' },
 
@@ -958,7 +945,17 @@ const s = StyleSheet.create({
 
   // ── Reset hoop button ─────────────────────────────────────────────────────────
   resetHoopWrap: { position: 'absolute', zIndex: 30 },
-  resetHoopText: { color: 'rgba(255,255,255,0.50)', fontSize: 11, fontWeight: '500' as const, letterSpacing: -0.1 },
+  resetHoopBtn: {
+    height: 44,
+    paddingHorizontal: 16,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  resetHoopText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' as const, letterSpacing: -0.1 },
 
   bottomWrap: { position: 'absolute', left: 0, right: 0, height: BTN_H, alignItems: 'center', zIndex: 30 },
   btnSlot:    { position: 'absolute', width: BTN_W, height: BTN_H, top: 0 },

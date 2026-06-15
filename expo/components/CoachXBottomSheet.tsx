@@ -79,7 +79,7 @@ async function buildOpeningGreeting(): Promise<string> {
 
     return "What's good. I built your plan based on what you told me. Run a session and I'll start tracking everything. What you wanna ask?";
   } catch (e) {
-    console.error('buildOpeningGreeting failed:', e);
+    console.warn('buildOpeningGreeting failed:', e);
     return "What's good. I'm Coach X — your AI trainer. Ask me anything about your game.";
   }
 }

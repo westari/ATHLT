@@ -1,7 +1,7 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, LogBox } from 'react-native';
 import {
   useFonts,
   Inter_400Regular,
@@ -15,6 +15,13 @@ import * as SplashScreen from 'expo-splash-screen';
 import Colors from '@/constants/colors';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Suppress network error overlays — all failures are caught with console.warn
+LogBox.ignoreLogs([
+  'Network request failed',
+  'TypeError: Network request failed',
+  'Error: Network request failed',
+]);
 
 function applyDefaultFont() {
   // @ts-ignore

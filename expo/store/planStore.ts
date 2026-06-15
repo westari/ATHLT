@@ -98,7 +98,7 @@ const saveToStorage = (state: Partial<PlanStore>) => {
       };
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch (e) {
-      console.error('Failed to save to storage:', e);
+      console.warn('Failed to save to storage:', e);
     }
   }, 500);
 };
@@ -239,7 +239,7 @@ export const usePlanStore = create<PlanStore>((set, get) => ({
         });
       }
     } catch (e) {
-      console.error('Failed to load from storage:', e);
+      console.warn('Failed to load from storage:', e);
     }
   },
   clearAll: () => {

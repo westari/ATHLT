@@ -108,7 +108,7 @@ export default function FilmTab() {
         })));
       }
     } catch (e) {
-      console.error('Load films error:', e);
+      console.warn('Load films error:', e);
     }
   };
 
@@ -128,7 +128,7 @@ export default function FilmTab() {
       });
       loadPastFilms();
     } catch (e) {
-      console.error('Save analysis error:', e);
+      console.warn('Save analysis error:', e);
     }
   };
 
@@ -177,7 +177,7 @@ export default function FilmTab() {
 
       if (!uploadRes.ok) {
         const errText = await uploadRes.text();
-        console.error('Supabase upload failed:', errText);
+        console.warn('Supabase upload failed:', errText);
         throw new Error('Upload failed');
       }
 
@@ -223,7 +223,7 @@ export default function FilmTab() {
       });
       setState('result');
     } catch (e: any) {
-      console.error('Film analysis error:', e);
+      console.warn('Film analysis error:', e);
       Alert.alert('Upload failed', e.message || 'Try a shorter clip.');
       setState('idle');
     }

@@ -791,10 +791,11 @@ final class BallTrackingPipeline {
     private(set) var lastShotPath = "none"
 
     // MARK: – Interface for ATHLTCameraModule (preserves existing call sites)
-    var hoopLocked: Bool                   { hoopTracker.isLocked }
-    var hoop:       CGRect?                { hoopTracker.geometry?.bbox }
-    var inFlight:   Bool                   { pathA_inFlight }
-    var latestBall: BallTracker.BallPoint? { ballTracker.latestBall }
+    var hoopLocked:   Bool                          { hoopTracker.isLocked }
+    var hoop:         CGRect?                       { hoopTracker.geometry?.bbox }
+    var hoopGeometry: HoopTracker.HoopGeometry?     { hoopTracker.geometry }
+    var inFlight:     Bool                          { pathA_inFlight }
+    var latestBall:   BallTracker.BallPoint?        { ballTracker.latestBall }
 
     func considerHoop(visionBBox: CGRect?, confidence: Float) {
         hoopTracker.ingest(visionBBox: visionBBox, confidence: confidence)
@@ -1251,6 +1252,202 @@ final class BallTrackingPipeline {
     }
 }
 
+// ─── NetRegionAnalyzer ─────────────────────────────────────────────────────────
+//
+// Samples the net region below a locked hoop in a BGRA CVPixelBuffer.
+// PRIMARY make signal: orange (ball) pixels interspersed with white (net cord)
+// pixels in the same 6×6 grid cells proves the ball is physically inside the mesh,
+// not in front of the rim — impossible to distinguish from 2D trajectory alone.
+//
+// Approach from: Ballogy patent US11839805B2 (net-pixel color interspersion).
+
+final class NetRegionAnalyzer {
+
+    // MARK: – Tuning constants ─────────────────────────────────────────────────
+
+    // Net region geometry relative to hoop dimensions (top-left origin, y=0 top)
+    static let netHeightFactor: Double = 1.0  // net depth = rimWidth × 1.0 below rim
+    static let netWidthFactor:  Double = 1.1  // net slightly wider than rim opening
+
+    // Sampling stride — sample every N pixels (performance vs coverage)
+    static let sampleStride: Int = 3
+
+    // Interspersion grid (N×N cells, ball+net in same cell = mixed)
+    static let gridDivisions: Int = 6   // 6×6 = 36 cells
+
+    // Ball-orange HSV thresholds (hue 0–360°, saturation/value 0–1)
+    static let ballHueMin: Double = 10.0   // orange starts ~10°
+    static let ballHueMax: Double = 40.0   // orange ends ~40° (before yellow)
+    static let ballSatMin: Double = 0.40   // must be saturated, not whitish
+    static let ballValMin: Double = 0.28   // reasonable brightness
+
+    // Net white/off-white HSV thresholds
+    static let netSatMax:  Double = 0.28   // nearly achromatic
+    static let netValMin:  Double = 0.60   // high brightness
+
+    // Motion detection — fraction of per-channel change vs previous frame
+    static let motionChannelThreshold: Int = 22   // per-channel delta to count as "changed"
+    static let minPixelsForMotion:      Int = 10   // minimum samples required
+
+    // MARK: – State ────────────────────────────────────────────────────────────
+
+    private(set) var lastInterspersion: Double = 0
+    private(set) var lastMotion:        Double = 0
+
+    // Previous frame's sampled net pixels for motion detection (BGR packed UInt32)
+    private var prevNetSamples: [UInt32] = []
+
+    // MARK: – Analysis ─────────────────────────────────────────────────────────
+
+    /// Samples the net region below `hoop` and returns (interspersion, motion) ∈ [0..1].
+    /// pixelBuffer must be locked with .readOnly by the caller before this call.
+    func analyze(
+        pixelBuffer: CVPixelBuffer,
+        hoop: HoopTracker.HoopGeometry
+    ) -> (interspersion: Double, motion: Double) {
+
+        guard let baseAddr = CVPixelBufferGetBaseAddress(pixelBuffer) else {
+            return (0, 0)
+        }
+
+        let bufW = CVPixelBufferGetWidth(pixelBuffer)
+        let bufH = CVPixelBufferGetHeight(pixelBuffer)
+        let bpr  = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let bytes = baseAddr.bindMemory(to: UInt8.self, capacity: bpr * bufH)
+
+        // Derive net region in normalized coords.
+        // Net hangs BELOW the rim: rimLineY (top edge of hoop bbox) downward.
+        // Larger Y = lower on screen (top-left origin, consistent with HoopGeometry).
+        let halfW   = (hoop.rimWidth / 2.0) * NetRegionAnalyzer.netWidthFactor
+        let netMinX = max(0.0, hoop.rimCenterX - halfW)
+        let netMaxX = min(1.0, hoop.rimCenterX + halfW)
+        let netMinY = hoop.rimLineY
+        let netMaxY = min(1.0, hoop.rimLineY + hoop.rimWidth * NetRegionAnalyzer.netHeightFactor)
+
+        // Convert to integer pixel coordinates — bounds-checked
+        let pxMinX = max(0,       Int(netMinX * Double(bufW)))
+        let pxMaxX = min(bufW - 1, Int(netMaxX * Double(bufW)))
+        let pxMinY = max(0,       Int(netMinY * Double(bufH)))
+        let pxMaxY = min(bufH - 1, Int(netMaxY * Double(bufH)))
+
+        guard pxMaxX > pxMinX + 2, pxMaxY > pxMinY + 2 else {
+            lastInterspersion = 0; lastMotion = 0; prevNetSamples = []
+            return (0, 0)
+        }
+
+        let regionW = max(1, pxMaxX - pxMinX)
+        let regionH = max(1, pxMaxY - pxMinY)
+        let stride  = NetRegionAnalyzer.sampleStride
+        let grid    = NetRegionAnalyzer.gridDivisions
+
+        var cellHasBall = [Bool](repeating: false, count: grid * grid)
+        var cellHasNet  = [Bool](repeating: false, count: grid * grid)
+        var curSamples: [UInt32] = []
+        curSamples.reserveCapacity((regionW / stride + 1) * (regionH / stride + 1))
+
+        var py = pxMinY
+        while py <= pxMaxY {
+            var px = pxMinX
+            while px <= pxMaxX {
+                // Pixel buffer is BGRA: byte 0=B, 1=G, 2=R, 3=A
+                let off = py * bpr + px * 4
+                let b   = bytes[off]
+                let g   = bytes[off + 1]
+                let r   = bytes[off + 2]
+
+                let (h, s, v) = bgr2hsv(r: r, g: g, b: b)
+                let isBall = h >= NetRegionAnalyzer.ballHueMin
+                          && h <= NetRegionAnalyzer.ballHueMax
+                          && s >= NetRegionAnalyzer.ballSatMin
+                          && v >= NetRegionAnalyzer.ballValMin
+                let isNet  = s <= NetRegionAnalyzer.netSatMax
+                          && v >= NetRegionAnalyzer.netValMin
+
+                if isBall || isNet {
+                    let cx = min(grid - 1, (px - pxMinX) * grid / regionW)
+                    let cy = min(grid - 1, (py - pxMinY) * grid / regionH)
+                    let ci = cy * grid + cx
+                    if isBall { cellHasBall[ci] = true }
+                    if isNet  { cellHasNet[ci]  = true }
+                }
+
+                // Pack B/G/R for frame-to-frame motion comparison (A ignored)
+                curSamples.append(UInt32(b) | (UInt32(g) << 8) | (UInt32(r) << 16))
+                px += stride
+            }
+            py += stride
+        }
+
+        // ── Interspersion (0..1): fraction of grid cells containing BOTH ball and net pixels ──
+        var mixedCells = 0
+        for i in 0..<(grid * grid) {
+            if cellHasBall[i] && cellHasNet[i] { mixedCells += 1 }
+        }
+        let interspersion = Double(mixedCells) / Double(grid * grid)
+
+        // ── Motion (0..1): fraction of sampled pixels that changed vs previous frame ──
+        var motion = 0.0
+        let n = min(curSamples.count, prevNetSamples.count)
+        if n >= NetRegionAnalyzer.minPixelsForMotion {
+            var changed = 0
+            for i in 0..<n {
+                let cur  = curSamples[i]
+                let prev = prevNetSamples[i]
+                let db = abs(Int(cur & 0xFF)         - Int(prev & 0xFF))
+                let dg = abs(Int((cur >> 8)  & 0xFF) - Int((prev >> 8)  & 0xFF))
+                let dr = abs(Int((cur >> 16) & 0xFF) - Int((prev >> 16) & 0xFF))
+                if db > NetRegionAnalyzer.motionChannelThreshold
+                || dg > NetRegionAnalyzer.motionChannelThreshold
+                || dr > NetRegionAnalyzer.motionChannelThreshold {
+                    changed += 1
+                }
+            }
+            motion = Double(changed) / Double(n)
+        }
+        prevNetSamples = curSamples
+
+        lastInterspersion = interspersion
+        lastMotion        = motion
+        return (interspersion, motion)
+    }
+
+    // MARK: – Helpers ──────────────────────────────────────────────────────────
+
+    /// RGB bytes → HSV (hue 0–360°, sat/val 0–1). Handles negative hue for red wrapping.
+    private func bgr2hsv(r: UInt8, g: UInt8, b: UInt8) -> (h: Double, s: Double, v: Double) {
+        let rf = Double(r) / 255.0
+        let gf = Double(g) / 255.0
+        let bf = Double(b) / 255.0
+
+        let cmax  = max(rf, gf, bf)
+        let cmin  = min(rf, gf, bf)
+        let delta = cmax - cmin
+
+        let v = cmax
+        let s = cmax > 1e-6 ? delta / cmax : 0.0
+
+        var h = 0.0
+        if delta > 1e-6 {
+            if cmax == rf {
+                h = 60.0 * ((gf - bf) / delta)
+                if h < 0 { h += 360.0 }
+            } else if cmax == gf {
+                h = 60.0 * ((bf - rf) / delta + 2.0)
+            } else {
+                h = 60.0 * ((rf - gf) / delta + 4.0)
+            }
+        }
+
+        return (h, s, v)
+    }
+
+    func reset() {
+        lastInterspersion = 0
+        lastMotion        = 0
+        prevNetSamples    = []
+    }
+}
+
 // ─── Capture delegate ──────────────────────────────────────────────────────────
 
 private final class ATHLTCaptureDelegate: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
@@ -1288,7 +1485,13 @@ public class ATHLTCameraModule: Module {
     private let frameSkip    = 3   // ~10fps from 30fps input (was 6 → ~5fps)
 
     // MARK: – Shot detection pipeline
-    private let pipeline = BallTrackingPipeline()
+    private let pipeline    = BallTrackingPipeline()
+
+    // MARK: – Net region analysis (all accessed on inferenceQueue only)
+    private let netAnalyzer          = NetRegionAnalyzer()
+    private var lastNetInterspersion: Double = 0
+    private var lastNetMotion:        Double = 0
+    private var lastMakeConfidence:   Double = 0
 
     // MARK: – Hoop detection throttle (detection mode)
     private var lastHoopEventTime: Double = 0
@@ -1394,17 +1597,21 @@ public class ATHLTCameraModule: Module {
         AsyncFunction("startTracking") { (promise: Promise) in
             self.inferenceQueue.async {
                 self.pipeline.resetSession()
-                self.isTracking           = true
-                self.currentMode          = "tracking"
+                self.netAnalyzer.reset()
+                self.isTracking              = true
+                self.currentMode             = "tracking"
                 // Reset debug stat counters for this session
-                self.totalBallDetections  = 0
-                self.totalHoopDetections  = 0
-                self.peakBallConfidence   = 0.0
-                self.peakHoopConfidence   = 0.0
-                self.lastDebugStatsTime   = 0.0
-                self.totalFramesAnalyzed  = 0
-                self.lastRawObsClass      = "none"
-                self.lastRawObsConf       = 0.0
+                self.totalBallDetections     = 0
+                self.totalHoopDetections     = 0
+                self.peakBallConfidence      = 0.0
+                self.peakHoopConfidence      = 0.0
+                self.lastDebugStatsTime      = 0.0
+                self.totalFramesAnalyzed     = 0
+                self.lastRawObsClass         = "none"
+                self.lastRawObsConf          = 0.0
+                self.lastNetInterspersion    = 0
+                self.lastNetMotion           = 0
+                self.lastMakeConfidence      = 0
                 NSLog("[ATHLTCamera] tracking started — hoop locked: %@",
                       self.pipeline.hoopLocked ? "YES" : "NO (will auto-detect)")
                 promise.resolve()
@@ -1678,6 +1885,16 @@ public class ATHLTCameraModule: Module {
             lastRawObsConf  = Double(topConf)
         }
 
+        // ── Net region analysis — same pixel buffer, same frame ──────────────────
+        // Run BEFORE processObservations so lastNetInterspersion / lastNetMotion are
+        // populated when handleTrackingMode → computeMakeConfidence runs this frame.
+        // Only samples during tracking when hoop is locked (avoids work in detection mode).
+        if currentMode == "tracking", pipeline.hoopLocked, let geo = pipeline.hoopGeometry {
+            let (intersp, motion) = netAnalyzer.analyze(pixelBuffer: pixelBuffer, hoop: geo)
+            lastNetInterspersion = intersp
+            lastNetMotion        = motion
+        }
+
         processObservations(observations, timestamp: timestamp)
     }
 
@@ -1820,8 +2037,44 @@ public class ATHLTCameraModule: Module {
 
         // Feed to pipeline — ball may be nil (no detection this frame)
         if let result = pipeline.update(ball: ball, basket: basket, timestamp: timestamp) {
-            emitShotEvent(type: result.type, confidence: result.confidence, timestamp: timestamp)
+            // Apply net-weighted confidence. lastNetInterspersion and lastNetMotion were
+            // set in runInference from the same pixel buffer just before processObservations.
+            let finalConf = computeMakeConfidence(type: result.type, trajectoryConf: result.confidence)
+            lastMakeConfidence = finalConf
+            NSLog("[Net] %@ traj=%.2f net_intersp=%.3f net_motion=%.3f → conf=%.3f",
+                  result.type.uppercased(), result.confidence,
+                  lastNetInterspersion, lastNetMotion, finalConf)
+            emitShotEvent(type: result.type, confidence: finalConf, timestamp: timestamp)
         }
+    }
+
+    // MARK: – Net-weighted make confidence ────────────────────────────────────────
+    //
+    // Trajectory (Path A/B/C) gives a baseline. Net interspersion is the PRIMARY signal.
+    // Weights: interspersion 0.55 + motion 0.25 + trajectory 0.20.
+    // With these weights, trajectory alone peaks at 0.20 — too low to indicate a make
+    // on its own. Net signal is required to produce a high confidence score.
+    // Misses pass through unchanged — net analysis only modulates make confidence.
+
+    private static let netWeightInterspersion: Double = 0.55
+    private static let netWeightMotion:        Double = 0.25
+    private static let netWeightTrajectory:    Double = 0.20
+
+    private func computeMakeConfidence(type: String, trajectoryConf: Double) -> Double {
+        guard type == "make" else { return trajectoryConf }
+
+        let i = max(0.0, min(1.0, lastNetInterspersion))
+        let m = max(0.0, min(1.0, lastNetMotion))
+        let t = max(0.0, min(1.0, trajectoryConf))
+
+        let conf = i * Self.netWeightInterspersion
+                 + m * Self.netWeightMotion
+                 + t * Self.netWeightTrajectory
+
+        let netPresent = i >= 0.10 || m >= 0.10
+        NSLog("[Net] make vote: intersp=%.3f×0.55 + motion=%.3f×0.25 + traj=%.3f×0.20 = %.3f (net %@)",
+              i, m, t, conf, netPresent ? "corroborates" : "absent — low conf")
+        return conf
     }
 
     // MARK: – Shot event emission ──────────────────────────────────────────────
@@ -1877,6 +2130,9 @@ public class ATHLTCameraModule: Module {
             "lastRawObsConf":      lastRawObsConf,
             "scoringState":        pipeline.scoringState,
             "lastShotPath":        pipeline.lastShotPath,
+            "netInterspersion":    lastNetInterspersion,
+            "netMotion":           lastNetMotion,
+            "makeConfidence":      lastMakeConfidence,
         ])
     }
 

@@ -120,7 +120,7 @@ export default function CVCameraView({ active, onShotDetected, onHoopDetected, o
     if (active) {
       // Switch to tracking mode before starting the shot detection counter
       setMode('tracking').catch(() => {});
-      startTracking().catch(e => console.error('[CVCameraView] startTracking:', e));
+      startTracking().catch(e => console.warn('[CVCameraView] startTracking:', e));
     } else {
       stopTracking().catch(() => {});
     }

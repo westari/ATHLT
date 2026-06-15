@@ -66,6 +66,10 @@ export interface DebugStatsEvent {
   // Scoring pipeline observability
   scoringState:         string;  // human-readable pipeline state (path A/B/C phase, why not scoring)
   lastShotPath:         string;  // "A", "B", "C", or "none" — which path scored the last shot
+  // Net-region analysis (set during tracking when hoop is locked)
+  netInterspersion:     number;  // 0..1 — fraction of 6×6 cells containing both ball+net pixels
+  netMotion:            number;  // 0..1 — fraction of net-region pixels that changed vs prev frame
+  makeConfidence:       number;  // 0..1 — last make's net-weighted confidence (intersp×0.55 + motion×0.25 + traj×0.20)
 }
 
 /** Emitted once when loadModel completes (success or failure). */

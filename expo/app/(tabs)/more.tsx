@@ -47,7 +47,7 @@ export default function ProfileScreen() {
           }
         }
       } catch (e) {
-        console.error('Auth check failed:', e);
+        console.warn('Auth check failed:', e);
       } finally {
         if (mounted) setIsLoadingAuth(false);
       }
@@ -86,7 +86,7 @@ export default function ProfileScreen() {
   };
 
   const doLogout = async () => {
-    try { await supabase.auth.signOut(); } catch (e) { console.error('signOut error:', e); }
+    try { await supabase.auth.signOut(); } catch (e) { console.warn('signOut error:', e); }
     clearAll();
     setUserEmail(null);
   };

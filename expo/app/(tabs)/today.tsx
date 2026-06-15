@@ -636,7 +636,7 @@ export default function TodayScreen() {
             }, { onConflict: 'user_id' });
           }
         } catch (saveErr) {
-          console.error('Supabase sync failed:', saveErr);
+          console.warn('Supabase sync failed:', saveErr);
         }
 
         setAppState('climax');
@@ -1113,7 +1113,7 @@ export default function TodayScreen() {
             return;
           }
         }
-      } catch (e) { console.error('Existing plan check failed:', e); }
+      } catch (e) { console.warn('Existing plan check failed:', e); }
       // No existing plan - generate one from onboarding answers
       await generatePlanFromOnboarding();
     }} onBack={() => setAppState('focuspick')} />;
@@ -1136,7 +1136,7 @@ export default function TodayScreen() {
               usePlanStore.getState().setProfile(prof as any);
             }
             if (planRow?.plan_data) { setAppState('plan'); setOnboardingComplete(true); } else setAppState('welcome');
-          } catch (e) { console.error('Sign-in load failed:', e); setAppState('welcome'); }
+          } catch (e) { console.warn('Sign-in load failed:', e); setAppState('welcome'); }
         }}
         onBack={() => setAppState('welcome')}
       />

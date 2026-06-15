@@ -35,7 +35,7 @@ export async function saveProfileToCloud(profile: PlayerProfile, skillLevels: Re
 
   const { error } = await supabase.from('profiles').upsert(row);
   if (error) {
-    console.error('saveProfileToCloud error:', error);
+    console.warn('saveProfileToCloud error:', error);
     return { error: error.message };
   }
   console.log('saveProfileToCloud: success');
@@ -50,7 +50,7 @@ export async function loadProfileFromCloud(): Promise<{ profile: PlayerProfile |
 
   const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
   if (error) {
-    console.error('loadProfileFromCloud error:', error);
+    console.warn('loadProfileFromCloud error:', error);
     return { profile: null, skillLevels: {}, description: null, error: error.message };
   }
   if (!data) {
@@ -115,7 +115,7 @@ export async function savePlanToCloud(plan: TrainingPlan) {
   });
 
   if (plansError) {
-    console.error('savePlanToCloud plans error:', plansError);
+    console.warn('savePlanToCloud plans error:', plansError);
   } else {
     console.log('savePlanToCloud plans: success');
   }
@@ -128,7 +128,7 @@ export async function savePlanToCloud(plan: TrainingPlan) {
   });
 
   if (weeklyError) {
-    console.error('savePlanToCloud weekly_plans error:', weeklyError);
+    console.warn('savePlanToCloud weekly_plans error:', weeklyError);
   } else {
     console.log('savePlanToCloud weekly_plans: success');
   }
@@ -207,13 +207,13 @@ export async function saveCompletedDrillToCloud(dayIndex: number, drillIndex: nu
       completed_at: new Date().toISOString(),
     }, { onConflict: 'user_id,day_index,drill_index' });
     if (error) {
-      console.error('saveCompletedDrillToCloud insert error:', error);
+      console.warn('saveCompletedDrillToCloud insert error:', error);
       return { error: error.message };
     }
   } else {
     const { error } = await supabase.from('completed_drills').delete().eq('user_id', user.id).eq('day_index', dayIndex).eq('drill_index', drillIndex);
     if (error) {
-      console.error('saveCompletedDrillToCloud delete error:', error);
+      console.warn('saveCompletedDrillToCloud delete error:', error);
       return { error: error.message };
     }
   }
@@ -226,7 +226,7 @@ export async function loadCompletedDrillsFromCloud(): Promise<{ completedDrills:
 
   const { data, error } = await supabase.from('completed_drills').select('day_index, drill_index').eq('user_id', user.id);
   if (error) {
-    console.error('loadCompletedDrillsFromCloud error:', error);
+    console.warn('loadCompletedDrillsFromCloud error:', error);
     return { completedDrills: {}, error: error.message };
   }
 
@@ -265,7 +265,7 @@ export async function loadAllUserDataFromCloud() {
 export async function signOutAndClear() {
   const { error } = await supabase.auth.signOut();
   if (error) {
-    console.error('signOut error:', error);
+    console.warn('signOut error:', error);
     return { error: error.message };
   }
   return { error: null };

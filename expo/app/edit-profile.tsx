@@ -115,7 +115,7 @@ export default function EditProfileScreen() {
       if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       router.back();
     } catch (e) {
-      console.error('[edit-profile] save error:', e);
+      console.warn('[edit-profile] save error:', e);
       Alert.alert('Save failed', 'Could not save your profile. Check your connection and try again.');
     } finally {
       setSaving(false);
