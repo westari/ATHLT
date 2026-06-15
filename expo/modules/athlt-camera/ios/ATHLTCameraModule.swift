@@ -39,8 +39,9 @@ final class HoopTracker {
     // MARK: – Tuning constants (all magic numbers live here, documented)
 
     /// Min confidence per frame to count toward the lock accumulation window.
-    /// Lower = locks faster but risks locking on a wrong object. 0.35 is conservative.
-    static let lockConfThreshold: Float = 0.35
+    /// Aligned with handleDetectionMode's minConf filter so frames that pass the
+    /// pre-filter always have a chance to accumulate toward the lock.
+    static let lockConfThreshold: Float = 0.30
 
     /// Number of consecutive high-confidence frames at a stable position required
     /// before committing the lock. Prevents single-frame false positives.
@@ -673,7 +674,7 @@ final class BallTracker {
 // ─── BallTrackingPipeline (Shot Scorer) ──────────────────────────────────────────
 //
 // Composes HoopTracker and BallTracker into three independent shot-scoring paths.
-// Each path can independently detect a make or miss. A shared 1.5s cooldown prevents
+// Each path can independently detect a make or miss. A shared 1.0s cooldown prevents
 // one physical shot from being counted multiple times across paths or frames.
 //
 // PATH A — Trajectory arc: ball rises above rim, peaks, descends through the rim line.
@@ -695,60 +696,76 @@ final class BallTrackingPipeline {
     let ballTracker = BallTracker()
 
     // MARK: – Tuning constants (every threshold named and documented)
+    //
+    // Two engagement zones — intentionally different widths:
+    //   nearHoopXFactor / nearRimEngageRadius  — BROAD: triggers tracking evaluation
+    //   makeZoneHalfWidth                       — TIGHT: required to confirm a MAKE
+    // Keeping these separate catches layups and close shots in the broad zone while
+    // requiring the ball to physically pass through the rim opening for a make.
 
-    /// Hoop bbox expansion factor for Path B's detection region.
-    /// 0.20 = 20% larger on each side. The model's bbox rarely perfectly frames the rim opening.
-    static let hoopRegionExpansion: Double = 0.20
+    // ── Lateral make/engagement ───────────────────────────────────────────────────
 
-    /// Ball must be within this multiple of rimWidth of the rim center to start Path A flight
-    /// or enter the Path B region. 2.5× is generous but still eliminates far-field noise.
+    /// Ball must be within this multiple of rimWidth of rim center to enter Path A/B tracking.
+    /// 2.5× is generous — covers all reasonable shot angles including close-in layups.
     static let nearHoopXFactor: Double = 2.5
 
-    /// Path A launch: ball may be this far BELOW rimLineY and still count as "at launch height."
-    /// Handles the common detection offset where the model places the ball slightly low.
-    static let launchToleranceY: Double = 0.04
+    /// Tight normalized half-width of the make zone, centered on rimCenterX.
+    /// A ball confirmed below the rim must land within this X range for MAKE, else MISS.
+    /// ~0.07 ≈ 7% of frame width ≈ the inner rim opening at a typical shooting distance.
+    /// This is a FIXED constant — it does NOT scale with rimWidth (which can be huge for
+    /// manual-tap boxes). Front-rim bounces and side misses that fall outside score MISS.
+    static let makeZoneHalfWidth: Double = 0.07
 
-    /// Path A: ball must have peaked this far above rimLineY to qualify as a real shot arc.
-    /// Eliminates slow dribble-bounces near the hoop that would otherwise trigger Path A.
-    static let minimumPeakAboveRim: Double = 0.03
+    // ── Vertical engagement ───────────────────────────────────────────────────────
 
-    /// Path A: abandon in-flight tracking after this many seconds with no scoring trigger.
-    /// Real shots resolve in < 1.5s. 3.0s allows very high arcs and slow balls.
-    static let flightTimeoutSeconds: Double = 3.0
+    /// Normalized half-height of the engagement zone around rimLineY.
+    /// Ball within this distance (above OR below) of rimLineY + near X → start tracking.
+    /// 0.20 catches layups approaching from below the rim as well as arcing shots from above.
+    static let nearRimEngageRadius: Double = 0.20
 
-    /// Path A: crossing X must be within makeTolerance * rimWidth of rim center → MAKE.
-    /// 0.55 = ±55% of half-rim-width. Slightly generous to handle detection jitter.
-    static let makeTolerance: Double = 0.55
+    // ── Hoop bbox expansion ───────────────────────────────────────────────────────
 
-    /// Path B: ball must have been above the rim for at least this many consecutive analyzed
-    /// frames before a region entry can score. Prevents a ball already below the rim from
-    /// triggering a make by passing through the expanded region from below.
-    static let pathBMinFramesAbove: Int = 2
+    /// Hoop bbox expansion factor for Path B's lateral detection region.
+    /// 0.20 = 20% larger on each side than the model bbox.
+    static let hoopRegionExpansion: Double = 0.20
 
-    /// Path B: MAKE scored when ball descends this fraction of hoopHeight below rimLineY.
-    /// 0.40 = ball went 40% through the hoop. Prevents a top-of-rim brush from scoring.
-    static let pathBMakeDepthFraction: Double = 0.40
+    // ── Path A thresholds ─────────────────────────────────────────────────────────
 
-    /// Path B: reset if ball stays in region longer than this many frames without resolving.
-    /// Ball sitting on the rim or rolling along it does NOT count as a make.
-    static let pathBMaxFramesInRegion: Int = 18
-
-    /// Path C: ball must disappear within this many frames after going in-flight.
-    /// More frames = ball was probably held or dribbled, not shot.
-    static let pathCMaxDisappearanceFrames: Int = 8
-
-    /// Path C: last known ball position must be within this normalized distance of
-    /// rim center on both axes for disappearance to be inferred as a make.
-    static let pathCHoopProximity: Double = 0.15
-
-    /// Path A: ball must descend this far BELOW rimLineY (while still descending) before
-    /// a make is confirmed. Prevents a rim-kiss that reverses upward from scoring as a make.
-    /// ~0.04 ≈ 4% of frame height, roughly the depth of the net opening.
+    /// Path A: ball must descend this far BELOW rimLineY while descending inside the make zone
+    /// before a make is confirmed. Prevents a rim-kiss that reverses from scoring as a make.
     static let makeConfirmMargin: Double = 0.04
 
-    /// Shared cooldown across all paths: minimum seconds between any two scored shots.
-    /// 1.5s prevents one physical shot from being double-counted by multiple paths.
-    static let shotCooldownSeconds: Double = 1.5
+    /// Path A: abandon in-flight tracking after this many seconds with no scoring trigger.
+    static let flightTimeoutSeconds: Double = 3.0
+
+    // ── Path B thresholds ─────────────────────────────────────────────────────────
+
+    /// Path B: frames the ball must be above the rim before a region entry can score.
+    /// 1 = one frame is enough — handles fast layups at 10fps where the ball is only
+    /// briefly visible above the rim before going through.
+    static let pathBMinFramesAbove: Int = 1
+
+    /// Path B: MAKE scored when ball descends this fraction of hoop height below rimLineY
+    /// while within the tight make zone.
+    static let pathBMakeDepthFraction: Double = 0.40
+
+    /// Path B: reset if ball stays in region longer than this many frames.
+    static let pathBMaxFramesInRegion: Int = 18
+
+    // ── Path C thresholds ─────────────────────────────────────────────────────────
+
+    /// Path C: max frames lost before disappearance-heuristic fires.
+    static let pathCMaxDisappearanceFrames: Int = 8
+
+    /// Path C: outer X proximity gate. Ball must have disappeared within this distance
+    /// of rim center. Balls outside this range are ignored entirely.
+    static let pathCHoopProximity: Double = 0.15
+
+    // ── Cooldown ──────────────────────────────────────────────────────────────────
+
+    /// Minimum seconds between any two scored shots across all paths.
+    /// 1.0s (shortened from 1.5s) since observation-only scoring produces fewer false triggers.
+    static let shotCooldownSeconds: Double = 1.0
 
     // MARK: – Path A state (trajectory arc)
     private var pathA_inFlight       = false
@@ -779,7 +796,7 @@ final class BallTrackingPipeline {
     var inFlight:   Bool                   { pathA_inFlight }
     var latestBall: BallTracker.BallPoint? { ballTracker.latestBall }
 
-    func considerHoop(visionBBox: CGRect, confidence: Float) {
+    func considerHoop(visionBBox: CGRect?, confidence: Float) {
         hoopTracker.ingest(visionBBox: visionBBox, confidence: confidence)
     }
 
@@ -908,26 +925,44 @@ final class BallTrackingPipeline {
         let rimCenterX = hoop.rimCenterX
         let rimWidth   = hoop.rimWidth
 
+        // Tight make-zone bounds (shown in State line so they can be verified live)
+        let makeZoneMinX = rimCenterX - Self.makeZoneHalfWidth
+        let makeZoneMaxX = rimCenterX + Self.makeZoneHalfWidth
+
+        // ── FLIGHT START ──────────────────────────────────────────────────────────
         if !pathA_inFlight {
-            let atOrAboveRim = ballY < rimLineY + Self.launchToleranceY
-            let nearX        = abs(ballX - rimCenterX) < rimWidth * Self.nearHoopXFactor
-            if atOrAboveRim && nearX {
+            // Broad engagement zone: ball within nearRimEngageRadius of the rim line
+            // (above OR below) and within nearHoopXFactor × rimWidth laterally.
+            // The Y zone covers both high-arc shots (from above) and layups (from below).
+            let nearRimY = abs(ballY - rimLineY) < Self.nearRimEngageRadius
+            let nearX    = abs(ballX - rimCenterX) < rimWidth * Self.nearHoopXFactor
+            if nearRimY && nearX {
                 pathA_inFlight    = true
                 pathA_peakY       = ballY
                 pathA_flightStart = timestamp
                 pathA_wasRising   = vel.isRising
                 pathA_peaked      = false
-                NSLog("[PathA] FLIGHT START y=%.3f rimY=%.3f x=%.3f rimX=%.3f vel.dy=%.3f",
-                      ballY, rimLineY, ballX, rimCenterX, vel.dy)
+                if ballY >= rimLineY {
+                    // Ball already below rim when flight starts — layup or close-range shot.
+                    // Jump straight to awaiting state; watch for make vs miss immediately.
+                    pathA_awaitingResult = true
+                    NSLog("[PathA] FLIGHT START below-rim y=%.3f rimY=%.3f zone %.3f–%.3f — awaiting result",
+                          ballY, rimLineY, makeZoneMinX, makeZoneMaxX)
+                } else {
+                    NSLog("[PathA] FLIGHT START y=%.3f rimY=%.3f x=%.3f rimX=%.3f vel.dy=%.3f zone %.3f–%.3f",
+                          ballY, rimLineY, ballX, rimCenterX, vel.dy, makeZoneMinX, makeZoneMaxX)
+                }
             } else {
-                scoringState = String(format: "tracking (%.2f,%.2f) — not near rim [rimX=%.2f ±%.2f]",
-                                      ballX, ballY, rimCenterX, rimWidth * Self.nearHoopXFactor)
+                scoringState = String(format: "tracking (%.2f,%.2f) — engage zone rimX=%.2f±%.2f rimY=%.2f±%.2f",
+                                      ballX, ballY,
+                                      rimCenterX, rimWidth * Self.nearHoopXFactor,
+                                      rimLineY, Self.nearRimEngageRadius)
             }
             return nil
         }
 
+        // Track peak (smallest y = highest on screen)
         if ballY < pathA_peakY { pathA_peakY = ballY }
-
         if !pathA_peaked {
             if vel.isRising  { pathA_wasRising = true }
             if pathA_wasRising && vel.isFalling {
@@ -936,19 +971,34 @@ final class BallTrackingPipeline {
             }
         }
 
-        let peakedAboveRim = pathA_peakY < rimLineY - Self.minimumPeakAboveRim
-        let stillNearX     = abs(ballX - rimCenterX) < rimWidth * Self.nearHoopXFactor * 1.5
+        let stillNearX = abs(ballX - rimCenterX) < rimWidth * Self.nearHoopXFactor * 1.5
+        let inMakeZone = ballX >= makeZoneMinX && ballX <= makeZoneMaxX
 
-        // --- Already waiting to confirm make vs miss ---
+        // ── AWAITING RESULT: ball crossed rim — watching for make or miss ──────────
         if pathA_awaitingResult {
-            let confirmedMake = ballY > rimLineY + Self.makeConfirmMargin && vel.isFalling
-            let rimBounce     = ballY < rimLineY   // reversed back above rim
-            let rimOut        = !stillNearX
+            let belowRimEnough = ballY > rimLineY + Self.makeConfirmMargin
+            // Confirmed MAKE: ball observed clearly below rim, descending, inside tight zone.
+            // This is from DIRECT OBSERVATION — no regression prediction.
+            let confirmedMake  = belowRimEnough && vel.isFalling && inMakeZone
+            // Side miss: ball fell below rim but OUTSIDE the tight make zone.
+            let sideMiss       = belowRimEnough && !inMakeZone
+            // Rim bounce: ball reversed back above the rim line.
+            let rimBounce      = ballY < rimLineY
+            // Rim out: ball exited the broad lateral zone entirely.
+            let rimOut         = !stillNearX
 
             if confirmedMake {
-                NSLog("[PathA] MAKE confirmed — ball %.3f below rim (margin=%.2f)",
-                      ballY - rimLineY, Self.makeConfirmMargin)
-                return scorePathA(hoop: hoop, timestamp: timestamp)
+                NSLog("[PathA] MAKE — x=%.3f in zone %.3f–%.3f, %.3f below rim [observed, not predicted]",
+                      ballX, makeZoneMinX, makeZoneMaxX, ballY - rimLineY)
+                return scorePathA(observedX: ballX, hoop: hoop, timestamp: timestamp)
+            }
+            if sideMiss {
+                NSLog("[PathA] MISS — x=%.3f outside make zone %.3f–%.3f (side miss / front rim)",
+                      ballX, makeZoneMinX, makeZoneMaxX)
+                scoringState = String(format: "MISS Path A — outside make zone x=%.3f (zone %.3f–%.3f)",
+                                      ballX, makeZoneMinX, makeZoneMaxX)
+                resetPathA(); resetPathB()
+                return ("miss", 0.65)
             }
             if rimBounce {
                 NSLog("[PathA] MISS — rim bounce (ball reversed above rim)")
@@ -957,57 +1007,60 @@ final class BallTrackingPipeline {
                 return ("miss", 0.65)
             }
             if rimOut {
-                NSLog("[PathA] MISS — rim out (ball exited sideways during await)")
+                NSLog("[PathA] MISS — rim out (ball exited sideways)")
                 scoringState = "MISS Path A — rim out"
                 resetPathA(); resetPathB()
                 return ("miss", 0.60)
             }
-            scoringState = String(format: "Path A awaiting: y=%.3f / need %.3f %@",
-                                  ballY, rimLineY + Self.makeConfirmMargin,
+            scoringState = String(format: "Path A awaiting: y=%.3f x=%.3f (make %.3f–%.3f) %@",
+                                  ballY, ballX, makeZoneMinX, makeZoneMaxX,
                                   vel.isFalling ? "[desc]" : "[ascending]")
             return nil
         }
 
-        // --- Check if ball just reached the rim line ---
+        // ── Ball just reached the rim line — enter awaiting state ─────────────────
         let crossedRim = ballY >= rimLineY
-        if crossedRim && peakedAboveRim && stillNearX {
+        if crossedRim && stillNearX {
             pathA_awaitingResult = true
-            NSLog("[PathA] rim crossed — awaiting make/miss confirmation y=%.3f rimY=%.3f", ballY, rimLineY)
-            scoringState = String(format: "Path A awaiting: y=%.3f crossed rim", ballY)
+            NSLog("[PathA] rim crossed — awaiting y=%.3f rimY=%.3f make zone %.3f–%.3f",
+                  ballY, rimLineY, makeZoneMinX, makeZoneMaxX)
+            scoringState = String(format: "Path A awaiting: y=%.3f crossed rim (make zone %.3f–%.3f)",
+                                  ballY, makeZoneMinX, makeZoneMaxX)
             return nil
         }
 
-        // Log every in-flight frame so Xcode console shows ball.y vs rimLineY in real time.
-        NSLog("[PathA] in-flight: ball=(%.3f,%.3f) rimY=%.3f rimX=%.3f±%.3f | crossed=%@ peaked=%@ nearX=%@",
+        // In-flight diagnostic log
+        NSLog("[PathA] in-flight: ball=(%.3f,%.3f) rimY=%.3f rimX=%.3f±%.3f | crossed=%@ nearX=%@",
               ballX, ballY, rimLineY, rimCenterX, rimWidth * Self.nearHoopXFactor,
-              crossedRim ? "YES" : "no", peakedAboveRim ? "YES" : "no", stillNearX ? "YES" : "no")
-
-        scoringState = String(format: "Path A: y=%.3f peak=%.3f rim=%.3f %@",
+              crossedRim ? "YES" : "no", stillNearX ? "YES" : "no")
+        scoringState = String(format: "Path A in-flight: y=%.3f peak=%.3f rim=%.3f %@",
                               ballY, pathA_peakY, rimLineY,
                               pathA_peaked ? "[peaked]" : (pathA_wasRising ? "[rising→]" : "[watching]"))
         return nil
     }
 
     private func scorePathA(
+        observedX: Double,
         hoop:      HoopTracker.HoopGeometry,
         timestamp: Double
     ) -> (type: String, confidence: Double) {
 
         let pts    = ballTracker.recentSmoothed(within: 1.5, at: timestamp, maxCount: 7)
-        let crossX = pts.count >= 2
-            ? ballTracker.predictXAtY(points: pts, targetY: hoop.rimLineY)
-            : (ballTracker.latestBall?.x ?? hoop.rimCenterX)
         let r2     = pts.count >= 3 ? ballTracker.rSquared(points: pts) : 0.5
 
-        let inside   = abs(crossX - hoop.rimCenterX) <= hoop.rimWidth * Self.makeTolerance
+        // Make/miss from OBSERVED ball position — ball was already confirmed below the rim
+        // at observedX via direct observation, not extrapolated from regression prediction.
+        let zoneMin  = hoop.rimCenterX - Self.makeZoneHalfWidth
+        let zoneMax  = hoop.rimCenterX + Self.makeZoneHalfWidth
+        let inside   = observedX >= zoneMin && observedX <= zoneMax
         let shotType = inside ? "make" : "miss"
         let shotConf = max(0.45, 0.45 + r2 * 0.50)
 
-        NSLog("[PathA] %@ crossX=%.3f rimCtr=%.3f rimW=%.3f inside=%@ r2=%.2f conf=%.2f",
-              shotType.uppercased(), crossX, hoop.rimCenterX, hoop.rimWidth,
+        NSLog("[PathA] %@ observedX=%.3f zone=%.3f–%.3f inside=%@ r2=%.2f conf=%.2f",
+              shotType.uppercased(), observedX, zoneMin, zoneMax,
               inside ? "YES" : "NO", r2, shotConf)
-        scoringState = String(format: "%@ Path A crossX=%.3f r2=%.2f conf=%.2f",
-                              shotType.uppercased(), crossX, r2, shotConf)
+        scoringState = String(format: "%@ Path A observedX=%.3f zone=%.3f–%.3f r2=%.2f",
+                              shotType.uppercased(), observedX, zoneMin, zoneMax, r2)
         resetPathA(); resetPathB()
         return (shotType, shotConf)
     }
@@ -1022,6 +1075,7 @@ final class BallTrackingPipeline {
 
         let ballX    = latest.x
         let ballY    = latest.y
+        let vel      = ballTracker.velocity
         let rimLineY = hoop.rimLineY
         let rimH     = Double(hoop.bbox.height)
 
@@ -1031,23 +1085,36 @@ final class BallTrackingPipeline {
         let aboveRim   = ballY < rimLineY
         let inXRange   = ballX >= regionMinX && ballX <= regionMaxX
 
+        // Tight make zone used to confirm makes in Path B (same standard as Path A)
+        let makeZoneMinX = hoop.rimCenterX - Self.makeZoneHalfWidth
+        let makeZoneMaxX = hoop.rimCenterX + Self.makeZoneHalfWidth
+        let inMakeZoneX  = ballX >= makeZoneMinX && ballX <= makeZoneMaxX
+
         switch pathB_phase {
 
         case .idle:
-            if aboveRim && inXRange {
-                pathB_phase       = .above
-                pathB_framesAbove = 1
+            if inXRange {
+                if aboveRim {
+                    // Classic approach from above the rim
+                    pathB_phase       = .above
+                    pathB_framesAbove = 1
+                } else if vel.isRising {
+                    // Ball below rim but rising into hoop X range — layup going up.
+                    // Pre-fill framesAbove so a single above-rim frame triggers inRegion.
+                    pathB_phase       = .above
+                    pathB_framesAbove = Self.pathBMinFramesAbove
+                }
             }
 
         case .above:
             if aboveRim && inXRange {
                 pathB_framesAbove += 1
-                scoringState = String(format: "Path B: above rim %d frames y=%.3f", pathB_framesAbove, ballY)
+                scoringState = String(format: "Path B: above rim %d frame(s) y=%.3f", pathB_framesAbove, ballY)
             } else if !aboveRim && inXRange && pathB_framesAbove >= Self.pathBMinFramesAbove {
                 pathB_phase          = .inRegion
                 pathB_framesInRegion = 1
-                NSLog("[PathB] ENTERED from above (framesAbove=%d) x=%.3f y=%.3f",
-                      pathB_framesAbove, ballX, ballY)
+                NSLog("[PathB] ENTERED from above (framesAbove=%d) x=%.3f y=%.3f zone %.3f–%.3f",
+                      pathB_framesAbove, ballX, ballY, makeZoneMinX, makeZoneMaxX)
                 scoringState = "Path B: in hoop region — watching for through or bounce"
             } else {
                 pathB_phase = .idle; pathB_framesAbove = 0
@@ -1069,15 +1136,25 @@ final class BallTrackingPipeline {
                 return ("miss", 0.70)
             }
 
-            // Ball descended makeDepthFraction through the hoop → MAKE
             let makeDepth = rimLineY + rimH * Self.pathBMakeDepthFraction
-            if ballY >= makeDepth && inXRange {
-                NSLog("[PathB] MAKE — descended %.0f%% through hoop (y=%.3f)",
-                      Self.pathBMakeDepthFraction * 100, ballY)
-                scoringState = String(format: "MAKE Path B — %.0f%% through hoop conf=0.82",
-                                      Self.pathBMakeDepthFraction * 100)
-                resetPathA(); resetPathB()
-                return ("make", 0.82)
+
+            // Ball descended through the hoop — confirm make/miss by tight X zone
+            if ballY >= makeDepth {
+                if inMakeZoneX {
+                    NSLog("[PathB] MAKE — x=%.3f in zone %.3f–%.3f, %.0f%% through hoop",
+                          ballX, makeZoneMinX, makeZoneMaxX, Self.pathBMakeDepthFraction * 100)
+                    scoringState = String(format: "MAKE Path B — x=%.3f zone %.3f–%.3f conf=0.82",
+                                          ballX, makeZoneMinX, makeZoneMaxX)
+                    resetPathA(); resetPathB()
+                    return ("make", 0.82)
+                } else {
+                    NSLog("[PathB] MISS — through hoop region but outside make zone (x=%.3f zone %.3f–%.3f)",
+                          ballX, makeZoneMinX, makeZoneMaxX)
+                    scoringState = String(format: "MISS Path B — outside make zone x=%.3f (zone %.3f–%.3f)",
+                                          ballX, makeZoneMinX, makeZoneMaxX)
+                    resetPathA(); resetPathB()
+                    return ("miss", 0.60)
+                }
             }
 
             // Ball exited region sideways (rim-out miss)
@@ -1088,8 +1165,8 @@ final class BallTrackingPipeline {
                 return ("miss", 0.65)
             }
 
-            scoringState = String(format: "Path B: %d frames in region y=%.3f / %.3f needed",
-                                  pathB_framesInRegion, ballY, makeDepth)
+            scoringState = String(format: "Path B: %d frames in region y=%.3f / %.3f needed (zone %.3f–%.3f)",
+                                  pathB_framesInRegion, ballY, makeDepth, makeZoneMinX, makeZoneMaxX)
         }
 
         return nil
@@ -1112,7 +1189,7 @@ final class BallTrackingPipeline {
             return nil
         }
 
-        // Ball was at or below the rim. Must also be within X range of the rim.
+        // Ball was at or below the rim. Check X proximity (outer gate).
         let dx = abs(last.x - hoop.rimCenterX)
         guard dx <= Self.pathCHoopProximity else {
             NSLog("[PathC] disappeared far from rim (dx=%.3f) — abort", dx)
@@ -1127,11 +1204,23 @@ final class BallTrackingPipeline {
             resetPathA(); return nil
         }
 
-        NSLog("[PathC] MAKE — in-flight ball vanished at/below rim (%.3f,%.3f) vel.dy=%.3f",
-              last.x, last.y, vel.dy)
-        scoringState = "MAKE Path C — ball vanished near rim (net occlusion) conf=0.55"
-        resetPathA(); resetPathB()
-        return ("make", 0.55)
+        // Apply tight make zone: ball vanished inside the make zone → MAKE (net occlusion);
+        // ball vanished near rim but outside make zone → MISS (likely front-rim / side).
+        let inMakeZone = dx <= Self.makeZoneHalfWidth
+        if inMakeZone {
+            NSLog("[PathC] MAKE — ball vanished in make zone (%.3f,%.3f) vel.dy=%.3f zone±%.3f",
+                  last.x, last.y, vel.dy, Self.makeZoneHalfWidth)
+            scoringState = String(format: "MAKE Path C — vanished in make zone (net occlusion) conf=0.55")
+            resetPathA(); resetPathB()
+            return ("make", 0.55)
+        } else {
+            NSLog("[PathC] MISS — vanished near rim but outside make zone (dx=%.3f zone±%.3f)",
+                  dx, Self.makeZoneHalfWidth)
+            scoringState = String(format: "MISS Path C — vanished outside make zone (dx=%.3f zone±%.3f)",
+                                  dx, Self.makeZoneHalfWidth)
+            resetPathA(); resetPathB()
+            return ("miss", 0.45)
+        }
     }
 
     // MARK: – Shot registration ─────────────────────────────────────────────────
@@ -1671,7 +1760,7 @@ public class ATHLTCameraModule: Module {
     // feedback even though the pipeline ignores them.
 
     private func handleDetectionMode(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
-        let minConf: Float = 0.30   // lowered to match minHoopConf lock threshold
+        let minConf: Float = 0.30   // aligned with HoopTracker.lockConfThreshold
         var bestBasket: VNRecognizedObjectObservation?
         var bestConf:   Float = 0
 
@@ -1682,12 +1771,12 @@ public class ATHLTCameraModule: Module {
             }
         }
 
-        guard let found = bestBasket else { return }
+        // Always feed hoop evidence to the tracker — passing nil when no hoop detected
+        // lets HoopTracker reset its accumulation counter on missed frames, which is
+        // required for the "N consecutive frames" lock protocol to work correctly.
+        pipeline.considerHoop(visionBBox: bestBasket?.boundingBox, confidence: bestConf)
 
-        // Accumulate hoop evidence — pipeline requires hoopLockRequired consecutive
-        // frames at hoopLockConfThreshold before committing. Prevents a single
-        // high-confidence frame on a non-hoop object from locking the wrong region.
-        pipeline.considerHoop(visionBBox: found.boundingBox, confidence: bestConf)
+        guard let found = bestBasket else { return }
 
         // Throttle onHoopDetected events
         let now = Date().timeIntervalSinceReferenceDate
