@@ -283,6 +283,13 @@ export default function OpenRunScreen() {
     if (event.detected) setHoopDetected(true);
   }, []);
 
+  // ── Reset hoop lock — clears JS state; native pipeline re-accumulates on its own ─
+  const handleResetHoop = useCallback(() => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setHoopDetected(false);
+    setManualMark(null);
+  }, []);
+
   // ── Shot received ────────────────────────────────────────────────────────────
   const handleShotDetected = useCallback((event: ShotEvent) => {
     if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -367,6 +374,17 @@ export default function OpenRunScreen() {
     ? `${lastShot.type === 'make' ? 'MAKE' : 'MISS'}${lastShot.zone ? ' · ' + lastShot.zone : ''}`
     : '';
 
+  // Convert normalized hoop bbox → screen pixel rect for the visual overlay.
+  // Direct mapping (normX * screenW) is a reasonable approximation when the
+  // camera preview fills the screen in landscape mode.
+  const { width: screenW, height: screenH } = Dimensions.get('window');
+  const hoopScreenPos = debugStats.hoopLocked && debugStats.hoopX >= 0 ? {
+    left:   debugStats.hoopX * screenW,
+    top:    debugStats.hoopY * screenH,
+    width:  debugStats.hoopW * screenW,
+    height: debugStats.hoopH * screenH,
+  } : null;
+
   const startOpacity = btnPhase.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
   const stopOpacity  = btnPhase.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
 
@@ -423,6 +441,25 @@ export default function OpenRunScreen() {
         />
       )}
 
+      {/* Locked hoop position — gold border at actual hoop coordinates.
+          Visible in both idle and tracking modes so user can trust what's locked. */}
+      {hoopScreenPos && (
+        <View
+          style={[s.hoopLockOverlay, {
+            left:        hoopScreenPos.left,
+            top:         hoopScreenPos.top,
+            width:       hoopScreenPos.width,
+            height:      hoopScreenPos.height,
+            borderColor: manualMark ? '#B8A060' : Colors.primary,
+          }]}
+          pointerEvents="none"
+        >
+          <Text style={[s.hoopLockLabel, { color: manualMark ? '#B8A060' : Colors.primary }]}>
+            HOOP
+          </Text>
+        </View>
+      )}
+
       {/* Center glow on shot */}
       <Animated.View
         style={[StyleSheet.absoluteFill, s.glowContainer, { opacity: glowAnim }]}
@@ -449,7 +486,7 @@ export default function OpenRunScreen() {
         <Text style={[s.hoopLabel, hoopDetected && s.hoopLabelDetected, TS]}>
           {hoopDetected
             ? (manualMark ? 'Hoop marked ✓' : 'Hoop detected ✓')
-            : 'Position the hoop inside the box'}
+            : 'Point at the hoop or tap to set it'}
         </Text>
         {/* Manual hint — fades in after 5s if auto-detection hasn't fired */}
         {showManualHint && !hoopDetected && (
@@ -485,6 +522,19 @@ export default function OpenRunScreen() {
           </TouchableOpacity>
         </GlassPanel>
       </View>
+
+      {/* Reset hoop — below X, idle mode only, when hoop is locked */}
+      {hoopDetected && !isTracking && (
+        <View style={[s.resetHoopWrap, { top: barY + 36 + 6, left: leftX }]}>
+          <TouchableOpacity
+            onPress={handleResetHoop}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, left: 8, right: 12, bottom: 8 }}
+          >
+            <Text style={s.resetHoopText}>Reset hoop</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Streak pill — below X, tracking only */}
       {isTracking && (
@@ -889,6 +939,26 @@ const s = StyleSheet.create({
   bottomDotMake:  { backgroundColor: Colors.primary },
   bottomDotMiss:  { backgroundColor: 'rgba(255,255,255,0.35)' },
   bottomDotEmpty: { backgroundColor: 'rgba(255,255,255,0.08)' },
+
+  // ── Locked hoop position overlay ─────────────────────────────────────────────
+  hoopLockOverlay: {
+    position: 'absolute',
+    borderWidth: 2,
+    borderRadius: 6,
+    zIndex: 16,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    padding: 2,
+  },
+  hoopLockLabel: {
+    fontSize: 8,
+    fontWeight: '700' as const,
+    letterSpacing: 0.8,
+  },
+
+  // ── Reset hoop button ─────────────────────────────────────────────────────────
+  resetHoopWrap: { position: 'absolute', zIndex: 30 },
+  resetHoopText: { color: 'rgba(255,255,255,0.50)', fontSize: 11, fontWeight: '500' as const, letterSpacing: -0.1 },
 
   bottomWrap: { position: 'absolute', left: 0, right: 0, height: BTN_H, alignItems: 'center', zIndex: 30 },
   btnSlot:    { position: 'absolute', width: BTN_W, height: BTN_H, top: 0 },

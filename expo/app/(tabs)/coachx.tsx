@@ -72,7 +72,7 @@ export default function CoachXScreen() {
         .slice(-10)
         .map(m => ({ role: m.role, content: m.content }));
 
-      const response = await fetch('https://collectiq-xi.vercel.app/api/coach-chat', {
+      const response = await fetch('https://www.tryparlai.com/api/coach-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -160,7 +160,7 @@ export default function CoachXScreen() {
       });
       scrollToBottom();
 
-      const analysisRes = await fetch('https://collectiq-xi.vercel.app/api/analyze-film', {
+      const analysisRes = await fetch('https://www.tryparlai.com/api/analyze-film', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ videoUrl: videoUrl, profile: profile }),

@@ -41,7 +41,7 @@ final class HoopTracker {
     /// Min confidence per frame to count toward the lock accumulation window.
     /// Aligned with handleDetectionMode's minConf filter so frames that pass the
     /// pre-filter always have a chance to accumulate toward the lock.
-    static let lockConfThreshold: Float = 0.30
+    static let lockConfThreshold: Float = 0.45
 
     /// Number of consecutive high-confidence frames at a stable position required
     /// before committing the lock. Prevents single-frame false positives.
@@ -1760,7 +1760,7 @@ public class ATHLTCameraModule: Module {
     // feedback even though the pipeline ignores them.
 
     private func handleDetectionMode(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
-        let minConf: Float = 0.30   // aligned with HoopTracker.lockConfThreshold
+        let minConf: Float = 0.45   // aligned with HoopTracker.lockConfThreshold
         var bestBasket: VNRecognizedObjectObservation?
         var bestConf:   Float = 0
 

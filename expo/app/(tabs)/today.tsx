@@ -433,7 +433,7 @@ export default function TodayScreen() {
     setReadbackFocus('');
     try {
       const payload = buildPayloadFromAnswers(answers);
-      const r = await fetch('https://collectiq-xi.vercel.app/api/readback', {
+      const r = await fetch('https://www.tryparlai.com/api/readback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -595,7 +595,7 @@ export default function TodayScreen() {
 
     try {
       const payload = buildPayloadFromAnswers(answers);
-      const r = await fetch('https://collectiq-xi.vercel.app/api/generate-plan', {
+      const r = await fetch('https://www.tryparlai.com/api/generate-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

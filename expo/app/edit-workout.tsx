@@ -99,7 +99,7 @@ export default function EditWorkoutScreen() {
     setIsThinking(true);
 
     try {
-      const res = await fetch('https://YOUR_VERCEL_DOMAIN/api/coach-x-edit', {
+      const res = await fetch('https://www.tryparlai.com/api/coach-x-edit', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

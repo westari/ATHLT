@@ -52,7 +52,7 @@ Front-rim bounces, side misses, and off-center balls that fall below the rim OUT
 **Auto-lock (Bug 6 fix):**
 - Mode automatically set to `"detection"` when model loads (`doLoadModel`)
 - `handleDetectionMode` ALWAYS calls `pipeline.considerHoop(visionBBox:confidence:)` — nil when no hoop detected this frame. Nil calls reset the accumulation counter, so consecutive-frame requirement is properly enforced.
-- `lockConfThreshold` lowered to 0.30 to match the detection-mode pre-filter (previously 0.35 could reject frames that passed the 0.30 pre-filter, preventing accumulation).
+- `lockConfThreshold` raised to 0.45 (and `minConf` in `handleDetectionMode` raised to match). The real Bug 6 fix was the nil-passing fix; now that that's working, the threshold is back to a stricter value to prevent auto-locking on random objects.
 
 **Lock protocol:**
 1. Each frame with a basket detection calls `ingest(visionBBox:confidence:)`.
@@ -233,7 +233,7 @@ The make zone bounds (`0.57–0.71` in the examples) are shown numerically so yo
 
 | Constant | Value | Location | Meaning |
 |---|---|---|---|
-| `HoopTracker.lockConfThreshold` | **0.30** | HoopTracker | Min conf per frame (aligned with detection pre-filter) |
+| `HoopTracker.lockConfThreshold` | **0.45** | HoopTracker | Min conf per frame (aligned with detection pre-filter) |
 | `HoopTracker.lockConsecutiveRequired` | 5 | HoopTracker | Frames required for auto-lock |
 | `HoopTracker.emaAlpha` | 0.10 | HoopTracker | Post-lock EMA smoothing weight |
 | `HoopTracker.staleFrameThreshold` | 30 | HoopTracker | Frames before isStale flag |
