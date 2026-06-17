@@ -1052,6 +1052,16 @@ final class BallTrackingPipeline {
                 return ("miss", 0.65)
             }
             if rimBounce {
+                // Don't call MISS if ball is ascending near the top of frame — a layup
+                // going up through the net or a ball that went through and exited upward.
+                // Let it stay in awaitingResult; the window will open on confirmedMake
+                // or fall back to miss after the flight timeout.
+                let ascendingNearTopEdge = vel.isRising && ballY < 0.22
+                if ascendingNearTopEdge {
+                    NSLog("[PathA] ascending near top y=%.3f — not calling rim bounce, holding", ballY)
+                    scoringState = String(format: "Path A awaiting: ascending at top y=%.3f — holding", ballY)
+                    return nil
+                }
                 NSLog("[PathA] MISS — rim bounce (ball reversed above rim)")
                 scoringState = "MISS Path A — rim bounce"
                 resetPathA(); resetPathB()
@@ -1338,24 +1348,35 @@ final class BallTrackingPipeline {
             windowBallBelowRimFrames += 1
         }
 
-        // Rim bounce → immediate MISS (reliable signal, no net needed)
+        // Rim bounce → immediate MISS — but NOT if ball is ascending near top of frame.
+        // A layup going up through the net exits the top of frame ascending; that is NOT
+        // a rim bounce. Only call MISS if ball is descending OR not near the top edge.
         if let ball = latest, ball.y < hoop.rimLineY, windowBallBelowRimFrames > 0 {
-            NSLog("[Window] MISS — rim bounce (ball above rim after %d below-rim frames)",
-                  windowBallBelowRimFrames)
-            scoringState = "MISS — rim bounce during shot window"
-            resetShotWindow()
-            return ("miss", 0.65)
+            let vel = ballTracker.velocity
+            let ascendingNearTopEdge = vel.isRising && ball.y < 0.22
+            if ascendingNearTopEdge {
+                scoringState = String(format: "window: ascending at top (y=%.3f) — holding for net signal", ball.y)
+                NSLog("[Window] ascending at top y=%.3f — holding (not rim bounce)", ball.y)
+            } else {
+                NSLog("[Window] MISS — rim bounce (ball above rim after %d below-rim frames)",
+                      windowBallBelowRimFrames)
+                scoringState = "MISS — rim bounce during shot window"
+                resetShotWindow()
+                return ("miss", 0.65)
+            }
         }
 
-        // Net-signal MAKE (fires immediately when threshold crossed)
+        // Net-signal MAKE — triggered by interspersion ONLY.
+        // Motion alone is NOT a trigger: ball flying near the net creates motion even when
+        // the ball doesn't pass through, causing false makes (b=7 pixels → motion=0.18).
+        // Motion still contributes to the confidence calculation.
         if windowNetPixelsSampled > 0 {
             let makeSignal = windowPeakInterspersion >= Self.makeInterspersionThreshold
-                          || windowPeakMotion >= Self.makeMotionThreshold
             if makeSignal {
                 let conf = min(1.0,
-                    windowPeakInterspersion * 0.55 +
-                    windowPeakMotion        * 0.25 +
-                    0.20  // trajectory baseline
+                    windowPeakInterspersion * 0.65 +
+                    windowPeakMotion        * 0.20 +
+                    0.15  // trajectory baseline
                 )
                 NSLog("[Window] MAKE — intersp=%.3f motion=%.3f conf=%.3f px=%d",
                       windowPeakInterspersion, windowPeakMotion, conf, windowNetPixelsSampled)
@@ -1432,12 +1453,14 @@ final class NetRegionAnalyzer {
     // Interspersion grid (N×N cells, ball+net in same cell = mixed)
     static let gridDivisions: Int = 6   // 6×6 = 36 cells
 
-    // Ball-orange HSV thresholds — widened for worn/different balls and gym lighting
+    // Ball-orange HSV thresholds — tuned for WORN/FADED basketball (brownish-tan, low saturation).
+    // A worn ball shifts from vibrant orange toward dull brownish-tan: hue ~10–30°, low sat.
+    // If b= stays near 0 on real makes, lower ballSatMin further (try 0.08) or widen hue range.
     // (hue 0–360°, saturation/value 0–1)
-    static let ballHueMin: Double =  8.0   // allow slightly reddish-orange
-    static let ballHueMax: Double = 45.0   // allow slightly yellow-orange
-    static let ballSatMin: Double = 0.30   // reduced: catches faded balls
-    static let ballValMin: Double = 0.20   // reduced: catches balls in shadow
+    static let ballHueMin: Double =  5.0   // allow dark reddish-orange (worn balls shift reddish)
+    static let ballHueMax: Double = 38.0   // worn balls go brownish, not yellow — tighter top end
+    static let ballSatMin: Double = 0.12   // LOW: worn/faded ball has very little color saturation
+    static let ballValMin: Double = 0.18   // allow shadowed ball inside net
 
     // Net white/off-white HSV thresholds — widened for different lighting conditions
     static let netSatMax: Double = 0.35    // increased: allows slightly off-white nets

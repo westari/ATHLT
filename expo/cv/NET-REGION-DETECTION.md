@@ -65,15 +65,20 @@ Net hangs BELOW the rim. Larger Y = lower on screen (top-left origin).
 - Region: only net bounding box
 
 ### Color classification (BGR → HSV)
-- Ball orange: hue 8–45°, sat ≥ 0.30, val ≥ 0.20
+- Ball orange (worn/faded): hue 5–38°, sat ≥ **0.12**, val ≥ 0.18
+  - Worn balls shift from vibrant orange → brownish-tan with much lower saturation
+  - If `b=` stays near 0 on real makes: lower `ballSatMin` further (try 0.08) or widen hue
 - Net white: sat ≤ 0.35, val ≥ 0.50
 
 ### Interspersion score (6×6 grid, 36 cells)
 - Flag each cell as `hasBall` or `hasNet`
 - `interspersion = cells_with_both / 36`
+- A real make should produce `b=` in the hundreds, not single digits
 
 ### Motion score (frame-to-frame delta)
 - `motion = changed_pixels / total_samples`
+- **Motion is NOT a make trigger** — ball flying near net causes motion even without passing through
+- Motion only contributes to confidence weighting after interspersion triggers
 
 ---
 
@@ -82,8 +87,8 @@ Net hangs BELOW the rim. Larger Y = lower on screen (top-left origin).
 | Constant | Value | Description |
 |---|---|---|
 | `shotWindowDurationSeconds` | 2.5 | Max time window stays open before timeout |
-| `makeInterspersionThreshold` | 0.14 | Interspersion value that fires MAKE |
-| `makeMotionThreshold` | 0.15 | Motion value that fires MAKE |
+| `makeInterspersionThreshold` | 0.14 | Interspersion value that fires MAKE (sole trigger) |
+| `makeMotionThreshold` | 0.15 | Motion threshold — weight only, NOT a standalone trigger |
 | `shotCooldownSeconds` | 1.5 | Min time between any two shots |
 
 ## NetRegionAnalyzer Constants
@@ -94,10 +99,10 @@ Net hangs BELOW the rim. Larger Y = lower on screen (top-left origin).
 | `netWidthFactor` | 1.1 | Net slightly wider than rim |
 | `sampleStride` | 2 | Sample every 2nd pixel |
 | `gridDivisions` | 6 | 6×6 = 36 cells |
-| `ballHueMin` | 8° | Ball orange hue start |
-| `ballHueMax` | 45° | Ball orange hue end |
-| `ballSatMin` | 0.30 | Ball saturation minimum |
-| `ballValMin` | 0.20 | Ball value minimum |
+| `ballHueMin` | 5° | Ball hue start (allow dark reddish-orange) |
+| `ballHueMax` | 38° | Ball hue end (worn balls go brown not yellow) |
+| `ballSatMin` | 0.12 | Ball saturation minimum (LOW — worn ball is desaturated) |
+| `ballValMin` | 0.18 | Ball value minimum (allow ball in net shadow) |
 | `netSatMax` | 0.35 | Net max saturation |
 | `netValMin` | 0.50 | Net minimum brightness |
 | `motionChannelThreshold` | 22 | Per-channel delta for "changed" |
@@ -162,6 +167,10 @@ Nreg  (582,310) 138×138                   ← pixel coords of net region
 - Raise `makeInterspersionThreshold` (tighter gate)
 - Raise `ballHueMin` / lower `ballHueMax` (tighter orange range)
 - The rim itself can produce orange pixels — check if `rgb` avg is orangeish when ball is near rim but not through
+
+**Miss called while ball is ascending and exits top of frame:**
+- Fixed: rim-bounce MISS is suppressed if ball is ascending (`vel.isRising`) AND near the top of frame (`ballY < 0.22`). A layup going up through the net or a ball that exits upward after passing through is held in the window until net signals fire or timeout.
+- The 0.22 threshold covers the top 22% of screen — adjust if rim is positioned very high in frame.
 
 **Rim bounce detected incorrectly:**
 - `windowBallBelowRimFrames > 0` check requires ball to have been seen below rim at least once before bouncing back above. This prevents false MISS on balls that were never below the rim.

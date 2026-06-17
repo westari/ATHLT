@@ -86,9 +86,20 @@ export default function ProfileScreen() {
   };
 
   const doLogout = async () => {
-    try { await supabase.auth.signOut(); } catch (e) { console.warn('signOut error:', e); }
+    console.warn('[Auth] logout: signing out');
+    try {
+      await Promise.race([
+        supabase.auth.signOut(),
+        new Promise<void>(resolve => setTimeout(resolve, 3000)),
+      ]);
+      console.warn('[Auth] logout: signOut complete');
+    } catch (e) {
+      console.warn('[Auth] logout: signOut error — clearing local state anyway:', e);
+    }
     clearAll();
     setUserEmail(null);
+    console.warn('[Auth] logout: local state cleared — navigating to today');
+    router.replace('/(tabs)/today');
   };
 
   const handleReset = () => {

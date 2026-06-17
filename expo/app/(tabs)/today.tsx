@@ -308,7 +308,55 @@ export default function TodayScreen() {
     'Pulling it together...',
   ];
 
-  useEffect(() => { loadFromStorage().then(() => setIsReady(true)); }, []);
+  useEffect(() => {
+    const init = async () => {
+      await loadFromStorage();
+      // Read updated store state — closure-captured plan/profile are still null from initial render
+      const { plan: storedPlan, profile: storedProfile } = usePlanStore.getState();
+      if (!storedPlan || !storedProfile) {
+        // Local store empty — check if a valid Supabase session exists and restore from cloud.
+        // This is the fix for the "limbo" state after logout + reopen.
+        console.warn('[Auth] boot: no local plan — checking Supabase session');
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            console.warn('[Auth] boot: session found for', session.user.email, '— fetching cloud plan');
+            const { data: planRow } = await supabase
+              .from('weekly_plans')
+              .select('plan_data, week_title')
+              .eq('user_id', session.user.id)
+              .eq('is_current', true)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (planRow?.plan_data) {
+              const { data: onboardingRow } = await supabase
+                .from('user_onboarding')
+                .select('answers')
+                .eq('user_id', session.user.id)
+                .maybeSingle();
+              usePlanStore.getState().setPlan(planRow.plan_data);
+              if (onboardingRow?.answers) {
+                const a = onboardingRow.answers;
+                usePlanStore.getState().setProfile({ sport: a.sport || 'Basketball', position: a.position || 'Player', experience: a.experience || '', goal: a.goal || '', weakness: a.weakness || '', frequency: a.frequency || '', duration: a.duration || '', access: a.access || '' } as any);
+              }
+              console.warn('[Auth] boot: cloud plan restored — going to plan');
+            } else {
+              console.warn('[Auth] boot: session valid but no cloud plan — showing welcome');
+            }
+          } else {
+            console.warn('[Auth] boot: no session — showing welcome');
+          }
+        } catch (e) {
+          console.warn('[Auth] boot: session check failed:', e);
+        }
+      } else {
+        console.warn('[Auth] boot: local plan found — going to plan');
+      }
+      setIsReady(true);
+    };
+    init();
+  }, []);
   useEffect(() => { if (isReady) { if (profile && plan) { setAppState('plan'); setOnboardingComplete(true); } else setAppState('welcome'); } }, [isReady]);
 
   useEffect(() => {
@@ -1094,13 +1142,13 @@ export default function TodayScreen() {
 
   if (appState === 'auth') {
     return <AuthScreen onComplete={async () => {
-      // Check if this user already has a plan (i.e., they signed IN instead of signing UP)
+      console.warn('[Auth] signup complete — checking for existing plan');
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
+          console.warn('[Auth] signup: user confirmed', user.email, '— fetching cloud plan');
           const { data: planRow } = await supabase.from('weekly_plans').select('plan_data, week_title').eq('user_id', user.id).eq('is_current', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
           if (planRow?.plan_data) {
-            // Existing user signed in - load their existing plan, don't generate
             const { data: onboardingRow } = await supabase.from('user_onboarding').select('answers').eq('user_id', user.id).maybeSingle();
             usePlanStore.getState().setPlan(planRow.plan_data);
             if (onboardingRow?.answers) {
@@ -1108,13 +1156,16 @@ export default function TodayScreen() {
               const prof = { sport: a.sport || 'Basketball', position: a.position || 'Player', experience: a.experience || '', goal: a.goal || '', weakness: a.weakness || '', frequency: a.frequency || '', duration: a.duration || '', access: a.access || '' };
               usePlanStore.getState().setProfile(prof as any);
             }
+            console.warn('[Auth] signup: existing plan found — going to plan');
             setAppState('plan');
             setOnboardingComplete(true);
             return;
           }
+        } else {
+          console.warn('[Auth] signup: getUser returned no user');
         }
-      } catch (e) { console.warn('Existing plan check failed:', e); }
-      // No existing plan - generate one from onboarding answers
+      } catch (e) { console.warn('[Auth] signup: existing plan check failed:', e); }
+      console.warn('[Auth] signup: no existing plan — generating from onboarding');
       await generatePlanFromOnboarding();
     }} onBack={() => setAppState('focuspick')} />;
   }
@@ -1124,9 +1175,14 @@ export default function TodayScreen() {
       <AuthScreen
         mode="signin"
         onComplete={async () => {
+          console.warn('[Auth] signin complete — loading user data');
           try {
             const { data: { user } } = await supabase.auth.getUser();
-            if (!user) { setAppState('welcome'); return; }
+            if (!user) {
+              console.warn('[Auth] signin: getUser returned no user — reverting to welcome');
+              setAppState('welcome'); return;
+            }
+            console.warn('[Auth] signin: user confirmed', user.email, '— fetching plan');
             const { data: planRow } = await supabase.from('weekly_plans').select('plan_data, week_title').eq('user_id', user.id).eq('is_current', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
             const { data: onboardingRow } = await supabase.from('user_onboarding').select('answers').eq('user_id', user.id).maybeSingle();
             if (planRow?.plan_data) usePlanStore.getState().setPlan(planRow.plan_data);
@@ -1135,8 +1191,17 @@ export default function TodayScreen() {
               const prof = { sport: a.sport || 'Basketball', position: a.position || 'Player', experience: a.experience || '', goal: a.goal || '', weakness: a.weakness || '', frequency: a.frequency || '', duration: a.duration || '', access: a.access || '' };
               usePlanStore.getState().setProfile(prof as any);
             }
-            if (planRow?.plan_data) { setAppState('plan'); setOnboardingComplete(true); } else setAppState('welcome');
-          } catch (e) { console.warn('Sign-in load failed:', e); setAppState('welcome'); }
+            if (planRow?.plan_data) {
+              console.warn('[Auth] signin: plan loaded — going to plan');
+              setAppState('plan'); setOnboardingComplete(true);
+            } else {
+              console.warn('[Auth] signin: no plan found — showing welcome for onboarding');
+              setAppState('welcome');
+            }
+          } catch (e) {
+            console.warn('[Auth] signin: load failed:', e);
+            setAppState('welcome');
+          }
         }}
         onBack={() => setAppState('welcome')}
       />
