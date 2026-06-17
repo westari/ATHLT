@@ -68,7 +68,11 @@ Net hangs BELOW the rim. Larger Y = lower on screen (top-left origin).
 - Ball orange (worn/faded): hue 5–38°, sat ≥ **0.12**, val ≥ 0.18
   - Worn balls shift from vibrant orange → brownish-tan with much lower saturation
   - If `b=` stays near 0 on real makes: lower `ballSatMin` further (try 0.08) or widen hue
-- Net white: sat ≤ 0.35, val ≥ 0.50
+- Net white: sat ≤ **0.25**, val ≥ **0.60**
+  - Raised from val≥0.50 after live test: outdoor trees/fence produced n=1826, rgb≈(131,140,134)
+    with val≈0.55 — that gray-green background was classified as "net." Raising to 0.60 excludes it.
+  - Real net cord outdoors is bright white (val 0.75–1.0) so real net pixels still pass.
+  - If net cord is in deep shadow (val < 0.60): raise `netValMin` down to 0.55 cautiously.
 
 ### Interspersion score (6×6 grid, 36 cells)
 - Flag each cell as `hasBall` or `hasNet`
@@ -87,9 +91,21 @@ Net hangs BELOW the rim. Larger Y = lower on screen (top-left origin).
 | Constant | Value | Description |
 |---|---|---|
 | `shotWindowDurationSeconds` | 2.5 | Max time window stays open before timeout |
-| `makeInterspersionThreshold` | 0.14 | Interspersion value that fires MAKE (sole trigger) |
-| `makeMotionThreshold` | 0.15 | Motion threshold — weight only, NOT a standalone trigger |
+| `makeInterspersionThreshold` | 0.20 | Gate 1: minimum interspersion to consider MAKE (raised from 0.14; false-make was I=0.17) |
+| `makeMotionMinimum` | 0.07 | Gate 2: minimum net motion required alongside interspersion (false-make had M=0.04) |
+| `makeHighInterspersionOverride` | 0.45 | Overrides motion gate when interspersion is very high (fast clean swish with minimal net movement) |
+| `makeMinDownwardVelocity` | 0.05 | Gate 3: ball must have been descending (dy≥0.05) at some point during window |
 | `shotCooldownSeconds` | 1.5 | Min time between any two shots |
+
+### Make logic (all three gates must pass)
+```
+MAKE fires when:
+  (interspersion ≥ 0.20 AND motion ≥ 0.07 AND peakDY ≥ 0.05)
+  OR
+  (interspersion ≥ 0.45 AND peakDY ≥ 0.05)   ← high-interspersion overrides motion gate
+```
+- Ball thrown AT net: I≈0.06–0.08 (after netValMin fix), M=0.04, dy≈0 → all three gates fail
+- Real make: I≈0.15–0.30, M≥0.08 (net swishes), dy≥0.10 → gates pass
 
 ## NetRegionAnalyzer Constants
 
@@ -103,8 +119,8 @@ Net hangs BELOW the rim. Larger Y = lower on screen (top-left origin).
 | `ballHueMax` | 38° | Ball hue end (worn balls go brown not yellow) |
 | `ballSatMin` | 0.12 | Ball saturation minimum (LOW — worn ball is desaturated) |
 | `ballValMin` | 0.18 | Ball value minimum (allow ball in net shadow) |
-| `netSatMax` | 0.35 | Net max saturation |
-| `netValMin` | 0.50 | Net minimum brightness |
+| `netSatMax` | **0.25** | Net max saturation (tightened from 0.35 to exclude slightly-colored backgrounds) |
+| `netValMin` | **0.60** | Net minimum brightness (raised from 0.50 — outdoor background at val≈0.55 now excluded) |
 | `motionChannelThreshold` | 22 | Per-channel delta for "changed" |
 
 ---
@@ -128,14 +144,21 @@ Nreg  (582,310) 138×138                   ← pixel coords of net region
 ### NSLog strings (Xcode console)
 ```
 [NetAnalyzer] px=420 ball=18 net=95 rgb=(142,98,65) reg=(582,310,138x138) buf=1280x720
-[NetAnalyzer] WARN region too small: px(0,0)-(0,0) norm...   ← hoop off-screen
-[NetAnalyzer] WARN: 0 pixels sampled! reg=(...)               ← guard passed but loop empty
-[Window] OPENED — candidate=make ts=1234.5
-[Window] MAKE — intersp=0.18 motion=0.22 conf=0.46 px=420
+[NetAnalyzer] WARN region too small: px(0,0)-(0,0) norm...     ← hoop off-screen
+[NetAnalyzer] WARN: 0 pixels sampled! reg=(...)                 ← guard passed but loop empty
+[Window] OPENED — candidate=make ts=1234.5 entryDY=0.312       ← entryDY confirms ball descending at open
+[Window] MAKE — intersp=0.22 motion=0.11 dy=0.31 conf=0.47 px=420
+[Window] MAKE BLOCKED — not descending: peakDY=0.03 < 0.05     ← direction gate rejected it
 [Window] MISS — rim bounce (ball above rim after 3 below-rim frames)
 [Window] MISS — timeout no net signal intersp=0.03 px=420 elapsed=2.5s
 [Window] TIMEOUT — net unavailable (px=0) → trajectory fallback: make
-[Pipeline] SHOT MAKE via Path Net — 3/5 (conf=0.46)
+[Pipeline] SHOT MAKE via Path Net — 3/5 (conf=0.47)
+```
+### scoringState strings (DBG panel, updated each frame)
+```
+make held: I=0.18 OK, M=0.04 < 0.07 (motion floor)      ← motion gate blocking
+make held: I=0.21 M=0.08 OK, dy=0.02 < 0.05 (need descending)  ← direction gate blocking
+MAKE — net I=0.22 M=0.11 conf=0.47                       ← all gates passed
 ```
 
 ### DebugStatsEvent fields (JS)
@@ -158,15 +181,23 @@ Nreg  (582,310) 138×138                   ← pixel coords of net region
 3. Check `[NetAnalyzer] WARN` in Xcode logs for exact pixel coordinates.
 
 **Makes not registering (window times out as MISS despite ball going through):**
-- Lower `makeInterspersionThreshold` (try 0.08)
+- Check `scoringState` in DBG panel — it shows which gate blocked ("make held: I=0.18 OK, M=0.03 < 0.07")
+- If motion gate is blocking: lower `makeMotionMinimum` (try 0.05). Some indoor nets barely move.
+- If interspersion gate is blocking: lower `makeInterspersionThreshold` (try 0.15). Check `n=` — if near zero with a white net, lower `netValMin` (try 0.55 for indoor/shadow).
+- If direction gate is blocking: check that `entryDY` in NSLog is positive. If layup coming from below, direction gate may need to be lowered to 0.02.
 - Check avg RGB — if `rgb=(250,250,250)` the region is all sky, not net. Check hoop lock position.
-- Lower `netValMin` (catch nets under fluorescent lighting, e.g. 0.40)
-- Lower `ballSatMin` (faded balls, e.g. 0.20)
+- Lower `ballSatMin` (faded balls, e.g. 0.08)
 
-**False makes (ball in front of rim scoring as MAKE):**
-- Raise `makeInterspersionThreshold` (tighter gate)
-- Raise `ballHueMin` / lower `ballHueMax` (tighter orange range)
-- The rim itself can produce orange pixels — check if `rgb` avg is orangeish when ball is near rim but not through
+**False makes (ball at/near net fires as MAKE):**
+- Check `scoringState` — if it reached MAKE, all three gates passed. Check which gate is too lenient.
+- Raise `makeInterspersionThreshold` (tighter interspersion gate)
+- Raise `makeMotionMinimum` (if ball is causing motion by hitting the net face)
+- If `n=` is high (e.g. n=1826) with grayish `rgb`, outdoor background is counting as "net" — raise `netValMin` (try 0.65)
+
+**Outdoor background classified as net (n=1826, rgb≈gray-green):**
+- This was the primary cause of false makes. Fix: raise `netValMin` until n drops dramatically.
+- Check `val` of avg rgb: val = max(R,G,B)/255. If val < netValMin threshold, that background is excluded.
+- The bright net cord should still have val > 0.70 outdoors in daylight.
 
 **Miss called while ball is ascending and exits top of frame:**
 - Fixed: rim-bounce MISS is suppressed if ball is ascending (`vel.isRising`) AND near the top of frame (`ballY < 0.22`). A layup going up through the net or a ball that exits upward after passing through is held in the window until net signals fire or timeout.

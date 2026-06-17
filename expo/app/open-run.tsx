@@ -111,6 +111,7 @@ export default function OpenRunScreen() {
     netPixelsSampled: 0, netBallPixels: 0, netNetPixels: 0,
     netAvgR: 0, netAvgG: 0, netAvgB: 0,
     netRegionPxX: 0, netRegionPxY: 0, netRegionPxW: 0, netRegionPxH: 0,
+    netRegionNormX: -1, netRegionNormY: -1, netRegionNormW: 0, netRegionNormH: 0,
   });
   const [modelStatus, setModelStatus] = useState<ModelLoadStatusEvent | null>(null);
 
@@ -211,6 +212,15 @@ export default function OpenRunScreen() {
     const sub = addDebugStatsListener(e => setDebugStats(e));
     return () => sub.remove();
   }, []);
+
+  // ── Sync hoopDetected from native lock state ─────────────────────────────────
+  // onHoopDetected fires on every detected frame but can be missed. debugStats.hoopLocked
+  // is the authoritative native state — if the native committed the lock, JS must reflect it.
+  useEffect(() => {
+    if (debugStats.hoopLocked && !hoopDetected) {
+      setHoopDetected(true);
+    }
+  }, [debugStats.hoopLocked]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Model load status — fires once when loadModel() completes ────────────────
   useEffect(() => {
@@ -379,14 +389,22 @@ export default function OpenRunScreen() {
     : '';
 
   // Convert normalized hoop bbox → screen pixel rect for the visual overlay.
-  // Direct mapping (normX * screenW) is a reasonable approximation when the
-  // camera preview fills the screen in landscape mode.
+  // hoopX/Y are mid-center of the bbox (not top-left), so subtract half W/H to get left/top.
   const { width: screenW, height: screenH } = Dimensions.get('window');
   const hoopScreenPos = debugStats.hoopLocked && debugStats.hoopX >= 0 ? {
-    left:   debugStats.hoopX * screenW,
-    top:    debugStats.hoopY * screenH,
+    left:   (debugStats.hoopX - debugStats.hoopW / 2) * screenW,
+    top:    (debugStats.hoopY - debugStats.hoopH / 2) * screenH,
     width:  debugStats.hoopW * screenW,
     height: debugStats.hoopH * screenH,
+  } : null;
+
+  // Net region overlay — teal dashed box showing exactly what NetRegionAnalyzer samples.
+  // Visible whenever hoop is locked (even in detection mode) so placement can be verified.
+  const netScreenPos = debugStats.hoopLocked && debugStats.netRegionNormX >= 0 ? {
+    left:   debugStats.netRegionNormX * screenW,
+    top:    debugStats.netRegionNormY * screenH,
+    width:  debugStats.netRegionNormW * screenW,
+    height: debugStats.netRegionNormH * screenH,
   } : null;
 
   const startOpacity = btnPhase.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
@@ -464,6 +482,23 @@ export default function OpenRunScreen() {
         </View>
       )}
 
+      {/* Net region overlay — teal dashed box showing exactly where net-pixel sampling occurs.
+          This is what NetRegionAnalyzer reads. It should sit on the HANGING NET below the rim.
+          If it's on the rim itself or on background, re-tap lower to shift it down. */}
+      {netScreenPos && (
+        <View
+          style={[s.netRegionOverlay, {
+            left:   netScreenPos.left,
+            top:    netScreenPos.top,
+            width:  netScreenPos.width,
+            height: netScreenPos.height,
+          }]}
+          pointerEvents="none"
+        >
+          <Text style={s.netRegionLabel}>NET ZONE</Text>
+        </View>
+      )}
+
       {/* Center glow on shot */}
       <Animated.View
         style={[StyleSheet.absoluteFill, s.glowContainer, { opacity: glowAnim }]}
@@ -490,8 +525,8 @@ export default function OpenRunScreen() {
         <View style={[s.hoopLabelPill, hoopDetected && s.hoopLabelPillDetected]}>
           <Text style={[s.hoopLabel, hoopDetected && s.hoopLabelDetected, TS]}>
             {hoopDetected
-              ? (manualMark ? 'Hoop marked ✓' : 'Hoop detected ✓')
-              : 'Point at the hoop or tap to set it'}
+              ? (manualMark ? 'Hoop marked ✓ — teal box should be on the net' : 'Hoop locked ✓ — teal box should be on the net')
+              : 'Point at hoop — or tap the rim to set it manually'}
           </Text>
         </View>
       </Animated.View>
@@ -956,6 +991,26 @@ const s = StyleSheet.create({
     fontSize: 8,
     fontWeight: '700' as const,
     letterSpacing: 0.8,
+  },
+
+  // ── Net region overlay — teal dashed box showing the net-sampling zone ────────
+  netRegionOverlay: {
+    position: 'absolute',
+    borderWidth: 1.5,
+    borderColor: '#00E5FF',
+    borderStyle: 'dashed',
+    borderRadius: 4,
+    zIndex: 17,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    padding: 2,
+  },
+  netRegionLabel: {
+    fontSize: 7,
+    fontWeight: '700' as const,
+    color: '#00E5FF',
+    letterSpacing: 0.8,
+    opacity: 0.85,
   },
 
   // ── Reset hoop button ─────────────────────────────────────────────────────────

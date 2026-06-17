@@ -41,11 +41,18 @@ final class HoopTracker {
     /// Min confidence per frame to count toward the lock accumulation window.
     /// Aligned with handleDetectionMode's minConf filter so frames that pass the
     /// pre-filter always have a chance to accumulate toward the lock.
-    static let lockConfThreshold: Float = 0.45
+    /// Lowered from 0.45 → 0.35: outdoor hoops routinely produce conf 0.30–0.44
+    /// which caused every accumulation attempt to reset before committing.
+    static let lockConfThreshold: Float = 0.35
 
-    /// Number of consecutive high-confidence frames at a stable position required
-    /// before committing the lock. Prevents single-frame false positives.
-    static let lockConsecutiveRequired: Int = 5
+    /// Number of frames (meeting confidence + stability requirements) needed to commit.
+    /// Lowered from 5 → 3 for faster lock; the jump-threshold and miss-tolerance guards
+    /// still prevent false locks on transient non-hoop objects.
+    static let lockConsecutiveRequired: Int = 3
+
+    /// Consecutive MISSED frames (below conf or nil) allowed before resetting accumulation.
+    /// Was 0 (any miss reset). Now 1 — a single blurry frame won't wipe a partially-built lock.
+    static let maxConsecutiveMisses: Int = 1
 
     /// EMA smoothing factor applied to hoop position after lock.
     /// 0.10 = new detections contribute 10% each frame → very stable against jitter.
@@ -96,13 +103,14 @@ final class HoopTracker {
 
     // MARK: – Private accumulation state
 
-    private var candidateFrames:    Int     = 0
-    private var candidateSumX:      Double  = 0
-    private var candidateSumY:      Double  = 0
-    private var candidateSumW:      Double  = 0
-    private var candidateSumH:      Double  = 0
-    private var lastCandidateMidX:  Double? = nil
-    private var lastCandidateMidY:  Double? = nil
+    private var candidateFrames:       Int     = 0
+    private var candidateSumX:         Double  = 0
+    private var candidateSumY:         Double  = 0
+    private var candidateSumW:         Double  = 0
+    private var candidateSumH:         Double  = 0
+    private var lastCandidateMidX:     Double? = nil
+    private var lastCandidateMidY:     Double? = nil
+    private var consecutiveMissFrames: Int     = 0   // misses since last hit; allows 1 before reset
 
     // MARK: – Private post-lock maintenance state
 
@@ -170,12 +178,17 @@ final class HoopTracker {
 
     private func handleAccumulation(visionBBox: CGRect?, confidence: Float) {
         guard let bb = visionBBox, confidence >= Self.lockConfThreshold else {
-            if candidateFrames > 0 {
-                NSLog("[HoopTracker] accumulation reset (no detection / conf %.2f < %.2f)", confidence, Self.lockConfThreshold)
+            consecutiveMissFrames += 1
+            if consecutiveMissFrames > Self.maxConsecutiveMisses && candidateFrames > 0 {
+                // Enough consecutive misses to invalidate the current candidate window.
+                NSLog("[HoopTracker] accumulation reset (%d consec misses, conf=%.2f < %.2f, had %d frames)",
+                      consecutiveMissFrames, confidence, Self.lockConfThreshold, candidateFrames)
                 resetAccumulation()
             }
+            // ≤ maxConsecutiveMisses: hold the current count — one blurry frame shouldn't reset.
             return
         }
+        consecutiveMissFrames = 0
 
         let tl   = toTopLeft(visionBBox: bb)
         let midX = Double(tl.midX)
@@ -315,13 +328,14 @@ final class HoopTracker {
     }
 
     private func resetAccumulation() {
-        candidateFrames   = 0
-        candidateSumX     = 0
-        candidateSumY     = 0
-        candidateSumW     = 0
-        candidateSumH     = 0
-        lastCandidateMidX = nil
-        lastCandidateMidY = nil
+        candidateFrames       = 0
+        candidateSumX         = 0
+        candidateSumY         = 0
+        candidateSumW         = 0
+        candidateSumH         = 0
+        lastCandidateMidX     = nil
+        lastCandidateMidY     = nil
+        consecutiveMissFrames = 0
     }
 }
 
@@ -766,11 +780,23 @@ final class BallTrackingPipeline {
     /// Window stays open this long before timing out.
     static let shotWindowDurationSeconds: Double = 2.5
 
-    /// Net interspersion threshold — MAKE fires as soon as this is crossed.
-    static let makeInterspersionThreshold: Double = 0.14
+    /// Net interspersion threshold. MAKE requires this AND makeMotionMinimum.
+    /// Raised from 0.14 after live test showed ball-at-net produced I=0.17, M=0.04.
+    /// After netValMin fix (outdoor background no longer counts as "net"), false-make
+    /// interspersion drops to ~0.05–0.08; real makes should still reach 0.15–0.30.
+    static let makeInterspersionThreshold: Double = 0.20
 
-    /// Net motion threshold — alternative MAKE trigger (net moving with ball through).
-    static let makeMotionThreshold: Double = 0.15
+    /// Minimum net motion required alongside interspersion. Ball-at-net produced M=0.04;
+    /// a real make causes net to sway → M well above this floor.
+    static let makeMotionMinimum: Double = 0.07
+
+    /// Very high interspersion overrides the motion floor (fast swish, net barely moves).
+    /// After background fix, reaching 0.45 means ≥16/36 cells have real ball+net overlap.
+    static let makeHighInterspersionOverride: Double = 0.45
+
+    /// Ball must have been descending (dy ≥ this) at some point during the window.
+    /// Guards against balls thrown horizontally at the net (dy ≈ 0).
+    static let makeMinDownwardVelocity: Double = 0.05
 
     // ── Cooldown ──────────────────────────────────────────────────────────────────
 
@@ -792,13 +818,14 @@ final class BallTrackingPipeline {
     private var pathB_framesInRegion = 0
 
     // MARK: – Shot window state (net-based make/miss arbiter)
-    private var shotWindowOpen:         Bool   = false
-    private var shotWindowStart:        Double = 0.0
-    private var windowCandidateType:    String = "miss"
-    private var windowPeakInterspersion: Double = 0.0
-    private var windowPeakMotion:       Double = 0.0
-    private var windowBallBelowRimFrames: Int  = 0
-    private var windowNetPixelsSampled: Int    = 0
+    private var shotWindowOpen:              Bool   = false
+    private var shotWindowStart:             Double = 0.0
+    private var windowCandidateType:         String = "miss"
+    private var windowPeakInterspersion:     Double = 0.0
+    private var windowPeakMotion:            Double = 0.0
+    private var windowBallBelowRimFrames:    Int    = 0
+    private var windowNetPixelsSampled:      Int    = 0
+    private var windowPeakDownwardVelocity:  Double = 0.0   // peak dy>0 (descending) during window
     private(set) var windowPeakInterspersionPublic: Double = 0.0
 
     // MARK: – Shared cooldown + counters
@@ -1306,26 +1333,31 @@ final class BallTrackingPipeline {
 
     private func openShotWindow(candidateType: String, timestamp: Double) {
         guard !shotWindowOpen else { return }
-        shotWindowOpen           = true
-        shotWindowStart          = timestamp
-        windowCandidateType      = candidateType
-        windowPeakInterspersion  = 0
-        windowPeakMotion         = 0
-        windowBallBelowRimFrames = 0
-        windowNetPixelsSampled   = 0
+        shotWindowOpen               = true
+        shotWindowStart              = timestamp
+        windowCandidateType          = candidateType
+        windowPeakInterspersion      = 0
+        windowPeakMotion             = 0
+        windowBallBelowRimFrames     = 0
+        windowNetPixelsSampled       = 0
+        // Seed downward velocity from the ball's velocity at window open time.
+        // A real shot is descending when it enters the net region.
+        windowPeakDownwardVelocity   = max(0.0, ballTracker.velocity.dy)
         windowPeakInterspersionPublic = 0
-        NSLog("[Window] OPENED — candidate=%@ ts=%.3f", candidateType, timestamp)
+        NSLog("[Window] OPENED — candidate=%@ ts=%.3f entryDY=%.3f",
+              candidateType, timestamp, ballTracker.velocity.dy)
         scoringState = "shot window open — net deciding (\(candidateType) candidate)"
     }
 
     private func resetShotWindow() {
-        shotWindowOpen           = false
-        shotWindowStart          = 0
-        windowCandidateType      = "miss"
-        windowPeakInterspersion  = 0
-        windowPeakMotion         = 0
-        windowBallBelowRimFrames = 0
-        windowNetPixelsSampled   = 0
+        shotWindowOpen               = false
+        shotWindowStart              = 0
+        windowCandidateType          = "miss"
+        windowPeakInterspersion      = 0
+        windowPeakMotion             = 0
+        windowBallBelowRimFrames     = 0
+        windowNetPixelsSampled       = 0
+        windowPeakDownwardVelocity   = 0
     }
 
     private func evaluateShotWindow(
@@ -1342,6 +1374,10 @@ final class BallTrackingPipeline {
         if netMotion > windowPeakMotion { windowPeakMotion = netMotion }
         if netPixelsSampled > 0 { windowNetPixelsSampled = netPixelsSampled }
         windowPeakInterspersionPublic = windowPeakInterspersion
+
+        // Track peak downward velocity — ball must be descending through net for a real make.
+        let frameVel = ballTracker.velocity
+        if frameVel.dy > windowPeakDownwardVelocity { windowPeakDownwardVelocity = frameVel.dy }
 
         // Track ball below rim for rim-bounce detection
         if let ball = latest, ball.y > hoop.rimLineY {
@@ -1366,24 +1402,55 @@ final class BallTrackingPipeline {
             }
         }
 
-        // Net-signal MAKE — triggered by interspersion ONLY.
-        // Motion alone is NOT a trigger: ball flying near the net creates motion even when
-        // the ball doesn't pass through, causing false makes (b=7 pixels → motion=0.18).
-        // Motion still contributes to the confidence calculation.
+        // Net-signal MAKE — three independent gates, all must pass.
+        //
+        // Gate 1 — interspersion: ball+net pixels co-located in same grid cells.
+        //   Raised from 0.14 → 0.20 after live test: ball thrown AT net produced I=0.17.
+        //   After netValMin fix (outdoor background no longer fakes "net"), false-make
+        //   interspersion drops to ~0.05–0.08; real makes should still reach 0.15–0.30.
+        //   Very high interspersion (≥0.45) overrides the motion gate (fast clean swish).
+        //
+        // Gate 2 — motion: net must be moving when ball passes through.
+        //   Ball thrown at net → M=0.04 (net barely moves, ball bounces off).
+        //   Real make → M > 0.07 (net swishes inward as ball passes).
+        //
+        // Gate 3 — downward velocity: ball must be descending at some point in the window.
+        //   Ball thrown horizontally at net → dy ≈ 0–0.05.
+        //   Real arcing shot descending through hoop → dy well above 0.05.
         if windowNetPixelsSampled > 0 {
-            let makeSignal = windowPeakInterspersion >= Self.makeInterspersionThreshold
-            if makeSignal {
-                let conf = min(1.0,
-                    windowPeakInterspersion * 0.65 +
-                    windowPeakMotion        * 0.20 +
-                    0.15  // trajectory baseline
-                )
-                NSLog("[Window] MAKE — intersp=%.3f motion=%.3f conf=%.3f px=%d",
-                      windowPeakInterspersion, windowPeakMotion, conf, windowNetPixelsSampled)
-                scoringState = String(format: "MAKE — net I=%.2f M=%.2f conf=%.2f",
-                                      windowPeakInterspersion, windowPeakMotion, conf)
-                resetShotWindow()
-                return ("make", conf)
+            let enoughInterspersion = windowPeakInterspersion >= Self.makeInterspersionThreshold
+            let enoughMotion        = windowPeakMotion        >= Self.makeMotionMinimum
+            let highInterspersion   = windowPeakInterspersion >= Self.makeHighInterspersionOverride
+            let descending          = windowPeakDownwardVelocity >= Self.makeMinDownwardVelocity
+
+            if enoughInterspersion || highInterspersion {
+                // Interspersion gate cleared — check motion and direction gates
+                if !enoughMotion && !highInterspersion {
+                    // Motion gate: log why we're holding (visible in scoringState on DBG panel)
+                    scoringState = String(format: "make held: I=%.2f OK, M=%.2f < %.2f (motion floor)",
+                                          windowPeakInterspersion, windowPeakMotion, Self.makeMotionMinimum)
+                } else if !descending {
+                    // Direction gate: ball wasn't moving downward
+                    scoringState = String(format: "make held: I=%.2f M=%.2f OK, dy=%.2f < %.2f (need descending)",
+                                          windowPeakInterspersion, windowPeakMotion,
+                                          windowPeakDownwardVelocity, Self.makeMinDownwardVelocity)
+                    NSLog("[Window] MAKE BLOCKED — not descending: peakDY=%.3f < %.3f",
+                          windowPeakDownwardVelocity, Self.makeMinDownwardVelocity)
+                } else {
+                    // All gates cleared — fire MAKE
+                    let conf = min(1.0,
+                        windowPeakInterspersion * 0.65 +
+                        windowPeakMotion        * 0.20 +
+                        0.15  // trajectory baseline
+                    )
+                    NSLog("[Window] MAKE — intersp=%.3f motion=%.3f dy=%.3f conf=%.3f px=%d",
+                          windowPeakInterspersion, windowPeakMotion, windowPeakDownwardVelocity,
+                          conf, windowNetPixelsSampled)
+                    scoringState = String(format: "MAKE — net I=%.2f M=%.2f conf=%.2f",
+                                          windowPeakInterspersion, windowPeakMotion, conf)
+                    resetShotWindow()
+                    return ("make", conf)
+                }
             }
         }
 
@@ -1462,9 +1529,13 @@ final class NetRegionAnalyzer {
     static let ballSatMin: Double = 0.12   // LOW: worn/faded ball has very little color saturation
     static let ballValMin: Double = 0.18   // allow shadowed ball inside net
 
-    // Net white/off-white HSV thresholds — widened for different lighting conditions
-    static let netSatMax: Double = 0.35    // increased: allows slightly off-white nets
-    static let netValMin: Double = 0.50    // reduced: catches nets in shadow
+    // Net white/off-white HSV thresholds.
+    // Live test showed outdoor trees/fence classified as "net" (n=1826, rgb≈131,140,134).
+    // That gray-green has val≈0.55 and sat≈0.06 — passes old thresholds but isn't net cord.
+    // Raising netValMin to 0.60 excludes dim outdoor backgrounds (val≈0.55) while keeping
+    // bright net cord (val≈0.75+). Tightening netSatMax removes slightly-saturated foliage.
+    static let netSatMax: Double = 0.25    // tightened from 0.35 — excludes more non-white backgrounds
+    static let netValMin: Double = 0.60    // raised from 0.50 — excludes dark outdoor backgrounds (val≈0.55)
 
     // Motion detection — frame-to-frame delta
     static let motionChannelThreshold: Int = 22   // per-channel delta to count as "changed"
@@ -2214,7 +2285,7 @@ public class ATHLTCameraModule: Module {
     // feedback even though the pipeline ignores them.
 
     private func handleDetectionMode(_ observations: [VNRecognizedObjectObservation], timestamp: Double) {
-        let minConf: Float = 0.45   // aligned with HoopTracker.lockConfThreshold
+        let minConf: Float = 0.35   // aligned with HoopTracker.lockConfThreshold
         var bestBasket: VNRecognizedObjectObservation?
         var bestConf:   Float = 0
 
@@ -2316,6 +2387,25 @@ public class ATHLTCameraModule: Module {
         let h      = pipeline.hoop
         let latest = pipeline.latestBall
 
+        // Net region in normalized coords — same geometry formula as NetRegionAnalyzer.analyze().
+        // Computed from hoop geometry whenever the hoop is locked (even in detection mode)
+        // so the JS overlay can show the net zone BEFORE tracking starts for placement verification.
+        var netNormX = -1.0
+        var netNormY = -1.0
+        var netNormW =  0.0
+        var netNormH =  0.0
+        if let geo = pipeline.hoopGeometry {
+            let halfW  = (geo.rimWidth / 2.0) * NetRegionAnalyzer.netWidthFactor
+            let nMinX  = max(0.0, geo.rimCenterX - halfW)
+            let nMaxX  = min(1.0, geo.rimCenterX + halfW)
+            let nMinY  = geo.rimLineY
+            let nMaxY  = min(1.0, geo.rimLineY + geo.rimWidth * NetRegionAnalyzer.netHeightFactor)
+            netNormX   = nMinX
+            netNormY   = nMinY
+            netNormW   = nMaxX - nMinX
+            netNormH   = nMaxY - nMinY
+        }
+
         sendEvent("onDebugStats", [
             "totalBallDetections": totalBallDetections,
             "totalHoopDetections": totalHoopDetections,
@@ -2352,6 +2442,12 @@ public class ATHLTCameraModule: Module {
             "netRegionPxY":        netAnalyzer.lastRegionPxY,
             "netRegionPxW":        netAnalyzer.lastRegionPxW,
             "netRegionPxH":        netAnalyzer.lastRegionPxH,
+            // Normalized net region coords — available whenever hoop is locked.
+            // Use these for the JS overlay box; -1 means no hoop locked.
+            "netRegionNormX":      netNormX,
+            "netRegionNormY":      netNormY,
+            "netRegionNormW":      netNormW,
+            "netRegionNormH":      netNormH,
         ])
     }
 

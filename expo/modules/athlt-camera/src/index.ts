@@ -81,6 +81,12 @@ export interface DebugStatsEvent {
   netRegionPxY:         number;  // net region top edge in pixel coords
   netRegionPxW:         number;  // net region width in pixels
   netRegionPxH:         number;  // net region height in pixels
+  // Normalized net region — same geometry as NetRegionAnalyzer, available when hoop is locked.
+  // Use these for overlay drawing. -1 means no hoop locked.
+  netRegionNormX:       number;
+  netRegionNormY:       number;
+  netRegionNormW:       number;
+  netRegionNormH:       number;
 }
 
 /** Emitted once when loadModel completes (success or failure). */
